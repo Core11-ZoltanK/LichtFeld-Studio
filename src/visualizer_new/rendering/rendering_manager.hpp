@@ -32,7 +32,7 @@ namespace lfs::vis {
         float fov = 60.0f;
         float scaling_modifier = 1.0f;
         bool antialiasing = false;
-        int sh_degree = 0;
+        int sh_degree = 3;
 
         // Crop box
         bool show_crop_box = false;

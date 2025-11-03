@@ -154,6 +154,7 @@ namespace lfs::rendering {
             .fov = request.viewport.fov,
             .scaling_modifier = request.scaling_modifier,
             .antialiasing = request.antialiasing,
+            .sh_degree = request.sh_degree,
             .render_mode = RenderMode::RGB,
             .crop_box = nullptr,
             .background_color = request.background_color,

@@ -33,6 +33,7 @@ namespace lfs::rendering {
             float fov = 60.0f;
             float scaling_modifier = 1.0f;
             bool antialiasing = false;
+            int sh_degree = 3;
             RenderMode render_mode = RenderMode::RGB;
             const gs::geometry::BoundingBox* crop_box = nullptr;
             glm::vec3 background_color = glm::vec3(0.0f, 0.0f, 0.0f);

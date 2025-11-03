@@ -77,6 +77,30 @@ namespace lfs::rendering {
         }
 
         try {
+            if (request.sh_degree != model.get_active_sh_degree()) {
+                // Temporarily set sh_degree for rendering, then immediately restore
+                int original_sh_degree = model.get_active_sh_degree();
+                const_cast<lfs::core::SplatData&>(model).set_active_sh_degree(request.sh_degree);
+
+                RenderResult result;
+                if (request.gut) {
+                    throw std::runtime_error("GUT rendering mode not yet implemented for tensor backend");
+                }
+
+                LOG_TRACE("Using TENSOR_NATIVE backend (sh_degree temporarily changed from {} to {})",
+                         original_sh_degree, request.sh_degree);
+                result.image = rasterize_tensor(cam, const_cast<lfs::core::SplatData&>(model), background_);
+                result.depth = Tensor::empty({0}, lfs::core::Device::CUDA, lfs::core::DataType::Float32);
+
+                // IMMEDIATELY restore original sh_degree
+                const_cast<lfs::core::SplatData&>(model).set_active_sh_degree(original_sh_degree);
+
+                result.valid = true;
+                LOG_TRACE("Rasterization completed successfully (sh_degree restored to {})", original_sh_degree);
+                return result;
+            }
+
+            // No sh_degree change needed - safe to use model as-is
             lfs::core::SplatData& mutable_model = const_cast<lfs::core::SplatData&>(model);
             RenderResult result;
 
