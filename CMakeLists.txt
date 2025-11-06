@@ -464,7 +464,8 @@ target_include_directories(${PROJECT_NAME}
 
 target_link_libraries(${PROJECT_NAME}
         PRIVATE
-        lfs_core           # Use LibTorch-free core library (main.cpp uses lfs::core::Application)
+        lfs_core           # LibTorch-free core library (new implementation)
+        gs_core            # LibTorch-based core library (legacy implementation)
         gs_geometry
         gs_project
         gs_loader

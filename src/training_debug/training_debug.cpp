@@ -466,18 +466,17 @@ std::expected<void, std::string> render_and_save_comparison(
 
     spdlog::info("[LEGACY] Rendering camera UID: {}", legacy_cam->uid());
     spdlog::info("[LEGACY] Camera dimensions: {}x{}", legacy_cam->image_width(), legacy_cam->image_height());
-    spdlog::info("[LEGACY] Model pointer: {}", (void*)legacy_init.model.get());
-    spdlog::info("[LEGACY] Model has {} Gaussians", legacy_init.model->size());
+    spdlog::info("[LEGACY] Model has {} Gaussians", legacy_init.strategy->get_model().size());
 
     spdlog::info("[NEW] Rendering camera UID: {}", new_cam->uid());
     spdlog::info("[NEW] Camera dimensions: {}x{}", new_cam->image_width(), new_cam->image_height());
-    spdlog::info("[NEW] Model has {} Gaussians", new_init.model->size());
+    spdlog::info("[NEW] Model has {} Gaussians", new_init.strategy->get_model().size());
 
     // Render using legacy pipeline
     spdlog::info("[LEGACY] Calling fast_rasterize_forward...");
     auto legacy_result = gs::training::fast_rasterize_forward(
         *legacy_cam,
-        *legacy_init.model,
+        legacy_init.strategy->get_model(),
         legacy_init.background);
 
     spdlog::info("[LEGACY] Returned from fast_rasterize_forward");
@@ -487,7 +486,7 @@ std::expected<void, std::string> render_and_save_comparison(
     // Render using new pipeline
     auto new_result = lfs::training::fast_rasterize_forward(
         *new_cam,
-        *new_init.model,
+        new_init.strategy->get_model(),
         new_init.background);
 
     spdlog::info("[NEW] Rendered {}x{} image", new_result.first.width, new_result.first.height);

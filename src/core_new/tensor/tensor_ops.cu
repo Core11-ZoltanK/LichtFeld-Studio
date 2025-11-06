@@ -2338,14 +2338,20 @@ namespace lfs::core::tensor_ops {
         }
     }
 
+    // Struct to hold shape/strides for passing by value to kernel
+    template <int MAX_DIM = 16>
+    struct TensorMetadata {
+        size_t shape[MAX_DIM];
+        size_t strides[MAX_DIM];
+    };
+
     // OPTIMIZED GENERAL PATH: For ndim <= 16, pass shape/strides via kernel parameters
     // This eliminates 12,000+ blocking cudaMemcpy calls during training!
     template <typename T, int MAX_DIM = 16>
     __global__ void fill_strided_immediate_kernel(
         T* __restrict__ data,
         T value,
-        const size_t* __restrict__ shape,    // Passed by value (up to 128 bytes)
-        const size_t* __restrict__ strides,  // Passed by value (up to 128 bytes)
+        TensorMetadata<MAX_DIM> meta,  // Passed by value (256 bytes)
         size_t storage_offset,
         int ndim,
         size_t n) {
@@ -2357,9 +2363,9 @@ namespace lfs::core::tensor_ops {
             size_t remaining = linear_idx;
 
             for (int i = ndim - 1; i >= 0; --i) {
-                size_t idx_i = remaining % shape[i];
-                remaining /= shape[i];
-                offset += idx_i * strides[i];
+                size_t idx_i = remaining % meta.shape[i];
+                remaining /= meta.shape[i];
+                offset += idx_i * meta.strides[i];
             }
 
             data[offset] = value;
@@ -2439,18 +2445,17 @@ namespace lfs::core::tensor_ops {
             return;
         }
 
-        // OPTIMIZED PATH: For ndim <= 16, pass metadata via kernel parameters
+        // OPTIMIZED PATH: For ndim <= 16, pass metadata via kernel parameters (struct)
         // This eliminates 12,000+ blocking cudaMemcpy calls during training!
         if (ndim <= 16) {
-            // Copy to stack arrays (kernel parameters, not device memory!)
-            size_t shape_arr[16];
-            size_t strides_arr[16];
+            // Create struct on host and copy data
+            TensorMetadata<16> meta;
+            std::copy_n(shape.begin(), ndim, meta.shape);
+            std::copy_n(strides.begin(), ndim, meta.strides);
 
-            std::copy_n(shape.begin(), ndim, shape_arr);
-            std::copy_n(strides.begin(), ndim, strides_arr);
-
+            // Launch kernel with struct passed by value
             fill_strided_immediate_kernel<<<num_blocks, BLOCK_SIZE, 0, stream>>>(
-                data, value, shape_arr, strides_arr, storage_offset, ndim, n);
+                data, value, meta, storage_offset, ndim, n);
 
             CHECK_CUDA(cudaGetLastError());
             if (stream == nullptr) {

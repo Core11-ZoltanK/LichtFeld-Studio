@@ -55,13 +55,15 @@ namespace gs::core {
 
             // Extract just the filename from the full path
             // Handle case where filename might be null (when called via spdlog:: directly)
-            std::string_view filename = "unknown";
-            if (msg.source.filename != nullptr && msg.source.filename[0] != '\0') {
+            std::string_view filename;
+            if (msg.source.filename != nullptr) {
                 std::string_view full_path(msg.source.filename);
                 auto last_slash = full_path.find_last_of("/\\");
                 filename = (last_slash != std::string_view::npos)
-                    ? full_path.substr(last_slash + 1)
-                    : full_path;
+                                                ? full_path.substr(last_slash + 1)
+                                                : full_path;
+            } else {
+                filename = "";
             }
 
             // Check if this is a Performance log (has [PERF] prefix)
