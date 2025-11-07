@@ -54,7 +54,8 @@ namespace lfs::training {
         // Python: gamma = 0.01^(1/max_steps)
         // This means after max_steps, lr will be 0.01 * initial_lr
         const double gamma = std::pow(0.01, 1.0 / params.iterations);
-        return std::make_unique<ExponentialLR>(optimizer, gamma);
+
+        return std::make_unique<ExponentialLR>(optimizer, gamma, std::vector<ParamType>{ParamType::Means});
     }
 
     void update_param_with_optimizer(

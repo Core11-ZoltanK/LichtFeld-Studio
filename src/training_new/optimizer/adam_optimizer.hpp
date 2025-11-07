@@ -5,6 +5,7 @@
 #pragma once
 
 #include "core_new/splat_data.hpp"
+#include <array>
 #include <string>
 #include <unordered_map>
 
@@ -160,6 +161,18 @@ namespace lfs::training {
             return config_.lr;
         }
 
+        // Check if per-parameter learning rate is explicitly set
+        bool has_param_lr(ParamType type) const {
+            auto name = param_name(type);
+            return config_.param_lrs.find(name) != config_.param_lrs.end();
+        }
+
+        // Get all parameter types (for scheduler to iterate)
+        static constexpr std::array<ParamType, 6> all_param_types() {
+            return {ParamType::Means, ParamType::Sh0, ParamType::ShN,
+                    ParamType::Scaling, ParamType::Rotation, ParamType::Opacity};
+        }
+
         // ===== SAFE MCMC OPERATIONS =====
         // These methods atomically update both parameters and optimizer state
 
@@ -171,7 +184,7 @@ namespace lfs::training {
          * @param new_values New parameter values to append
          * @param validate If true, checks that new_values shape matches existing (default: true)
          */
-        void add_new_params(ParamType type, const lfs::core::Tensor& new_values, bool validate = true);
+        void add_new_params(ParamType type, const lfs::core::Tensor& new_values, bool validate = false);
 
         /**
          * Reset optimizer state at specific indices (e.g., relocated dead Gaussians)

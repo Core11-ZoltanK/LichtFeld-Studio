@@ -63,7 +63,7 @@ namespace lfs::core {
         int get_active_sh_degree() const { return _active_sh_degree; }
         int get_max_sh_degree() const { return _max_sh_degree; }
         float get_scene_scale() const { return _scene_scale; }
-        int64_t size() const { return _means.shape()[0]; }
+        unsigned long size() const { return _means.shape()[0]; }
 
         // Raw tensor access for optimization (inline for performance)
         inline Tensor& means() { return _means; }

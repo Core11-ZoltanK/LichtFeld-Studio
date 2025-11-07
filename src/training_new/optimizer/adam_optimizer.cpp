@@ -140,17 +140,43 @@ namespace lfs::training {
         // Get per-parameter learning rate
         float param_lr = get_param_lr(type);
 
-        // OPTIMIZATION: Only operate on the "used" portion if we have excess capacity
-        // This is safe because adam_step_raw only touches the first `numel` elements
-        // The state tensors may be larger than param, but we only use state.size elements
+        // When fast path is used in extend_state_for_new_params, state tensors have
+        // excess capacity (state.exp_avg.shape()[0] > param.shape()[0]).
+        // We must ensure we only operate on the valid elements.
 
-        // Call fused CUDA kernel (operates on param.numel() elements)
+        size_t param_size = param.shape()[0];
+        size_t state_size = state.size;
+
+        // CRITICAL: Verify param and state are synchronized
+        if (param_size != state_size) {
+            LOG_ERROR("  BUG: param size ({}) != state.size ({})", param_size, state_size);
+            LOG_ERROR("  This indicates add_new_params and extend_state_for_new_params are out of sync!");
+            LOG_ERROR("  Parameter: {}", name);
+            throw std::runtime_error("Optimizer state desynchronization detected");
+        }
+
+        // Calculate number of elements to process
+        // This MUST use state.size, not param.shape()[0], because after fast path:
+        //   - param.shape()[0] reflects actual data size
+        //   - state.size tracks logical size (should match param)
+        //   - state.exp_avg.shape()[0] may be larger (excess capacity)
+        size_t feature_dim = param.numel() / param_size;  // e.g., 3 for means, 4 for rotation
+        size_t num_elements = state_size * feature_dim;
+
+        // Optional diagnostic logging (only at trace level)
+        if (iteration % 1000 == 0 && state.capacity > state.size) {
+            LOG_TRACE("Optimizer capacity usage for {}: {}/{} ({:.1f}%)",
+                     name, state_size, state.capacity, 100.0f * state_size / state.capacity);
+        }
+
+        // Call fused CUDA kernel - operates ONLY on valid elements
+        // Uses state.size * feature_dim instead of param.numel()
         fast_lfs::optimizer::adam_step_raw(
             param.ptr<float>(),
             state.exp_avg.ptr<float>(),
             state.exp_avg_sq.ptr<float>(),
             grad.ptr<float>(),
-            static_cast<int>(param.numel()),
+            static_cast<int>(num_elements),  // Based on state.size!
             param_lr,  // Use per-parameter learning rate
             config_.beta1,
             config_.beta2,
@@ -224,10 +250,14 @@ namespace lfs::training {
         // OPTIMIZATION: Check if we have enough capacity (avoids reallocation)
         if (new_size <= state.capacity) {
             // Fast path: Just update the size, no allocation needed!
+            size_t old_size = state.size;
             state.size = new_size;
-            LOG_DEBUG("Extended optimizer state for {} by {} parameters using reserved capacity "
-                      "(size: {} -> {}, capacity: {}, no allocation!)",
-                      name, n_new, state.size - n_new, state.size, state.capacity);
+
+            LOG_DEBUG("✓ Fast path: extend_state_for_new_params for {} (no reallocation)", name);
+            LOG_DEBUG("  Added {} parameters: size {} -> {} (capacity: {}, utilization: {:.1f}%)",
+                     n_new, old_size, state.size, state.capacity,
+                     100.0f * state.size / state.capacity);
+
             return;
         }
 
@@ -351,9 +381,6 @@ namespace lfs::training {
 
         // Extend optimizer state (this can be optimized with capacity tracking)
         extend_state_for_new_params(type, n_new);
-
-        LOG_DEBUG("add_new_params: Added {} new {} parameters (total: {} -> {})",
-                  n_new, param_name(type), n_current, param.shape()[0]);
     }
 
     void AdamOptimizer::relocate_params_at_indices(ParamType type, const std::vector<int64_t>& indices) {
