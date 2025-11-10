@@ -58,6 +58,7 @@ set(TRAINING_NEW_SOURCES
     rasterization/fast_rasterizer.cpp
     components/bilateral_grid.cpp
     components/sparsity_optimizer.cpp
+    metrics/metrics.cpp
     trainer.cpp
     training_setup.cpp
 )

@@ -50,8 +50,7 @@ namespace lfs::training {
         // poseopt_module_.reset();
         // poseopt_optimizer_.reset();
         sparsity_optimizer_.reset();
-        // TODO: Port metrics to LibTorch-free implementation
-        // evaluator_.reset();
+        evaluator_.reset();
 
         // Clear datasets (will be recreated)
         train_dataset_.reset();
@@ -401,10 +400,9 @@ namespace lfs::training {
                 LOG_DEBUG("Progress bar initialized for {} total iterations", params_.optimization.iterations);
             }
 
-            // TODO: Port metrics to LibTorch-free implementation
             // Initialize the evaluator - it handles all metrics internally
-            // evaluator_ = std::make_unique<MetricsEvaluator>(params_);
-            // LOG_DEBUG("Metrics evaluator initialized");
+            evaluator_ = std::make_unique<lfs::training::MetricsEvaluator>(params_);
+            LOG_DEBUG("Metrics evaluator initialized");
 
             // Print configuration
             LOG_INFO("Render mode: {}", params.optimization.render_mode);
@@ -725,29 +723,33 @@ namespace lfs::training {
             nvtxRangePop();
 
             // Bilateral grid backward if enabled
-            nvtxRangePush("bilateral_grid_backward");
-            if (bilateral_grid_ && params_.optimization.use_bilateral_grid && bilateral_ctx.has_value()) {
+            if (params_.optimization.use_bilateral_grid && bilateral_grid_ && bilateral_ctx.has_value()) {
+                nvtxRangePush("bilateral_grid_backward");
                 grad_image = bilateral_grid_->apply_backward(*bilateral_ctx, grad_image);
+                nvtxRangePop();
             }
-            nvtxRangePop();
 
             // Scale regularization loss - accumulate on GPU
-            nvtxRangePush("compute_scale_reg_loss");
-            auto scale_loss_result = compute_scale_reg_loss(strategy_->get_model(), params_.optimization);
-            if (!scale_loss_result) {
-                return std::unexpected(scale_loss_result.error());
+            if (params_.optimization.scale_reg > 0.0f) {
+                nvtxRangePush("compute_scale_reg_loss");
+                auto scale_loss_result = compute_scale_reg_loss(strategy_->get_model(), params_.optimization);
+                if (!scale_loss_result) {
+                    return std::unexpected(scale_loss_result.error());
+                }
+                loss_tensor_gpu = loss_tensor_gpu + *scale_loss_result;
+                nvtxRangePop();
             }
-            loss_tensor_gpu = loss_tensor_gpu + *scale_loss_result;
-            nvtxRangePop();
 
             // Opacity regularization loss - accumulate on GPU
-            nvtxRangePush("compute_opacity_reg_loss");
-            auto opacity_loss_result = compute_opacity_reg_loss(strategy_->get_model(), params_.optimization);
-            if (!opacity_loss_result) {
-                return std::unexpected(opacity_loss_result.error());
+            if (params_.optimization.opacity_reg > 0.0f) {
+                nvtxRangePush("compute_opacity_reg_loss");
+                auto opacity_loss_result = compute_opacity_reg_loss(strategy_->get_model(), params_.optimization);
+                if (!opacity_loss_result) {
+                    return std::unexpected(opacity_loss_result.error());
+                }
+                loss_tensor_gpu = loss_tensor_gpu + *opacity_loss_result;
+                nvtxRangePop();
             }
-            loss_tensor_gpu = loss_tensor_gpu + *opacity_loss_result;
-            nvtxRangePop();
 
             // Bilateral grid TV loss (manual forward/backward - no autograd)
             // NOTE: This still returns float - would need to be converted to Tensor for full GPU accumulation
@@ -833,9 +835,6 @@ namespace lfs::training {
                     .emit();
             }
             {
-                // TODO: Port to LibTorch-free implementation
-                // torch::NoGradGuard no_grad;
-
                 DeferredEvents deferred;
                 {
                     std::unique_lock<std::shared_mutex> lock(render_mutex_);
@@ -891,16 +890,15 @@ namespace lfs::training {
                     LOG_ERROR("Sparsity pruning failed: {}", result.error());
                 }
 
-                // TODO: Port metrics to LibTorch-free implementation
                 // Clean evaluation - let the evaluator handle everything
-                // if (evaluator_->is_enabled() && evaluator_->should_evaluate(iter)) {
-                //     evaluator_->print_evaluation_header(iter);
-                //     auto metrics = evaluator_->evaluate(iter,
-                //                                         strategy_->get_model(),
-                //                                         val_dataset_,
-                //                                         background_);
-                //     LOG_INFO("{}", metrics.to_string());
-                // }
+                if (evaluator_->is_enabled() && evaluator_->should_evaluate(iter)) {
+                    evaluator_->print_evaluation_header(iter);
+                    auto metrics = evaluator_->evaluate(iter,
+                                                        strategy_->get_model(),
+                                                        val_dataset_,
+                                                        background_);
+                    LOG_INFO("{}", metrics.to_string());
+                }
 
                 // Save model at specified steps
                 if (!params_.optimization.skip_intermediate_saving) {
@@ -1095,8 +1093,7 @@ namespace lfs::training {
             if (progress_) {
                 progress_->complete();
             }
-            // TODO: Port metrics to LibTorch-free implementation
-            // evaluator_->save_report();
+            evaluator_->save_report();
             if (progress_) {
                 progress_->print_final_summary(static_cast<int>(strategy_->get_model().size()));
             }

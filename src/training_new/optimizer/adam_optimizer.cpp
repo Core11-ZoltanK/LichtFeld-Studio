@@ -377,7 +377,18 @@ namespace lfs::training {
             grad_dims[i] = (i == 0) ? n_new : param.shape()[i];
         }
         auto zeros_grad = lfs::core::Tensor::zeros(lfs::core::TensorShape(grad_dims), param.device());
+
+        LOG_DEBUG("  add_new_params gradient concatenation:");
+        LOG_DEBUG("    existing grad: shape[0]={}, ndim={}", grad.shape()[0], grad.ndim());
+        LOG_DEBUG("    zeros_grad: shape[0]={}, ndim={}", zeros_grad.shape()[0], zeros_grad.ndim());
+
         grad = lfs::core::Tensor::cat(std::vector<lfs::core::Tensor>{grad, zeros_grad}, 0);
+
+        if (grad.numel() == 0) {
+            LOG_ERROR("  Gradient concatenation failed! Resulting tensor is empty");
+        } else {
+            LOG_DEBUG("    result grad: shape[0]={}, ndim={}", grad.shape()[0], grad.ndim());
+        }
 
         // Extend optimizer state (this can be optimized with capacity tracking)
         extend_state_for_new_params(type, n_new);

@@ -577,6 +577,15 @@ namespace lfs::core {
             return Tensor();
         }
 
+        // Make tensor contiguous if it's a view/slice before reduction
+        // The reduce kernel expects contiguous memory layout
+        const Tensor* input = this;
+        Tensor contiguous_copy;
+        if (!is_contiguous()) {
+            contiguous_copy = this->contiguous();
+            input = &contiguous_copy;
+        }
+
         // Special handling for Std and Var
         if (op == ReduceOp::Std || op == ReduceOp::Var) {
             // Use the dedicated unbiased field from ReduceArgs
@@ -628,37 +637,37 @@ namespace lfs::core {
 
         std::vector<int> axes = args.axes;
         if (axes.empty()) {
-            axes.resize(shape_.rank());
+            axes.resize(input->shape_.rank());
             std::iota(axes.begin(), axes.end(), 0);
         }
 
         // Resolve negative indices to positive indices
         for (auto& ax : axes) {
-            ax = resolve_dim(ax);
+            ax = input->resolve_dim(ax);
         }
 
         std::vector<size_t> out_shape;
-        for (size_t i = 0; i < shape_.rank(); ++i) {
+        for (size_t i = 0; i < input->shape_.rank(); ++i) {
             bool is_reduced = std::find(axes.begin(), axes.end(), static_cast<int>(i)) != axes.end();
             if (!is_reduced || args.keepdim) {
-                out_shape.push_back(is_reduced ? 1 : shape_[i]);
+                out_shape.push_back(is_reduced ? 1 : input->shape_[i]);
             }
         }
 
-        DataType out_dtype = dtype_;
+        DataType out_dtype = input->dtype_;
         if (op == ReduceOp::Any || op == ReduceOp::All) {
             out_dtype = DataType::Bool;
         } else if (op == ReduceOp::Argmax || op == ReduceOp::Argmin) {
             out_dtype = DataType::Int64;
-        } else if (dtype_ == DataType::Bool && (op == ReduceOp::Sum || op == ReduceOp::Prod)) {
+        } else if (input->dtype_ == DataType::Bool && (op == ReduceOp::Sum || op == ReduceOp::Prod)) {
             // Bool sum/prod should return Int64 (PyTorch behavior)
             // Summing booleans is counting True values
             out_dtype = DataType::Int64;
         }
 
-        auto result = Tensor::empty(TensorShape(out_shape), device_, out_dtype);
+        auto result = Tensor::empty(TensorShape(out_shape), input->device_, out_dtype);
 
-        if (numel() == 0) {
+        if (input->numel() == 0) {
             float identity_value = 0.0f;
             switch (op) {
             case ReduceOp::Sum:
@@ -685,7 +694,7 @@ namespace lfs::core {
                 break;
             }
 
-            if (device_ == Device::CUDA) {
+            if (input->device_ == Device::CUDA) {
                 if (out_dtype == DataType::Float32) {
                     std::vector<float> temp(result.numel(), identity_value);
                     cudaMemcpy(result.raw_ptr(), temp.data(),
@@ -706,51 +715,51 @@ namespace lfs::core {
             return result;
         }
 
-        if (device_ == Device::CUDA) {
+        if (input->device_ == Device::CUDA) {
             tensor_ops::launch_reduce_op(
-                raw_ptr(), result.raw_ptr(),
-                shape_.dims().data(), shape_.rank(),
+                input->raw_ptr(), result.raw_ptr(),
+                input->shape_.dims().data(), input->shape_.rank(),
                 axes.data(), axes.size(),
                 args.keepdim, op,
-                dtype_, nullptr);
+                input->dtype_, nullptr);
             // No sync - tensor operation
         } else {
             // CPU implementation
 
             // Handle Int32 dtype
-            if (dtype_ == DataType::Int32) {
-                const int* src = static_cast<const int*>(raw_ptr());
+            if (input->dtype_ == DataType::Int32) {
+                const int* src = static_cast<const int*>(input->raw_ptr());
                 int* dst = static_cast<int*>(result.raw_ptr());
 
                 // Full reduction to scalar (only mode supported for Int32)
-                if (axes.size() == shape_.rank()) {
+                if (axes.size() == input->shape_.rank()) {
                     if (op == ReduceOp::Sum) {
                         int sum = 0;
-                        for (size_t i = 0; i < numel(); ++i) {
+                        for (size_t i = 0; i < input->numel(); ++i) {
                             sum += src[i];
                         }
                         dst[0] = sum;
                     } else if (op == ReduceOp::Mean) {
                         int sum = 0;
-                        for (size_t i = 0; i < numel(); ++i) {
+                        for (size_t i = 0; i < input->numel(); ++i) {
                             sum += src[i];
                         }
-                        dst[0] = sum / static_cast<int>(numel());
+                        dst[0] = sum / static_cast<int>(input->numel());
                     } else if (op == ReduceOp::Max) {
                         int max_val = src[0];
-                        for (size_t i = 1; i < numel(); ++i) {
+                        for (size_t i = 1; i < input->numel(); ++i) {
                             max_val = std::max(max_val, src[i]);
                         }
                         dst[0] = max_val;
                     } else if (op == ReduceOp::Min) {
                         int min_val = src[0];
-                        for (size_t i = 1; i < numel(); ++i) {
+                        for (size_t i = 1; i < input->numel(); ++i) {
                             min_val = std::min(min_val, src[i]);
                         }
                         dst[0] = min_val;
                     } else if (op == ReduceOp::Prod) {
                         int prod = 1;
-                        for (size_t i = 0; i < numel(); ++i) {
+                        for (size_t i = 0; i < input->numel(); ++i) {
                             prod *= src[i];
                         }
                         dst[0] = prod;
@@ -762,40 +771,40 @@ namespace lfs::core {
             }
 
             // Float32 implementation
-            const float* src = static_cast<const float*>(raw_ptr());
+            const float* src = static_cast<const float*>(input->raw_ptr());
             float* dst = static_cast<float*>(result.raw_ptr());
 
             // Full reduction to scalar
-            if (axes.size() == shape_.rank()) {
+            if (axes.size() == input->shape_.rank()) {
                 if (op == ReduceOp::Sum) {
                     // Use double accumulation to avoid FP32 precision loss
                     double sum = 0.0;
-                    for (size_t i = 0; i < numel(); ++i) {
+                    for (size_t i = 0; i < input->numel(); ++i) {
                         sum += src[i];
                     }
                     dst[0] = static_cast<float>(sum);
                 } else if (op == ReduceOp::Mean) {
                     // Use double accumulation to avoid FP32 precision loss
                     double sum = 0.0;
-                    for (size_t i = 0; i < numel(); ++i) {
+                    for (size_t i = 0; i < input->numel(); ++i) {
                         sum += src[i];
                     }
-                    dst[0] = static_cast<float>(sum / numel());
+                    dst[0] = static_cast<float>(sum / input->numel());
                 } else if (op == ReduceOp::Max) {
                     float max_val = src[0];
-                    for (size_t i = 1; i < numel(); ++i) {
+                    for (size_t i = 1; i < input->numel(); ++i) {
                         max_val = std::max(max_val, src[i]);
                     }
                     dst[0] = max_val;
                 } else if (op == ReduceOp::Min) {
                     float min_val = src[0];
-                    for (size_t i = 1; i < numel(); ++i) {
+                    for (size_t i = 1; i < input->numel(); ++i) {
                         min_val = std::min(min_val, src[i]);
                     }
                     dst[0] = min_val;
                 } else if (op == ReduceOp::Prod) {
                     float prod = 1.0f;
-                    for (size_t i = 0; i < numel(); ++i) {
+                    for (size_t i = 0; i < input->numel(); ++i) {
                         prod *= src[i];
                     }
                     dst[0] = prod;
@@ -805,22 +814,22 @@ namespace lfs::core {
 
             // Axis-specific reduction - general implementation
             // Build mask of which dimensions are reduced
-            std::vector<bool> is_reduced_dim(shape_.rank(), false);
+            std::vector<bool> is_reduced_dim(input->shape_.rank(), false);
             for (int ax : axes) {
-                int resolved = resolve_dim(ax);
-                if (resolved >= 0 && resolved < static_cast<int>(shape_.rank())) {
+                int resolved = input->resolve_dim(ax);
+                if (resolved >= 0 && resolved < static_cast<int>(input->shape_.rank())) {
                     is_reduced_dim[resolved] = true;
                 }
             }
 
             // Calculate input strides
-            auto input_strides = shape_.strides();
+            auto input_strides = input->shape_.strides();
 
             // Calculate output strides
             std::vector<size_t> out_shape_vec;
-            for (size_t i = 0; i < shape_.rank(); ++i) {
+            for (size_t i = 0; i < input->shape_.rank(); ++i) {
                 if (!is_reduced_dim[i]) {
-                    out_shape_vec.push_back(shape_[i]);
+                    out_shape_vec.push_back(input->shape_[i]);
                 }
             }
 
@@ -838,10 +847,10 @@ namespace lfs::core {
             // Calculate how many elements to reduce per output element
             size_t reduce_count = 1;
             std::vector<size_t> reduced_dims;
-            for (size_t i = 0; i < shape_.rank(); ++i) {
+            for (size_t i = 0; i < input->shape_.rank(); ++i) {
                 if (is_reduced_dim[i]) {
                     reduced_dims.push_back(i);
-                    reduce_count *= shape_[i];
+                    reduce_count *= input->shape_[i];
                 }
             }
 
@@ -859,9 +868,9 @@ namespace lfs::core {
                 }
 
                 // Map output coords back to base input coords
-                std::vector<size_t> base_input_coords(shape_.rank());
+                std::vector<size_t> base_input_coords(input->shape_.rank());
                 size_t out_coord_idx = 0;
-                for (size_t i = 0; i < shape_.rank(); ++i) {
+                for (size_t i = 0; i < input->shape_.rank(); ++i) {
                     if (!is_reduced_dim[i]) {
                         base_input_coords[i] = out_coords[out_coord_idx++];
                     } else {
@@ -1159,8 +1168,7 @@ namespace lfs::core {
 
     Tensor Tensor::cat(const std::vector<Tensor>& tensors, int dim) {
         if (tensors.empty()) {
-            LOG_ERROR("Cannot concatenate empty vector of tensors");
-            return Tensor();
+            throw std::invalid_argument("Cannot concatenate empty vector of tensors");
         }
 
         if (tensors.size() == 1) {
@@ -1173,8 +1181,8 @@ namespace lfs::core {
         }
 
         if (resolved_dim < 0 || resolved_dim >= static_cast<int>(tensors[0].shape().rank())) {
-            LOG_ERROR("Invalid dimension for cat: {}, rank=%zu", dim, tensors[0].shape().rank());
-            return Tensor();
+            throw std::invalid_argument(fmt::format(
+                "Invalid dimension for cat: dim={}, rank={}", dim, tensors[0].shape().rank()));
         }
 
         const auto& first_shape = tensors[0].shape();
@@ -1188,25 +1196,39 @@ namespace lfs::core {
             const auto& shape = tensors[i].shape();
 
             if (shape.rank() != first_shape.rank()) {
-                LOG_ERROR("All tensors must have the same number of dimensions");
-                return Tensor();
+                LOG_ERROR("================================================================");
+                LOG_ERROR("CRITICAL: cat() rank mismatch detected!");
+                LOG_ERROR("================================================================");
+                LOG_ERROR("Attempting to concatenate tensors with different ranks:");
+                LOG_ERROR("  Tensor 0: rank={}, shape={}", first_shape.rank(), first_shape.str());
+                LOG_ERROR("  Tensor {}: rank={}, shape={}", i, shape.rank(), shape.str());
+                LOG_ERROR("  Concatenation dimension: {}", dim);
+                LOG_ERROR("  Number of tensors being concatenated: {}", tensors.size());
+                LOG_ERROR("================================================================");
+                throw std::runtime_error(fmt::format(
+                    "cat() rank mismatch: tensor 0 has rank {} (shape {}), tensor {} has rank {} (shape {})",
+                    first_shape.rank(), first_shape.str(), i, shape.rank(), shape.str()));
             }
 
             for (size_t d = 0; d < shape.rank(); ++d) {
                 if (d != static_cast<size_t>(resolved_dim) && shape[d] != first_shape[d]) {
-                    LOG_ERROR("All dimensions except dim={} must match", dim);
-                    return Tensor();
+                    throw std::invalid_argument(fmt::format(
+                        "cat() dimension mismatch: all dimensions except dim={} must match. "
+                        "Tensor 0 shape: {}, Tensor {} shape: {}, mismatch at dimension {}",
+                        dim, first_shape.str(), i, shape.str(), d));
                 }
             }
 
             if (tensors[i].device() != first_device) {
-                LOG_ERROR("All tensors must be on the same device");
-                return Tensor();
+                throw std::invalid_argument(fmt::format(
+                    "cat() device mismatch: tensor 0 is on device {}, tensor {} is on device {}",
+                    static_cast<int>(first_device), i, static_cast<int>(tensors[i].device())));
             }
 
             if (tensors[i].dtype() != first_dtype) {
-                LOG_ERROR("All tensors must have the same dtype");
-                return Tensor();
+                throw std::invalid_argument(fmt::format(
+                    "cat() dtype mismatch: tensor 0 has dtype {}, tensor {} has dtype {}",
+                    static_cast<int>(first_dtype), i, static_cast<int>(tensors[i].dtype())));
             }
 
             total_size_along_dim += shape[resolved_dim];

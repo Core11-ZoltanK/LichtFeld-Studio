@@ -52,64 +52,98 @@ namespace lfs::training {
 
     void DefaultStrategy::duplicate(const lfs::core::Tensor& is_duplicated) {
         const lfs::core::Tensor sampled_idxs = is_duplicated.nonzero().squeeze(-1);
-        const int N = _splat_data.size();
-        const int num_selected = sampled_idxs.shape()[0];
+        const int num_duplicated = sampled_idxs.shape()[0];
 
-        if (num_selected == 0) {
+        if (num_duplicated == 0) {
             return;  // Nothing to duplicate
         }
 
-        // Use optimized index_select + cat (same as OLD LibTorch approach, proven faster than custom kernel)
-        auto pos_selected = _splat_data.means().index_select(0, sampled_idxs);
+        // Gather parameters for selected Gaussians to duplicate
+        LOG_DEBUG("duplicate(): sh0 shape before index_select: {}", _splat_data.sh0().shape().str());
+        LOG_DEBUG("duplicate(): shN shape before index_select: {}", _splat_data.shN().shape().str());
+
+        auto pos_selected = _splat_data.means().index_select(0, sampled_idxs).contiguous();
+        auto rot_selected = _splat_data.rotation_raw().index_select(0, sampled_idxs).contiguous();
+        auto scale_selected = _splat_data.scaling_raw().index_select(0, sampled_idxs).contiguous();
+        auto sh0_selected = _splat_data.sh0().index_select(0, sampled_idxs).contiguous();
+        auto shN_selected = _splat_data.shN().index_select(0, sampled_idxs).contiguous();
+        auto op_selected = _splat_data.opacity_raw().index_select(0, sampled_idxs).contiguous();
+
+        LOG_DEBUG("duplicate(): sh0_selected shape after index_select: {}", sh0_selected.shape().str());
+        LOG_DEBUG("duplicate(): shN_selected shape after index_select: {}", shN_selected.shape().str());
+
+        // Concatenate parameters directly in SplatData
+        LOG_DEBUG("duplicate(): About to cat means: existing={}, selected={}", _splat_data.means().shape().str(), pos_selected.shape().str());
         _splat_data.means() = _splat_data.means().cat(pos_selected, 0);
 
-        auto rot_selected = _splat_data.rotation_raw().index_select(0, sampled_idxs);
+        LOG_DEBUG("duplicate(): About to cat rotation: existing={}, selected={}", _splat_data.rotation_raw().shape().str(), rot_selected.shape().str());
         _splat_data.rotation_raw() = _splat_data.rotation_raw().cat(rot_selected, 0);
 
-        auto scale_selected = _splat_data.scaling_raw().index_select(0, sampled_idxs);
+        LOG_DEBUG("duplicate(): About to cat scaling: existing={}, selected={}", _splat_data.scaling_raw().shape().str(), scale_selected.shape().str());
         _splat_data.scaling_raw() = _splat_data.scaling_raw().cat(scale_selected, 0);
 
-        auto sh0_selected = _splat_data.sh0().index_select(0, sampled_idxs);
+        LOG_ERROR("duplicate(): About to cat sh0: existing={}, selected={}", _splat_data.sh0().shape().str(), sh0_selected.shape().str());
         _splat_data.sh0() = _splat_data.sh0().cat(sh0_selected, 0);
 
-        auto shN_selected = _splat_data.shN().index_select(0, sampled_idxs);
+        LOG_ERROR("duplicate(): About to cat shN: existing={}, selected={}", _splat_data.shN().shape().str(), shN_selected.shape().str());
         _splat_data.shN() = _splat_data.shN().cat(shN_selected, 0);
 
-        auto op_selected = _splat_data.opacity_raw().index_select(0, sampled_idxs);
+        LOG_DEBUG("duplicate(): About to cat opacity: existing={}, selected={}", _splat_data.opacity_raw().shape().str(), op_selected.shape().str());
         _splat_data.opacity_raw() = _splat_data.opacity_raw().cat(op_selected, 0);
 
         // Update gradients to match new size
         if (_splat_data.has_gradients()) {
-            _splat_data.means_grad() = lfs::core::Tensor::zeros(_splat_data.means().shape(), _splat_data.means().device());
-            _splat_data.rotation_grad() = lfs::core::Tensor::zeros(_splat_data.rotation_raw().shape(), _splat_data.rotation_raw().device());
-            _splat_data.scaling_grad() = lfs::core::Tensor::zeros(_splat_data.scaling_raw().shape(), _splat_data.scaling_raw().device());
-            _splat_data.sh0_grad() = lfs::core::Tensor::zeros(_splat_data.sh0().shape(), _splat_data.sh0().device());
-            _splat_data.shN_grad() = lfs::core::Tensor::zeros(_splat_data.shN().shape(), _splat_data.shN().device());
-            _splat_data.opacity_grad() = lfs::core::Tensor::zeros(_splat_data.opacity_raw().shape(), _splat_data.opacity_raw().device());
+            auto means_shape = _splat_data.means().shape();
+            auto rotation_shape = _splat_data.rotation_raw().shape();
+            auto scaling_shape = _splat_data.scaling_raw().shape();
+            auto sh0_shape = _splat_data.sh0().shape();
+            auto shN_shape = _splat_data.shN().shape();
+            auto opacity_shape = _splat_data.opacity_raw().shape();
+
+            _splat_data.means_grad() = lfs::core::Tensor::zeros(means_shape, _splat_data.means().device());
+            _splat_data.rotation_grad() = lfs::core::Tensor::zeros(rotation_shape, _splat_data.rotation_raw().device());
+            _splat_data.scaling_grad() = lfs::core::Tensor::zeros(scaling_shape, _splat_data.scaling_raw().device());
+            _splat_data.sh0_grad() = lfs::core::Tensor::zeros(sh0_shape, _splat_data.sh0().device());
+            _splat_data.shN_grad() = lfs::core::Tensor::zeros(shN_shape, _splat_data.shN().device());
+            _splat_data.opacity_grad() = lfs::core::Tensor::zeros(opacity_shape, _splat_data.opacity_raw().device());
         }
 
-        // Update optimizer states: add zeros for new Gaussians
-        auto update_state = [&](ParamType param_type, const lfs::core::Tensor& zeros) {
+        // Update optimizer states: duplicate the optimizer states for the duplicated Gaussians
+        // Following the same pattern as split()
+        auto update_optimizer_state = [&](ParamType param_type, const char* name) {
             if (const auto* state = _optimizer->get_state(param_type)) {
+                LOG_DEBUG("update_optimizer_state for {}: state->exp_avg shape = {}", name, state->exp_avg.shape().str());
+
+                // Keep all existing states
+                lfs::core::Tensor existing_exp_avg = state->exp_avg;
+                lfs::core::Tensor existing_exp_avg_sq = state->exp_avg_sq;
+
+                // Get the states for the gaussians we're duplicating
+                lfs::core::Tensor dup_exp_avg = state->exp_avg.index_select(0, sampled_idxs);
+                lfs::core::Tensor dup_exp_avg_sq = state->exp_avg_sq.index_select(0, sampled_idxs);
+
+                LOG_DEBUG("  existing_exp_avg shape: {}", existing_exp_avg.shape().str());
+                LOG_DEBUG("  dup_exp_avg shape: {}", dup_exp_avg.shape().str());
+
+                // Create new state and set it
                 AdamParamState new_state = *state;
-                new_state.exp_avg = state->exp_avg.cat(zeros, 0);
-                new_state.exp_avg_sq = state->exp_avg_sq.cat(zeros, 0);
+                new_state.exp_avg = existing_exp_avg.cat(dup_exp_avg, 0);
+                new_state.exp_avg_sq = existing_exp_avg_sq.cat(dup_exp_avg_sq, 0);
+                // Update size to match new parameter count
+                size_t old_size = state->size;
+                size_t new_size = state->size + num_duplicated;
+                new_state.size = new_size;
+                LOG_DEBUG("  duplicate() size update: {} -> {} (added {})", old_size, new_size, num_duplicated);
                 _optimizer->set_state(param_type, new_state);
             }
         };
 
-        auto zeros_3 = lfs::core::Tensor::zeros({static_cast<size_t>(num_selected), 3}, _splat_data.sh0().device());
-        auto zeros_4 = lfs::core::Tensor::zeros({static_cast<size_t>(num_selected), 4}, _splat_data.rotation_raw().device());
-        const int shN_dim = _splat_data.shN().shape()[1];
-        auto zeros_shN = lfs::core::Tensor::zeros({static_cast<size_t>(num_selected), static_cast<size_t>(shN_dim)}, _splat_data.shN().device());
-        auto zeros_opacity = lfs::core::Tensor::zeros({static_cast<size_t>(num_selected), 1}, _splat_data.opacity_raw().device());
-
-        update_state(ParamType::Means, zeros_3);
-        update_state(ParamType::Rotation, zeros_4);
-        update_state(ParamType::Scaling, zeros_3);
-        update_state(ParamType::Sh0, zeros_3);
-        update_state(ParamType::ShN, zeros_shN);
-        update_state(ParamType::Opacity, zeros_opacity);
+        update_optimizer_state(ParamType::Means, "means");
+        update_optimizer_state(ParamType::Rotation, "rotation");
+        update_optimizer_state(ParamType::Scaling, "scaling");
+        update_optimizer_state(ParamType::Sh0, "sh0");
+        update_optimizer_state(ParamType::ShN, "shN");
+        update_optimizer_state(ParamType::Opacity, "opacity");
     }
 
     void DefaultStrategy::split(const lfs::core::Tensor& is_split) {
@@ -126,8 +160,11 @@ namespace lfs::training {
 
         constexpr int split_size = 2;
 
-        // Get SH dimensions
-        const int shN_dim = _splat_data.shN().shape()[1];
+        // Get SH dimensions - total elements per Gaussian (coeffs * channels)
+        // shN has shape [N, num_coeffs, 3], so total elements = num_coeffs * 3
+        const int shN_coeffs = _splat_data.shN().shape()[1];
+        const int shN_channels = _splat_data.shN().shape()[2];
+        const int shN_dim = shN_coeffs * shN_channels;  // Total elements per Gaussian
 
         // Generate random noise [2, num_split, 3]
         const lfs::core::Tensor random_noise = lfs::core::Tensor::randn(
@@ -139,8 +176,9 @@ namespace lfs::training {
         auto positions_out = lfs::core::Tensor::empty({static_cast<size_t>(out_size), 3}, _splat_data.means().device());
         auto rotations_out = lfs::core::Tensor::empty({static_cast<size_t>(out_size), 4}, _splat_data.rotation_raw().device());
         auto scales_out = lfs::core::Tensor::empty({static_cast<size_t>(out_size), 3}, _splat_data.scaling_raw().device());
-        auto sh0_out = lfs::core::Tensor::empty({static_cast<size_t>(out_size), 3}, _splat_data.sh0().device());
-        auto shN_out = lfs::core::Tensor::empty({static_cast<size_t>(out_size), static_cast<size_t>(shN_dim)}, _splat_data.shN().device());
+        // CUDA kernel produces 2D outputs, we'll reshape to 3D after
+        auto sh0_out_2d = lfs::core::Tensor::empty({static_cast<size_t>(out_size), 3}, _splat_data.sh0().device());
+        auto shN_out_2d = lfs::core::Tensor::empty({static_cast<size_t>(out_size), static_cast<size_t>(shN_dim)}, _splat_data.shN().device());
         auto opacities_out = lfs::core::Tensor::empty({static_cast<size_t>(out_size), 1}, _splat_data.opacity_raw().device());
 
         // Call custom CUDA kernel (outputs sh0 and shN separately - NO slice/contiguous overhead!)
@@ -154,8 +192,8 @@ namespace lfs::training {
             positions_out.ptr<float>(),
             rotations_out.ptr<float>(),
             scales_out.ptr<float>(),
-            sh0_out.ptr<float>(),
-            shN_out.ptr<float>(),
+            sh0_out_2d.ptr<float>(),
+            shN_out_2d.ptr<float>(),
             opacities_out.ptr<float>(),
             split_idxs.ptr<int64_t>(),
             keep_idxs.ptr<int64_t>(),
@@ -167,6 +205,12 @@ namespace lfs::training {
             _params->revised_opacity,
             nullptr  // default stream
         );
+
+        // Reshape sh0 and shN from flat 1D (per Gaussian) to original 3D structure
+        // sh0: [N, 3] -> [N, 1, 3] (3 elements = 1 coeff * 3 channels)
+        // shN: [N, 45] -> [N, 15, 3] (45 elements = 15 coeffs * 3 channels)
+        auto sh0_out = sh0_out_2d.reshape({static_cast<size_t>(out_size), 1, 3});
+        auto shN_out = shN_out_2d.reshape({static_cast<size_t>(out_size), static_cast<size_t>(shN_coeffs), static_cast<size_t>(shN_channels)});
 
         // Update SplatData with new tensors (already contiguous from kernel!)
         _splat_data.means() = positions_out;
@@ -187,32 +231,51 @@ namespace lfs::training {
         }
 
         // Update optimizer states: keep old states for kept Gaussians, add zeros for split Gaussians
-        auto update_optimizer_state = [&](ParamType param_type, size_t param_dim) {
+        auto update_optimizer_state = [&](ParamType param_type) {
             if (const auto* state = _optimizer->get_state(param_type)) {
+                LOG_DEBUG("split() updating optimizer state for param_type={}", static_cast<int>(param_type));
+                LOG_DEBUG("  Old state.size = {}", state->size);
+                LOG_DEBUG("  num_keep = {}, num_split = {}, split_size = {}", num_keep, num_split, split_size);
+
                 // Keep states for kept Gaussians
                 lfs::core::Tensor keep_exp_avg = state->exp_avg.index_select(0, keep_idxs);
                 lfs::core::Tensor keep_exp_avg_sq = state->exp_avg_sq.index_select(0, keep_idxs);
 
-                // Add zeros for split Gaussians
+                // CRITICAL: Create zeros tensor with same shape as existing state (preserving all dimensions!)
+                // Get the shape from existing state, but update the first dimension for new Gaussians
+                auto existing_shape = state->exp_avg.shape();
+                std::vector<size_t> zero_dims(existing_shape.rank());
+                zero_dims[0] = num_split * split_size;  // New Gaussians from split
+                for (size_t i = 1; i < existing_shape.rank(); i++) {
+                    zero_dims[i] = existing_shape[i];  // Keep all other dimensions
+                }
+
                 auto zeros = lfs::core::Tensor::zeros(
-                    {static_cast<size_t>(num_split * split_size), param_dim},
+                    lfs::core::TensorShape(zero_dims),
                     state->exp_avg.device(),
                     state->exp_avg.dtype());
+
+                LOG_DEBUG("  keep_exp_avg shape: {}, zeros shape: {}", keep_exp_avg.shape().str(), zeros.shape().str());
 
                 // Create new state and set it
                 AdamParamState new_state = *state;
                 new_state.exp_avg = keep_exp_avg.cat(zeros, 0);
                 new_state.exp_avg_sq = keep_exp_avg_sq.cat(zeros, 0);
+                // CRITICAL: Update size to match new parameter count
+                size_t new_size = num_keep + num_split * split_size;
+                new_state.size = new_size;
+                LOG_DEBUG("  New state.size = {}", new_state.size);
+                LOG_DEBUG("  exp_avg shape after cat: {}", new_state.exp_avg.shape().str());
                 _optimizer->set_state(param_type, new_state);
             }
         };
 
-        update_optimizer_state(ParamType::Means, 3);
-        update_optimizer_state(ParamType::Rotation, 4);
-        update_optimizer_state(ParamType::Scaling, 3);
-        update_optimizer_state(ParamType::Sh0, 3);
-        update_optimizer_state(ParamType::ShN, shN_dim);
-        update_optimizer_state(ParamType::Opacity, 1);
+        update_optimizer_state(ParamType::Means);
+        update_optimizer_state(ParamType::Rotation);
+        update_optimizer_state(ParamType::Scaling);
+        update_optimizer_state(ParamType::Sh0);
+        update_optimizer_state(ParamType::ShN);
+        update_optimizer_state(ParamType::Opacity);
     }
 
     void DefaultStrategy::grow_gs(int iter) {
@@ -258,8 +321,13 @@ namespace lfs::training {
             AdamParamState& state,
             const lfs::core::Tensor& new_param) {
             // For remove, we select only the surviving Gaussians' optimizer state
+            size_t old_size = state.size;
             state.exp_avg = state.exp_avg.index_select(0, sampled_idxs);
             state.exp_avg_sq = state.exp_avg_sq.index_select(0, sampled_idxs);
+            // CRITICAL: Update size to match new parameter count
+            size_t new_size = sampled_idxs.shape()[0];
+            state.size = new_size;
+            LOG_DEBUG("  remove() size update: {} -> {} (removed {})", old_size, new_size, old_size - new_size);
         };
 
         update_param_with_optimizer(param_fn, optimizer_fn, _optimizer, _splat_data);

@@ -215,7 +215,8 @@ namespace lfs::training {
             throw std::runtime_error(std::string("Backward failed: ") + backward_result.error_message);
         }
 
-        // No need to accumulate - gradients were written directly to SplatData buffers
-        // The trainer calls zero_gradients() at the start of each iteration
+        // Gradients are ACCUMULATED (+=) directly into SplatData buffers
+        // This allows multiple loss terms (photometric, regularization, etc.) to contribute
+        // The trainer calls zero_gradients() at the END of strategy->step() (after optimizer update)
     }
 } // namespace lfs::training

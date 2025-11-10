@@ -12,8 +12,7 @@
 #include "core_new/parameters.hpp"
 #include "dataset.hpp"
 #include "lfs/kernels/bilateral_grid.cuh"  // Kernels are ported
-// TODO: Port metrics to LibTorch-free implementation
-// #include "metrics/metrics.hpp"
+#include "metrics/metrics.hpp"
 #include "optimizer/scheduler.hpp"
 #include "progress.hpp"
 #include "project/project.hpp"  // Using old project system for now
@@ -192,9 +191,8 @@ namespace lfs::training {
         // Sparsity optimizer (LibTorch-free)
         std::unique_ptr<ISparsityOptimizer> sparsity_optimizer_;
 
-        // TODO: Port metrics to LibTorch-free implementation
         // Metrics evaluator - handles all evaluation logic
-        // std::unique_ptr<MetricsEvaluator> evaluator_;
+        std::unique_ptr<lfs::training::MetricsEvaluator> evaluator_;
 
         // Single mutex that protects the model during training
         mutable std::shared_mutex render_mutex_;
