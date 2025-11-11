@@ -209,8 +209,8 @@ namespace lfs::training {
         // Reshape sh0 and shN from flat 1D (per Gaussian) to original 3D structure
         // sh0: [N, 3] -> [N, 1, 3] (3 elements = 1 coeff * 3 channels)
         // shN: [N, 45] -> [N, 15, 3] (45 elements = 15 coeffs * 3 channels)
-        auto sh0_out = sh0_out_2d.reshape({static_cast<size_t>(out_size), 1, 3});
-        auto shN_out = shN_out_2d.reshape({static_cast<size_t>(out_size), static_cast<size_t>(shN_coeffs), static_cast<size_t>(shN_channels)});
+        auto sh0_out = sh0_out_2d.reshape({out_size, 1, 3});
+        auto shN_out = shN_out_2d.reshape({out_size, shN_coeffs, shN_channels});
 
         // Update SplatData with new tensors (already contiguous from kernel!)
         _splat_data.means() = positions_out;
