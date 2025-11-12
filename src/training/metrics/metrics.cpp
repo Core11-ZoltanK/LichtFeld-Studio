@@ -274,7 +274,7 @@ namespace gs::training {
         TORCH_CHECK(depth_normalized.dim() == 2, "Expected 2D tensor for depth_normalized");
 
         // Create output tensor [3, H, W] for RGB
-        auto colormap = torch::zeros({static_cast<size_t>(3), static_cast<size_t>(depth_normalized.size(0)), static_cast<size_t>(depth_normalized.size(1))},
+        auto colormap = torch::zeros({(3), (depth_normalized.size(0)), (depth_normalized.size(1))},
                                      torch::TensorOptions().dtype(torch::kFloat32).device(depth_normalized.device()));
 
         // Get individual channel views
