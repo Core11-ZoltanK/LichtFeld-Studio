@@ -132,6 +132,10 @@ bool RasterizerMemoryArena::is_vmm_supported(int device) const {
 uint64_t RasterizerMemoryArena::begin_frame() {
     uint64_t frame_id = frame_counter_.fetch_add(1, std::memory_order_relaxed);
 
+    // Synchronize to ensure previous frame's GPU work is complete
+    // before we reset the arena offset and start overwriting memory
+    cudaDeviceSynchronize();
+
     // CRITICAL FIX: Reset arena offset at the beginning of each frame!
     int device;
     cudaError_t err = cudaGetDevice(&device);
@@ -140,16 +144,15 @@ uint64_t RasterizerMemoryArena::begin_frame() {
         auto it = device_arenas_.find(device);
         if (it != device_arenas_.end() && it->second) {
             // Reset the offset to reuse the buffer from the beginning
+            size_t old_offset = it->second->offset.load(std::memory_order_acquire);
             it->second->offset.store(0, std::memory_order_release);
 
             // Log memory status periodically (but not too often)
-            /*
             bool should_log = (frame_id == 1) || (frame_id % config_.log_interval == 0);
 
             if (should_log) {
                 log_memory_status(frame_id, true);
             }
-            */
         }
     }
 
@@ -230,32 +233,39 @@ void RasterizerMemoryArena::log_memory_status(uint64_t frame_id, bool force) {
     size_t peak_period_mb = arena.peak_usage_period.load() >> 20;
     size_t peak_overall_mb = arena.peak_usage.load() >> 20;
 
-    // Get GPU memory info
-    size_t free_gpu, total_gpu;
-    cudaMemGetInfo(&free_gpu, &total_gpu);
-
-    // Calculate utilization
+    // Calculate utilization and fragmentation metrics
     float utilization = arena.committed_size > 0 ?
         (100.0f * arena.peak_usage_period.load() / arena.committed_size) : 0.0f;
 
-    // Log the status
-    std::cout << "\n[Arena Memory Status] Frame " << frame_id << " | Device " << device << ":\n";
+    // Fragmentation = (committed - peak_used) / committed
+    // 0% = no fragmentation (using all committed memory)
+    // 100% = complete fragmentation (using none of committed memory)
+    float fragmentation = arena.committed_size > 0 ?
+        (100.0f * (arena.committed_size - arena.peak_usage_period.load()) / arena.committed_size) : 0.0f;
 
-    if (arena.d_ptr != 0) {
-        std::cout << "  Virtual reserved: " << (arena.virtual_size >> 30) << " GB (no cost)\n"
-                  << "  Physical committed: " << committed_mb << " MB (actual memory)\n";
-    } else {
-        std::cout << "  Allocated: " << committed_mb << " MB (traditional mode)\n";
+    size_t wasted_mb = (arena.committed_size - arena.peak_usage_period.load()) >> 20;
+
+    // Analyze actual allocations from frame contexts
+    size_t total_frame_allocations = 0;
+    size_t num_active_frames = 0;
+    size_t max_frame_alloc = 0;
+    {
+        std::lock_guard<std::mutex> lock(frame_mutex_);
+        for (const auto& [fid, ctx] : frame_contexts_) {
+            if (ctx.is_active || (frame_id - fid) < config_.log_interval) {
+                total_frame_allocations += ctx.total_allocated;
+                num_active_frames++;
+                max_frame_alloc = std::max(max_frame_alloc, ctx.total_allocated);
+            }
+        }
     }
 
-    std::cout << "  Peak usage (last " << config_.log_interval << " frames): "
-              << peak_period_mb << " MB (" << std::fixed << std::setprecision(1)
-              << utilization << "%)\n"
-              << "  Peak usage (overall): " << peak_overall_mb << " MB\n"
-              << "  Reallocations: " << arena.realloc_count.load() << "\n"
-              << "  GPU: " << (free_gpu >> 20) << "/" << (total_gpu >> 20)
-              << " MB free (" << std::fixed << std::setprecision(1)
-              << (100.0f * free_gpu / total_gpu) << "% available)\n";
+    // Log compact status
+    std::cout << "[Arena Frame " << frame_id << "] "
+              << committed_mb << " MB committed, "
+              << peak_period_mb << " MB peak ("
+              << std::fixed << std::setprecision(0) << utilization << "% used), "
+              << arena.realloc_count.load() << " reallocs\n";
 
     // Reset period peak for next logging interval
     arena.peak_usage_period.store(0, std::memory_order_release);
@@ -608,6 +618,17 @@ void RasterizerMemoryArena::decommit_unused_memory(Arena& arena) {
 char* RasterizerMemoryArena::allocate_internal(Arena& arena, size_t size, uint64_t frame_id) {
     size_t aligned_size = align_size(size);
 
+    // Detailed allocation logging for profiling
+    if (config_.enable_profiling && (frame_id % config_.log_interval == 0)) {
+        size_t size_mb = aligned_size >> 20;
+        if (size_mb > 0) {  // Only log allocations >= 1MB
+            size_t old_offset = arena.offset.load();
+            std::cout << "[Arena Alloc] Frame " << frame_id << ": requesting "
+                      << size_mb << " MB (offset=" << (old_offset >> 20)
+                      << " MB, exact_size=" << (aligned_size / 1024.0 / 1024.0) << " MB)\n";
+        }
+    }
+
     // Sanity check
     if (aligned_size > config_.max_physical) {
         throw std::runtime_error("Single allocation request " + std::to_string(aligned_size >> 20) +
@@ -671,13 +692,12 @@ char* RasterizerMemoryArena::allocate_internal(Arena& arena, size_t size, uint64
         }
 
         // We need to grow - calculate how much
-        // Be VERY generous to avoid repeated growth
+        // Moderate growth: balance between memory efficiency and avoiding frequent reallocations
         size_t growth_needed = total_needed - arena.committed_size;
 
-        // Always grow by a significant amount to handle concurrent allocations
+        // Grow by 1.5x what's needed, with minimum 1GB to reduce reallocation frequency
         size_t growth_amount = std::max({
-            growth_needed * 2,                      // Double what's needed (for concurrent allocs)
-            arena.committed_size,                    // Double current size
+            growth_needed + (growth_needed / 2),    // 1.5x what's needed
             size_t(1) << 30                         // At least 1GB
         });
 
@@ -697,6 +717,11 @@ char* RasterizerMemoryArena::allocate_internal(Arena& arena, size_t size, uint64
         if (arena.d_ptr != 0) {
             // VMM path
             success = commit_more_memory(arena, growth_amount);
+            // Synchronize after committing new memory to ensure no GPU kernels
+            // are still accessing old memory regions before we allow new allocations
+            if (success) {
+                cudaDeviceSynchronize();
+            }
         } else {
             // Traditional path
             success = grow_arena(arena, new_committed);
@@ -948,8 +973,8 @@ RasterizerMemoryArena& GlobalArenaManager::get_arena() {
         config.max_physical = 8ULL << 30;     // 8GB max physical
         config.granularity = 2 << 20;         // 2MB chunks
         config.alignment = 256;
-        config.enable_profiling = false;
-        config.log_interval = 1000;
+        config.enable_profiling = false;      // Disable profiling for production
+        config.log_interval = 1000;           // Log every 1000 frames
 
         arena_ = std::make_unique<RasterizerMemoryArena>(config);
     }

@@ -142,7 +142,9 @@ namespace fast_lfs::rasterization {
 
         static PerBucketBuffers from_blob(char*& blob, size_t n_buckets) {
             PerBucketBuffers buffers;
-            obtain(blob, buffers.tile_index, n_buckets * config::block_size_blend, 128);
+            // tile_index: only needs n_buckets elements (one per bucket)
+            // color_transmittance: needs n_buckets * block_size_blend elements (one per thread per bucket)
+            obtain(blob, buffers.tile_index, n_buckets, 128);
             obtain(blob, buffers.color_transmittance, n_buckets * config::block_size_blend, 128);
             return buffers;
         }

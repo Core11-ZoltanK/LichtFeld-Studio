@@ -191,7 +191,8 @@ std::tuple<int, int, int, int, int> fast_lfs::rasterization::forward(
     cudaMemcpy(&n_buckets, per_tile_buffers.bucket_offsets + n_tiles - 1, sizeof(uint), cudaMemcpyDeviceToHost);
 
     // Allocate per-bucket buffers through arena
-    char* per_bucket_buffers_blob = per_bucket_buffers_func(required<PerBucketBuffers>(n_buckets));
+    size_t per_bucket_request = required<PerBucketBuffers>(n_buckets);
+    char* per_bucket_buffers_blob = per_bucket_buffers_func(per_bucket_request);
     PerBucketBuffers per_bucket_buffers = PerBucketBuffers::from_blob(per_bucket_buffers_blob, n_buckets);
 
     // Perform blending

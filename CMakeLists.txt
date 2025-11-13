@@ -438,7 +438,7 @@ add_subdirectory(src/geometry)     # Geometry utilities
 add_subdirectory(src/project)      # Project management
 add_subdirectory(src/loader)       # Data loading
 add_subdirectory(src/training)     # Training functionality
-add_subdirectory(src/training_debug) # Training debug/comparison module
+#add_subdirectory(src/training_debug) # Training debug/comparison module
 add_subdirectory(src/rendering)   # Rendering pipeline
 add_subdirectory(src/visualizer)  # GUI and visualization
 
