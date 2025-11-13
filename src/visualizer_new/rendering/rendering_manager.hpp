@@ -41,7 +41,7 @@ namespace lfs::vis {
         glm::vec3 crop_max = glm::vec3(1.0f, 1.0f, 1.0f);
         glm::vec3 crop_color = glm::vec3(1.0f, 1.0f, 0.0f);
         float crop_line_width = 2.0f;
-        gs::geometry::EuclideanTransform crop_transform;
+        lfs::geometry::EuclideanTransform crop_transform;
 
         // Background
         glm::vec3 background_color = glm::vec3(0.0f, 0.0f, 0.0f);
@@ -55,7 +55,7 @@ namespace lfs::vis {
         bool lock_gimbal = false;
 
         // World transform
-        gs::geometry::EuclideanTransform world_transform;
+        lfs::geometry::EuclideanTransform world_transform;
 
         // Grid
         bool show_grid = true;

@@ -16,7 +16,7 @@ namespace lfs::vis::tools {
 
     TranslationGizmoTool::TranslationGizmoTool() {
         // Initialize with identity transform
-        current_transform_ = gs::geometry::EuclideanTransform();
+        current_transform_ = lfs::geometry::EuclideanTransform();
     }
 
     bool TranslationGizmoTool::initialize(const ToolContext& ctx) {
@@ -146,7 +146,7 @@ namespace lfs::vis::tools {
                 glm::vec2(x, y), view, projection);
 
             // Update transform with new position
-            current_transform_ = gs::geometry::EuclideanTransform(
+            current_transform_ = lfs::geometry::EuclideanTransform(
                 current_transform_.getRotationMat(),
                 new_position);
 
@@ -193,7 +193,7 @@ namespace lfs::vis::tools {
                 // Display current position
                 glm::vec3 position = current_transform_.getTranslation();
                 if (ImGui::DragFloat3("Position", &position.x, 0.01f)) {
-                    current_transform_ = gs::geometry::EuclideanTransform(
+                    current_transform_ = lfs::geometry::EuclideanTransform(
                         current_transform_.getRotationMat(),
                         position);
                     if (tool_context_) {
@@ -203,7 +203,7 @@ namespace lfs::vis::tools {
 
                 // Reset button
                 if (ImGui::Button("Reset Transform")) {
-                    current_transform_ = gs::geometry::EuclideanTransform();
+                    current_transform_ = lfs::geometry::EuclideanTransform();
                     if (tool_context_) {
                         updateWorldTransform(*tool_context_);
                     }

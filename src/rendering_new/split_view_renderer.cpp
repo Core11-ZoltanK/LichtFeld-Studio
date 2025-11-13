@@ -196,11 +196,11 @@ namespace lfs::rendering {
                 .gut = request.gut};
 
             // Handle crop box if present
-            std::unique_ptr<gs::geometry::BoundingBox> temp_crop_box;
+            std::unique_ptr<lfs::geometry::BoundingBox> temp_crop_box;
             if (request.crop_box.has_value()) {
-                temp_crop_box = std::make_unique<gs::geometry::BoundingBox>();
+                temp_crop_box = std::make_unique<lfs::geometry::BoundingBox>();
                 temp_crop_box->setBounds(request.crop_box->min, request.crop_box->max);
-                gs::geometry::EuclideanTransform transform(request.crop_box->transform);
+                lfs::geometry::EuclideanTransform transform(request.crop_box->transform);
                 temp_crop_box->setworld2BBox(transform);
                 base_req.crop_box = temp_crop_box.get();
             }

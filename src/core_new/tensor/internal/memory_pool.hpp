@@ -5,6 +5,7 @@
 
 #include "core_new/logger.hpp"
 #include "gpu_arena_allocator.hpp"
+#include "allocation_profiler.hpp"
 #include <cuda_runtime.h>
 #include <memory>
 #include <mutex>
@@ -174,6 +175,9 @@ namespace lfs::core {
             if (err == cudaSuccess) {
                 method = AllocMethod::Async;
 
+                // Record allocation site for profiling
+                AllocationProfiler::instance().record_allocation(bytes, 3); // skip 3 frames: record_allocation, allocate, Tensor::allocate
+
                 // Track allocation sizes
                 static std::atomic<int> alloc_count{0};
                 static std::atomic<size_t> total_bytes_allocated{0};
@@ -188,7 +192,12 @@ namespace lfs::core {
                 else if (bytes < (100 << 20)) medium_allocs++;
                 else large_allocs++;
 
-                if (alloc_count % 5000 == 0) {
+                if (alloc_count % 2000 == 0) {
+                    // Print allocation profiling report every 2k allocations
+                    if constexpr (ENABLE_ALLOCATION_PROFILING) {
+                        AllocationProfiler::instance().print_top_allocators(30);
+                    }
+
                     // Query memory pool attributes
                     int device;
                     cudaGetDevice(&device);

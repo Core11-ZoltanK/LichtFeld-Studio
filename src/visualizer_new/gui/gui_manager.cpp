@@ -10,6 +10,7 @@
 #include "gui/gui_manager.hpp"
 #include "core_new/image_io.hpp"
 #include "core_new/logger.hpp"
+#include "project_new/project.hpp"
 #include "gui/panels/main_panel.hpp"
 #include "gui/panels/scene_panel.hpp"
 #include "gui/panels/tools_panel.hpp"
@@ -159,7 +160,7 @@ namespace lfs::vis::gui {
 
         // Configure file browser callback
         setFileSelectedCallback([this](const std::filesystem::path& path, bool is_dataset) {
-            if (path.extension() == gs::management::Project::EXTENSION) {
+            if (path.extension() == lfs::project::Project::EXTENSION) {
                 lfs::core::events::cmd::LoadProject{.path = path}.emit();
             } else {
                 lfs::core::events::cmd::LoadFile{.path = path, .is_dataset = is_dataset}.emit();

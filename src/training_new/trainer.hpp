@@ -5,17 +5,17 @@
 #pragma once
 
 // TODO: Port these components to LibTorch-free implementation
-#include "components/bilateral_grid.hpp"
-#include "components/sparsity_optimizer.hpp"
+// #include "components/bilateral_grid.hpp"        // Temporarily disabled - requires LibTorch
+// #include "components/sparsity_optimizer.hpp"     // Temporarily disabled - requires LibTorch
 // #include "components/poseopt.hpp"
-#include "core/events.hpp"         // Using old events system for now
+// #include "core/events.hpp"                  // Temporarily disabled - requires LibTorch (gs_core)
 #include "core_new/parameters.hpp"
 #include "dataset.hpp"
-#include "lfs/kernels/bilateral_grid.cuh"  // Kernels are ported
+// #include "lfs/kernels/bilateral_grid.cuh"   // Temporarily disabled - not using bilateral grid
 #include "metrics/metrics.hpp"
 #include "optimizer/scheduler.hpp"
 #include "progress.hpp"
-#include "project/project.hpp"  // Using old project system for now
+#include "project_new/project.hpp"  // Using old project system for now
 // TODO: Port 3DGUT rasterizer to LibTorch-free implementation
 // #include "rasterization/rasterizer.hpp"
 #include "strategies/istrategy.hpp"
@@ -84,7 +84,7 @@ namespace lfs::training {
 
         std::vector<std::shared_ptr<const lfs::core::Camera>> getCamList() const;
 
-        void setProject(std::shared_ptr<gs::management::Project> project) { lf_project_ = project; }
+        void setProject(std::shared_ptr<lfs::project::Project> project) { lf_project_ = project; }
 
         void load_cameras_info();
 
@@ -139,27 +139,29 @@ namespace lfs::training {
             lfs::core::SplatData& splatData,
             const lfs::core::param::OptimizationParameters& opt_params);
 
-        std::expected<std::pair<float, BilateralGridTVContext>, std::string> compute_bilateral_grid_tv_loss(
-            const std::unique_ptr<BilateralGrid>& bilateral_grid,
-            const lfs::core::param::OptimizationParameters& opt_params);
+        // Temporarily disabled - requires LibTorch
+        // std::expected<std::pair<float, BilateralGridTVContext>, std::string> compute_bilateral_grid_tv_loss(
+        //     const std::unique_ptr<BilateralGrid>& bilateral_grid,
+        //     const lfs::core::param::OptimizationParameters& opt_params);
 
-        // Sparsity-related methods (LibTorch-free)
-        std::expected<std::pair<float, SparsityLossContext>, std::string> compute_sparsity_loss_forward(
-            int iter,
-            const lfs::core::SplatData& splatData);
+        // Sparsity-related methods (LibTorch-free) - Temporarily disabled
+        // std::expected<std::pair<float, SparsityLossContext>, std::string> compute_sparsity_loss_forward(
+        //     int iter,
+        //     const lfs::core::SplatData& splatData);
 
-        std::expected<void, std::string> handle_sparsity_update(
-            int iter,
-            lfs::core::SplatData& splatData);
+        // std::expected<void, std::string> handle_sparsity_update(
+        //     int iter,
+        //     lfs::core::SplatData& splatData);
 
-        std::expected<void, std::string> apply_sparsity_pruning(
-            int iter,
-            lfs::core::SplatData& splatData);
+        // std::expected<void, std::string> apply_sparsity_pruning(
+        //     int iter,
+        //     lfs::core::SplatData& splatData);
 
         // Cleanup method for re-initialization
         void cleanup();
 
-        std::expected<void, std::string> initialize_bilateral_grid();
+        // Temporarily disabled - requires LibTorch
+        // std::expected<void, std::string> initialize_bilateral_grid();
 
         // Handle control requests
         void handle_control_requests(int iter, std::stop_token stop_token = {});
@@ -179,17 +181,17 @@ namespace lfs::training {
         std::unique_ptr<TrainingProgress> progress_;
         size_t train_dataset_size_ = 0;
 
-        // Bilateral grid components
-        std::unique_ptr<BilateralGrid> bilateral_grid_;
-        std::unique_ptr<lfs::training::AdamOptimizer> bilateral_grid_optimizer_;  // Use ported Adam
-        std::unique_ptr<WarmupExponentialLR> bilateral_grid_scheduler_;
+        // Bilateral grid components - Temporarily disabled (requires LibTorch)
+        // std::unique_ptr<BilateralGrid> bilateral_grid_;
+        // std::unique_ptr<lfs::training::AdamOptimizer> bilateral_grid_optimizer_;  // Use ported Adam
+        // std::unique_ptr<WarmupExponentialLR> bilateral_grid_scheduler_;
 
         // TODO: Port pose optimization to LibTorch-free implementation
         // std::unique_ptr<PoseOptimizationModule> poseopt_module_; // Pose optimization module
         // std::unique_ptr<torch::optim::Adam> poseopt_optimizer_;  // Optimizer for pose optimization
 
-        // Sparsity optimizer (LibTorch-free)
-        std::unique_ptr<ISparsityOptimizer> sparsity_optimizer_;
+        // Sparsity optimizer (LibTorch-free) - Temporarily disabled (requires LibTorch)
+        // std::unique_ptr<ISparsityOptimizer> sparsity_optimizer_;
 
         // Metrics evaluator - handles all evaluation logic
         std::unique_ptr<lfs::training::MetricsEvaluator> evaluator_;
@@ -224,6 +226,6 @@ namespace lfs::training {
         std::map<int, std::shared_ptr<const lfs::core::Camera>> m_cam_id_to_cam;
 
         // LichtFeld project
-        std::shared_ptr<gs::management::Project> lf_project_ = nullptr;
+        std::shared_ptr<lfs::project::Project> lf_project_ = nullptr;
     };
 } // namespace lfs::training

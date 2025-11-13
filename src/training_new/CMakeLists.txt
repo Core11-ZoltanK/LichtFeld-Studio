@@ -39,6 +39,19 @@ set_target_properties(lfs_training_kernels PROPERTIES
     CUDA_SEPARABLE_COMPILATION ON
     CUDA_RESOLVE_DEVICE_SYMBOLS ON
     POSITION_INDEPENDENT_CODE ON
+    CUDA_STANDARD 20
+    CUDA_STANDARD_REQUIRED ON
+)
+
+# CUDA compiler options for lfs_training_kernels
+target_compile_options(lfs_training_kernels PRIVATE
+    # CUDA device code + MSVC host compiler flags (Windows only)
+    $<$<AND:$<COMPILE_LANGUAGE:CUDA>,$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Debug>>:-O0 -g -G -lineinfo --extended-lambda --expt-relaxed-constexpr -Xcompiler=/Od -Xcompiler=/Z7 -Xcompiler=/utf-8 -Xcompiler=/D_CRT_SECURE_NO_WARNINGS --diag-suppress=27>
+    $<$<AND:$<COMPILE_LANGUAGE:CUDA>,$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Release>>:-O3 -use_fast_math --extended-lambda --expt-relaxed-constexpr --ptxas-options=-v -Xcompiler=/O2 -Xcompiler=/DNDEBUG -Xcompiler=/utf-8 -Xcompiler=/D_CRT_SECURE_NO_WARNINGS --diag-suppress=27>
+
+    # CUDA device code for non-Windows
+    $<$<AND:$<COMPILE_LANGUAGE:CUDA>,$<NOT:$<CXX_COMPILER_ID:MSVC>>,$<CONFIG:Debug>>:-O0 -g -G -lineinfo --extended-lambda --expt-relaxed-constexpr>
+    $<$<AND:$<COMPILE_LANGUAGE:CUDA>,$<NOT:$<CXX_COMPILER_ID:MSVC>>,$<CONFIG:Release>>:-O3 -use_fast_math --extended-lambda --expt-relaxed-constexpr --ptxas-options=-v>
 )
 
 if(MSVC)
@@ -56,8 +69,8 @@ set(TRAINING_NEW_SOURCES
     strategies/default_strategy.cpp
     strategies/mcmc.cpp
     rasterization/fast_rasterizer.cpp
-    components/bilateral_grid.cpp
-    components/sparsity_optimizer.cpp
+    # components/bilateral_grid.cpp           # Temporarily disabled - requires LibTorch
+    # components/sparsity_optimizer.cpp       # Temporarily disabled - requires LibTorch
     metrics/metrics.cpp
     trainer.cpp
     training_setup.cpp
@@ -86,12 +99,12 @@ target_link_libraries(lfs_training
         lfs_core                # Depends on new core module (SplatData, Tensor)
         lfs_training_kernels    # LibTorch-free SSIM kernels
         fastlfs_backend         # For adam_step_raw CUDA kernel (LibTorch-free)
-        gs_training_kernels     # For old regularization CUDA kernels (TODO: port)
-        gs_training             # For old components (bilateral_grid, poseopt, etc. - TODO: port)
-        gs_core                 # For old Camera, events, etc.
-        gs_loader               # For filesystem_utils, cache_image_loader
-        gs_project              # For project management
-        ${TORCH_LIBRARIES}      # Still needed for many components
+        # gs_training_kernels     # Temporarily disabled - requires LibTorch
+        # gs_training             # Temporarily disabled - requires LibTorch
+        # gs_core                 # Temporarily disabled - requires LibTorch
+        # gs_loader               # Temporarily disabled - requires LibTorch
+        # gs_project              # Replaced by lfs_project (LibTorch-free)
+        # ${TORCH_LIBRARIES}      # Temporarily disabled to achieve torch-free build
 )
 
 # Set C++ standard

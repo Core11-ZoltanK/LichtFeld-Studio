@@ -8,7 +8,7 @@
 #include "core_new/camera.hpp"
 #include "core_new/splat_data.hpp"
 #include "core_new/tensor.hpp"
-#include "geometry/bounding_box.hpp"
+#include "geometry_new/bounding_box.hpp"
 #include "point_cloud_renderer.hpp"
 #include "rendering_new/rendering.hpp"
 #include "screen_renderer.hpp"
@@ -35,7 +35,7 @@ namespace lfs::rendering {
             bool antialiasing = false;
             int sh_degree = 3;
             RenderMode render_mode = RenderMode::RGB;
-            const gs::geometry::BoundingBox* crop_box = nullptr;
+            const lfs::geometry::BoundingBox* crop_box = nullptr;
             glm::vec3 background_color = glm::vec3(0.0f, 0.0f, 0.0f);
             bool point_cloud_mode = false;
             float voxel_size = 0.01f;

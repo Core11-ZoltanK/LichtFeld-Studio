@@ -4,7 +4,7 @@
 
 #pragma once
 #include "core_new/event_bus.hpp"
-#include "geometry/bounding_box.hpp"
+#include "geometry_new/bounding_box.hpp"
 #include <filesystem>
 #include <glm/glm.hpp>
 #include <optional>
@@ -55,7 +55,7 @@ namespace lfs::core {
             EVENT(RemovePLY, std::string name;);
             EVENT(RenamePLY, std::string old_name; std::string new_name;);
             EVENT(SetPLYVisibility, std::string name; bool visible;);
-            EVENT(CropPLY, gs::geometry::BoundingBox crop_box;);
+            EVENT(CropPLY, lfs::geometry::BoundingBox crop_box;);
             EVENT(CyclePLY, );
             EVENT(ToggleSplitView, );
             EVENT(ToggleGTComparison, );

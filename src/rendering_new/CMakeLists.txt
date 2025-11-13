@@ -36,8 +36,8 @@ add_library(lfs_rendering STATIC ${RENDERING_SOURCES})
 target_link_libraries(lfs_rendering
         PUBLIC
         lfs_core                # Link core module
-        gs_geometry             # Link geometry module for BoundingBox and EuclideanTransform
-        gs_kernels              # Link kernels module
+        lfs_geometry            # LibTorch-free geometry module
+        # gs_kernels              # Temporarily disabled - requires LibTorch
         PRIVATE
         rendering_cuda_tensor_backend
         glm::glm

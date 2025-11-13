@@ -62,9 +62,9 @@ target_include_directories(lfs_visualizer
 target_link_libraries(lfs_visualizer
         PRIVATE
         lfs_core           # Use modular core library (LibTorch-free)
-        gs_geometry        # If needed for geometry operations
-        gs_project         # For project management
-        gs_kernels         # Use modular kernels library
+        lfs_geometry       # LibTorch-free geometry module
+        lfs_project        # LibTorch-free project management
+        # gs_kernels         # Temporarily disabled - requires LibTorch
         lfs_loader
         lfs_rendering
         lfs_training

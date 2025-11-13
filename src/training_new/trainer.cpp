@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: GPL-3.0-or-later */
 
 #include "trainer.hpp"
-#include "loader/filesystem_utils.hpp"
+#include "loader_new/filesystem_utils.hpp"
 // TODO: Port components to LibTorch-free implementation
-#include "components/bilateral_grid.hpp"
-#include "components/sparsity_optimizer.hpp"
+// #include "components/bilateral_grid.hpp"         // Temporarily disabled - requires LibTorch
+// #include "components/sparsity_optimizer.hpp"      // Temporarily disabled - requires LibTorch
 // #include "components/poseopt.hpp"
 #include "core_new/events.hpp"
 #include "core_new/image_io.hpp"
@@ -44,12 +44,12 @@ namespace lfs::training {
 
         // Reset all components
         progress_.reset();
-        bilateral_grid_.reset();
-        bilateral_grid_optimizer_.reset();
-        bilateral_grid_scheduler_.reset();
+        // bilateral_grid_.reset();                // Temporarily disabled - requires LibTorch
+        // bilateral_grid_optimizer_.reset();      // Temporarily disabled - requires LibTorch
+        // bilateral_grid_scheduler_.reset();      // Temporarily disabled - requires LibTorch
         // poseopt_module_.reset();
         // poseopt_optimizer_.reset();
-        sparsity_optimizer_.reset();
+        // sparsity_optimizer_.reset();            // Temporarily disabled - requires LibTorch
         evaluator_.reset();
 
         // Clear datasets (will be recreated)
@@ -73,43 +73,44 @@ namespace lfs::training {
         LOG_DEBUG("Trainer cleanup complete");
     }
 
-    std::expected<void, std::string> Trainer::initialize_bilateral_grid() {
-        if (!params_.optimization.use_bilateral_grid) {
-            return {};
-        }
+    // Temporarily disabled - requires LibTorch
+    // std::expected<void, std::string> Trainer::initialize_bilateral_grid() {
+    //     if (!params_.optimization.use_bilateral_grid) {
+    //         return {};
+    //     }
 
-        try {
-            bilateral_grid_ = std::make_unique<BilateralGrid>(
-                train_dataset_size_,
-                params_.optimization.bilateral_grid_X,
-                params_.optimization.bilateral_grid_Y,
-                params_.optimization.bilateral_grid_W);
+    //     try {
+    //         bilateral_grid_ = std::make_unique<BilateralGrid>(
+    //             train_dataset_size_,
+    //             params_.optimization.bilateral_grid_X,
+    //             params_.optimization.bilateral_grid_Y,
+    //             params_.optimization.bilateral_grid_W);
 
-            // TODO: Create AdamOptimizer variant that works with arbitrary tensors (not just SplatData)
-            // bilateral_grid_optimizer_ = std::make_unique<lfs::training::AdamOptimizer>(
-            //     bilateral_grid_->parameters(),
-            //     bilateral_grid_->grad(),
-            //     params_.optimization.bilateral_grid_lr,
-            //     1e-15);
-            //
-            // // Create scheduler with warmup
-            // const double gamma = std::pow(0.01, 1.0 / params_.optimization.iterations);
-            // bilateral_grid_scheduler_ = std::make_unique<WarmupExponentialLR>(
-            //     *bilateral_grid_optimizer_,
-            //     gamma,
-            //     1000, // warmup steps
-            //     0.01  // start at 1% of initial LR
-            // );
+    //         // TODO: Create AdamOptimizer variant that works with arbitrary tensors (not just SplatData)
+    //         // bilateral_grid_optimizer_ = std::make_unique<lfs::training::AdamOptimizer>(
+    //         //     bilateral_grid_->parameters(),
+    //         //     bilateral_grid_->grad(),
+    //         //     params_.optimization.bilateral_grid_lr,
+    //         //     1e-15);
+    //         //
+    //         // // Create scheduler with warmup
+    //         // const double gamma = std::pow(0.01, 1.0 / params_.optimization.iterations);
+    //         // bilateral_grid_scheduler_ = std::make_unique<WarmupExponentialLR>(
+    //         //     *bilateral_grid_optimizer_,
+    //         //     gamma,
+    //         //     1000, // warmup steps
+    //         //     0.01  // start at 1% of initial LR
+    //         // );
 
-            LOG_DEBUG("Bilateral grid initialized with size {}x{}x{} (optimizer TODO)",
-                      params_.optimization.bilateral_grid_X,
-                      params_.optimization.bilateral_grid_Y,
-                      params_.optimization.bilateral_grid_W);
-            return {};
-        } catch (const std::exception& e) {
-            return std::unexpected(std::format("Failed to initialize bilateral grid: {}", e.what()));
-        }
-    }
+    //         LOG_DEBUG("Bilateral grid initialized with size {}x{}x{} (optimizer TODO)",
+    //                   params_.optimization.bilateral_grid_X,
+    //                   params_.optimization.bilateral_grid_Y,
+    //                   params_.optimization.bilateral_grid_W);
+    //         return {};
+    //     } catch (const std::exception& e) {
+    //         return std::unexpected(std::format("Failed to initialize bilateral grid: {}", e.what()));
+    //     }
+    // }
 
     // Compute photometric loss AND gradient manually (using loss struct)
     // Returns GPU tensors (loss and gradient) - NO SYNC!
@@ -117,8 +118,9 @@ namespace lfs::training {
         const lfs::core::Tensor& rendered,
         const lfs::core::Tensor& gt_image,
         const lfs::core::param::OptimizationParameters& opt_params) {
+        lfs::training::losses::PhotometricLoss photometric_loss;
         lfs::training::losses::PhotometricLoss::Params params{.lambda_dssim = opt_params.lambda_dssim};
-        auto result = lfs::training::losses::PhotometricLoss::forward(rendered, gt_image, params);
+        auto result = photometric_loss.forward(rendered, gt_image, params);
         if (!result) {
             return std::unexpected(result.error());
         }
@@ -142,98 +144,98 @@ namespace lfs::training {
         return lfs::training::losses::OpacityRegularization::forward(splatData.opacity_raw(), splatData.opacity_grad(), params);
     }
 
-    std::expected<std::pair<float, BilateralGridTVContext>, std::string> Trainer::compute_bilateral_grid_tv_loss(
-        const std::unique_ptr<BilateralGrid>& bilateral_grid,
-        const lfs::core::param::OptimizationParameters& opt_params) {
-        try {
-            if (opt_params.use_bilateral_grid) {
-                // Manual forward (no autograd)
-                auto [tv_loss_value, ctx] = bilateral_grid->tv_loss_forward();
-                float weighted_loss = opt_params.tv_loss_weight * tv_loss_value;
+    //     std::expected<std::pair<float, BilateralGridTVContext>, std::string> Trainer::compute_bilateral_grid_tv_loss(
+    //         const std::unique_ptr<BilateralGrid>& bilateral_grid,
+    //         const lfs::core::param::OptimizationParameters& opt_params) {
+    //         try {
+    //             if (opt_params.use_bilateral_grid) {
+    //                 // Manual forward (no autograd)
+    //                 auto [tv_loss_value, ctx] = bilateral_grid->tv_loss_forward();
+    //                 float weighted_loss = opt_params.tv_loss_weight * tv_loss_value;
+    // 
+    //                 // Return weighted loss value and context
+    //                 return std::make_pair(weighted_loss, ctx);
+    //             }
+    //             // Return zero loss with empty context
+    //             BilateralGridTVContext empty_ctx;
+    //             return std::make_pair(0.0f, empty_ctx);
+    //         } catch (const std::exception& e) {
+    //             return std::unexpected(std::format("Error computing bilateral grid TV loss: {}", e.what()));
+    //         }
+    //     }
 
-                // Return weighted loss value and context
-                return std::make_pair(weighted_loss, ctx);
-            }
-            // Return zero loss with empty context
-            BilateralGridTVContext empty_ctx;
-            return std::make_pair(0.0f, empty_ctx);
-        } catch (const std::exception& e) {
-            return std::unexpected(std::format("Error computing bilateral grid TV loss: {}", e.what()));
-        }
-    }
-
-    std::expected<std::pair<float, SparsityLossContext>, std::string>
-    Trainer::compute_sparsity_loss_forward(int iter, const lfs::core::SplatData& splatData) {
-        // Handle initialization before computing loss
-        if (sparsity_optimizer_ && sparsity_optimizer_->should_apply_loss(iter)) {
-            if (!sparsity_optimizer_->is_initialized()) {
-                auto init_result = sparsity_optimizer_->initialize(splatData.opacity_raw());
-                if (!init_result) {
-                    return std::unexpected(init_result.error());
-                }
-                LOG_INFO("Sparsity optimizer initialized at iteration {}", iter);
-            }
-
-            // Compute loss forward (manual - no autograd)
-            return sparsity_optimizer_->compute_loss_forward(splatData.opacity_raw());
-        }
-
-        // Return zero loss with empty context if not active
-        SparsityLossContext empty_ctx{};
-        return std::make_pair(0.0f, empty_ctx);
-    }
-
-    std::expected<void, std::string> Trainer::handle_sparsity_update(
-        int iter,
-        lfs::core::SplatData& splatData) {
-        try {
-            if (sparsity_optimizer_ && sparsity_optimizer_->should_update(iter)) {
-                LOG_TRACE("Updating sparsity state at iteration {}", iter);
-                auto result = sparsity_optimizer_->update_state(splatData.opacity_raw());
-                if (!result) {
-                    return std::unexpected(result.error());
-                }
-            }
-            return {};
-        } catch (const std::exception& e) {
-            return std::unexpected(std::format("Error updating sparsity state: {}", e.what()));
-        }
-    }
-
-    std::expected<void, std::string> Trainer::apply_sparsity_pruning(
-        int iter,
-        lfs::core::SplatData& splatData) {
-        try {
-            if (sparsity_optimizer_ && sparsity_optimizer_->should_prune(iter)) {
-                LOG_INFO("Applying sparsity-based pruning at iteration {}", iter);
-
-                auto mask_result = sparsity_optimizer_->get_prune_mask(splatData.opacity_raw());
-                if (!mask_result) {
-                    return std::unexpected(mask_result.error());
-                }
-                auto prune_mask = *mask_result;
-
-                int n_before = static_cast<int>(splatData.size());
-
-                // Use strategy's remove functionality
-                strategy_->remove_gaussians(prune_mask);
-
-                int n_after = static_cast<int>(splatData.size());
-                int n_prune = n_before - n_after;
-
-                LOG_INFO("Pruned {} Gaussians: {} -> {} ({}% reduction)",
-                         n_prune, n_before, n_after,
-                         static_cast<int>(100.0f * n_prune / n_before));
-
-                // Clear sparsity optimizer after pruning
-                sparsity_optimizer_.reset();
-                LOG_DEBUG("Sparsity optimizer cleared after pruning");
-            }
-            return {};
-        } catch (const std::exception& e) {
-            return std::unexpected(std::format("Error applying sparsity pruning: {}", e.what()));
-        }
-    }
+    //     std::expected<std::pair<float, SparsityLossContext>, std::string>
+    //     Trainer::compute_sparsity_loss_forward(int iter, const lfs::core::SplatData& splatData) {
+    //         // Handle initialization before computing loss
+    //         if (sparsity_optimizer_ && sparsity_optimizer_->should_apply_loss(iter)) {
+    //             if (!sparsity_optimizer_->is_initialized()) {
+    //                 auto init_result = sparsity_optimizer_->initialize(splatData.opacity_raw());
+    //                 if (!init_result) {
+    //                     return std::unexpected(init_result.error());
+    //                 }
+    //                 LOG_INFO("Sparsity optimizer initialized at iteration {}", iter);
+    //             }
+    // 
+    //             // Compute loss forward (manual - no autograd)
+    //             return sparsity_optimizer_->compute_loss_forward(splatData.opacity_raw());
+    //         }
+    // 
+    //         // Return zero loss with empty context if not active
+    //         SparsityLossContext empty_ctx{};
+    //         return std::make_pair(0.0f, empty_ctx);
+    //     }
+    // 
+    //     std::expected<void, std::string> Trainer::handle_sparsity_update(
+    //         int iter,
+    //         lfs::core::SplatData& splatData) {
+    //         try {
+    //             if (sparsity_optimizer_ && sparsity_optimizer_->should_update(iter)) {
+    //                 LOG_TRACE("Updating sparsity state at iteration {}", iter);
+    //                 auto result = sparsity_optimizer_->update_state(splatData.opacity_raw());
+    //                 if (!result) {
+    //                     return std::unexpected(result.error());
+    //                 }
+    //             }
+    //             return {};
+    //         } catch (const std::exception& e) {
+    //             return std::unexpected(std::format("Error updating sparsity state: {}", e.what()));
+    //         }
+    //     }
+    // 
+    //     std::expected<void, std::string> Trainer::apply_sparsity_pruning(
+    //         int iter,
+    //         lfs::core::SplatData& splatData) {
+    //         try {
+    //             if (sparsity_optimizer_ && sparsity_optimizer_->should_prune(iter)) {
+    //                 LOG_INFO("Applying sparsity-based pruning at iteration {}", iter);
+    // 
+    //                 auto mask_result = sparsity_optimizer_->get_prune_mask(splatData.opacity_raw());
+    //                 if (!mask_result) {
+    //                     return std::unexpected(mask_result.error());
+    //                 }
+    //                 auto prune_mask = *mask_result;
+    // 
+    //                 int n_before = static_cast<int>(splatData.size());
+    // 
+    //                 // Use strategy's remove functionality
+    //                 strategy_->remove_gaussians(prune_mask);
+    // 
+    //                 int n_after = static_cast<int>(splatData.size());
+    //                 int n_prune = n_before - n_after;
+    // 
+    //                 LOG_INFO("Pruned {} Gaussians: {} -> {} ({}% reduction)",
+    //                          n_prune, n_before, n_after,
+    //                          static_cast<int>(100.0f * n_prune / n_before));
+    // 
+    //                 // Clear sparsity optimizer after pruning
+    //                 sparsity_optimizer_.reset();
+    //                 LOG_DEBUG("Sparsity optimizer cleared after pruning");
+    //             }
+    //             return {};
+    //         } catch (const std::exception& e) {
+    //             return std::unexpected(std::format("Error applying sparsity pruning: {}", e.what()));
+    //     }
+    // }
 
     Trainer::Trainer(std::shared_ptr<CameraDataset> dataset,
                      std::unique_ptr<IStrategy> strategy,
@@ -330,42 +332,42 @@ namespace lfs::training {
             strategy_->initialize(params.optimization);
             LOG_DEBUG("Strategy initialized");
 
-            // Initialize bilateral grid if enabled
-            if (auto result = initialize_bilateral_grid(); !result) {
-                return std::unexpected(result.error());
-            }
+            // Initialize bilateral grid if enabled - Temporarily disabled (requires LibTorch)
+            // if (auto result = initialize_bilateral_grid(); !result) {
+            //     return std::unexpected(result.error());
+            // }
 
-            // Initialize sparsity optimizer if enabled
-            if (params.optimization.enable_sparsity) {
-                // Calculate when sparsity should start
-                int base_iterations = params.optimization.iterations;
-                int sparsity_start = base_iterations; // Start after base training
-                int total_iterations = base_iterations + params.optimization.sparsify_steps;
+            // Initialize sparsity optimizer if enabled - Temporarily disabled (requires LibTorch)
+            // if (params.optimization.enable_sparsity) {
+            //     // Calculate when sparsity should start
+            //     int base_iterations = params.optimization.iterations;
+            //     int sparsity_start = base_iterations; // Start after base training
+            //     int total_iterations = base_iterations + params.optimization.sparsify_steps;
 
-                // Extend the total training iterations
-                params_.optimization.iterations = total_iterations;
+            //     // Extend the total training iterations
+            //     params_.optimization.iterations = total_iterations;
 
-                ADMMSparsityOptimizer::Config sparsity_config{
-                    .sparsify_steps = params.optimization.sparsify_steps,
-                    .init_rho = params.optimization.init_rho,
-                    .prune_ratio = params.optimization.prune_ratio,
-                    .update_every = 50,
-                    .start_iteration = sparsity_start // Start after base training completes
-                };
+            //     ADMMSparsityOptimizer::Config sparsity_config{
+            //         .sparsify_steps = params.optimization.sparsify_steps,
+            //         .init_rho = params.optimization.init_rho,
+            //         .prune_ratio = params.optimization.prune_ratio,
+            //         .update_every = 50,
+            //         .start_iteration = sparsity_start // Start after base training completes
+            //     };
 
-                sparsity_optimizer_ = SparsityOptimizerFactory::create("admm", sparsity_config);
+            //     sparsity_optimizer_ = SparsityOptimizerFactory::create("admm", sparsity_config);
 
-                if (sparsity_optimizer_) {
-                    // Don't initialize yet - will initialize when we reach start_iteration
-                    LOG_INFO("=== Sparsity Optimization Configuration ===");
-                    LOG_INFO("Base training iterations: {}", base_iterations);
-                    LOG_INFO("Sparsification starts at: iteration {}", sparsity_start);
-                    LOG_INFO("Sparsification duration: {} iterations", params.optimization.sparsify_steps);
-                    LOG_INFO("Total training iterations: {}", total_iterations);
-                    LOG_INFO("Pruning ratio: {}%", params.optimization.prune_ratio * 100);
-                    LOG_INFO("ADMM penalty (rho): {}", params.optimization.init_rho);
-                }
-            }
+            //     if (sparsity_optimizer_) {
+            //         // Don't initialize yet - will initialize when we reach start_iteration
+            //         LOG_INFO("=== Sparsity Optimization Configuration ===");
+            //         LOG_INFO("Base training iterations: {}", base_iterations);
+            //         LOG_INFO("Sparsification starts at: iteration {}", sparsity_start);
+            //         LOG_INFO("Sparsification duration: {} iterations", params.optimization.sparsify_steps);
+            //         LOG_INFO("Total training iterations: {}", total_iterations);
+            //         LOG_INFO("Pruning ratio: {}%", params.optimization.prune_ratio * 100);
+            //         LOG_INFO("ADMM penalty (rho): {}", params.optimization.init_rho);
+            //     }
+            // }
 
             // Initialize background color tensor [3] = [0, 0, 0]
             background_ = lfs::core::Tensor::zeros({3}, lfs::core::Device::CUDA, lfs::core::DataType::Float32);
@@ -796,7 +798,7 @@ namespace lfs::training {
                             // }
 
                             // Get folder name to save in by stripping file extension
-                            std::string folder_name = gs::loader::strip_extension(img_name);
+                            std::string folder_name = lfs::loader::strip_extension(img_name);
 
                             auto output_path = params_.dataset.output_path / "timelapse" / folder_name;
                             std::filesystem::create_directories(output_path);
@@ -1002,10 +1004,10 @@ namespace lfs::training {
         if (lf_project_) {
             const std::string ply_name = "splat_" + std::to_string(iter_num);
             const std::filesystem::path ply_path = save_path / (ply_name + ".ply");
-            lf_project_->addPly(gs::management::PlyData(false, ply_path, iter_num, ply_name));
+            lf_project_->addPly(lfs::project::PlyData(false, ply_path, iter_num, ply_name));
             if (params_.optimization.save_sog) {
                 std::string ply_name_sog = sog_path.stem().string();
-                lf_project_->addPly(gs::management::PlyData(false, sog_path, iter_num, ply_name_sog));
+                lf_project_->addPly(lfs::project::PlyData(false, sog_path, iter_num, ply_name_sog));
             }
         }
 

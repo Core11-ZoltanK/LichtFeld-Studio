@@ -9,7 +9,7 @@
 #include <expected>
 #include <filesystem>
 #include <future>
-#include <geometry/bounding_box.hpp>
+#include "geometry_new/bounding_box.hpp"
 #include <glm/glm.hpp>
 #include <mutex>
 #include <string>
@@ -116,7 +116,7 @@ namespace lfs::core {
         // Get attribute names for the PLY format
         std::vector<std::string> get_attribute_names() const;
 
-        SplatData crop_by_cropbox(const gs::geometry::BoundingBox& bounding_box) const;
+        SplatData crop_by_cropbox(const lfs::geometry::BoundingBox& bounding_box) const;
 
         // Convert to point cloud for export (public for testing)
         PointCloud to_point_cloud() const;

@@ -7,7 +7,7 @@
 #include "core_new/image_io.hpp" // Use existing image_io utilities
 #include "core_new/logger.hpp"
 #include "core_new/splat_data.hpp"
-#include "geometry/euclidean_transform.hpp"
+#include "geometry_new/euclidean_transform.hpp"
 #include "rendering_new/rendering.hpp"
 #include "scene/scene_manager.hpp"
 #include "training/training_manager.hpp"

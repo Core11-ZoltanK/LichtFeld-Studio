@@ -6,10 +6,11 @@
 
 #include "core_new/events.hpp"
 #include "core_new/parameters.hpp"
+#include "geometry_new/bounding_box.hpp"
 #include "scene/scene.hpp"
 #include <filesystem>
 #include <mutex>
-#include <project/project.hpp>
+#include <project_new/project.hpp>
 
 namespace lfs::vis {
 
@@ -119,9 +120,9 @@ namespace lfs::vis {
 
         SceneInfo getSceneInfo() const;
 
-        void setProject(std::shared_ptr<gs::management::Project> project) { lfs_project_ = project; }
+        void setProject(std::shared_ptr<lfs::project::Project> project) { lfs_project_ = project; }
 
-        [[nodiscard]] std::shared_ptr<gs::management::Project> getProject() const { return lfs_project_; }
+        [[nodiscard]] std::shared_ptr<lfs::project::Project> getProject() const { return lfs_project_; }
 
         bool renamePLY(const std::string& old_name, const std::string& new_name);
         void updatePlyPath(const std::string& ply_name, const std::filesystem::path& ply_path);
@@ -129,7 +130,7 @@ namespace lfs::vis {
     private:
         void setupEventHandlers();
         void emitSceneChanged();
-        void handleCropActivePly(const gs::geometry::BoundingBox& crop_box);
+        void handleCropActivePly(const lfs::geometry::BoundingBox& crop_box);
         void handleRenamePly(const lfs::core::events::cmd::RenamePLY& event);
 
         Scene scene_;
@@ -149,7 +150,7 @@ namespace lfs::vis {
         // Cache for parameters
         std::optional<lfs::core::param::TrainingParameters> cached_params_;
         // project
-        std::shared_ptr<gs::management::Project> lfs_project_ = nullptr;
+        std::shared_ptr<lfs::project::Project> lfs_project_ = nullptr;
     };
 
 } // namespace lfs::vis

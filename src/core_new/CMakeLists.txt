@@ -37,10 +37,10 @@ set_target_properties(lfs_core_kernels PROPERTIES
 
 # CUDA compiler options for lfs_core_kernels
 target_compile_options(lfs_core_kernels PRIVATE
-    $<$<AND:$<COMPILE_LANGUAGE:CUDA>,$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Debug>>:-O0 -g -G -lineinfo -Xcompiler=/Od -Xcompiler=/Z7 -Xcompiler=/utf-8 -Xcompiler=/D_CRT_SECURE_NO_WARNINGS --diag-suppress=27>
-    $<$<AND:$<COMPILE_LANGUAGE:CUDA>,$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Release>>:-O3 -use_fast_math --ptxas-options=-v -Xcompiler=/O2 -Xcompiler=/DNDEBUG -Xcompiler=/utf-8 -Xcompiler=/D_CRT_SECURE_NO_WARNINGS --diag-suppress=27>
-    $<$<AND:$<COMPILE_LANGUAGE:CUDA>,$<CXX_COMPILER_ID:GNU>>:-O3 -use_fast_math --ptxas-options=-v>
-    $<$<AND:$<COMPILE_LANGUAGE:CUDA>,$<CONFIG:Debug>,$<CXX_COMPILER_ID:GNU>>:-O0 -g -G -lineinfo>
+    $<$<AND:$<COMPILE_LANGUAGE:CUDA>,$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Debug>>:-O0 -g -G -lineinfo --extended-lambda --expt-relaxed-constexpr -Xcompiler=/Od -Xcompiler=/Z7 -Xcompiler=/utf-8 -Xcompiler=/D_CRT_SECURE_NO_WARNINGS --diag-suppress=27>
+    $<$<AND:$<COMPILE_LANGUAGE:CUDA>,$<CXX_COMPILER_ID:MSVC>,$<CONFIG:Release>>:-O3 -use_fast_math --extended-lambda --expt-relaxed-constexpr --ptxas-options=-v -Xcompiler=/O2 -Xcompiler=/DNDEBUG -Xcompiler=/utf-8 -Xcompiler=/D_CRT_SECURE_NO_WARNINGS --diag-suppress=27>
+    $<$<AND:$<COMPILE_LANGUAGE:CUDA>,$<CXX_COMPILER_ID:GNU>>:-O3 -use_fast_math --extended-lambda --expt-relaxed-constexpr --ptxas-options=-v>
+    $<$<AND:$<COMPILE_LANGUAGE:CUDA>,$<CONFIG:Debug>,$<CXX_COMPILER_ID:GNU>>:-O0 -g -G -lineinfo --extended-lambda --expt-relaxed-constexpr>
 )
 
 # Windows: Add compile definition to tell fmt that UTF-8 is enabled for CUDA files
@@ -119,7 +119,7 @@ target_link_libraries(lfs_core
         taywee::args    # Only used in argument_parser.cpp
         lfs_training    # For application.cpp training setup
         lfs_visualizer  # For application.cpp GUI
-        gs_project      # For application.cpp project management (not yet migrated)
+        lfs_project     # For application.cpp project management (LibTorch-free)
 )
 
 # Platform-specific settings
@@ -187,6 +187,15 @@ function(configure_build_type target)
 endfunction()
 
 configure_build_type(lfs_core)
+
+# Allocation profiling
+if(ENABLE_ALLOCATION_PROFILING)
+    target_compile_definitions(lfs_core PUBLIC ENABLE_ALLOCATION_PROFILING=1)
+    message(STATUS "  • Allocation profiling: ENABLED")
+else()
+    target_compile_definitions(lfs_core PUBLIC ENABLE_ALLOCATION_PROFILING=0)
+    message(STATUS "  • Allocation profiling: DISABLED")
+endif()
 
 message(STATUS "╔════════════════════════════════════════════════════════════════╗")
 message(STATUS "║  core_new - LibTorch-free Core Module                         ║")

@@ -48,8 +48,8 @@ namespace lfs::vis {
         // open project file and attach it to viewer
         bool openProject(const std::filesystem::path& path) override;
         bool closeProject(const std::filesystem::path& path = {}) override;
-        std::shared_ptr<gs::management::Project> getProject() override;
-        void attachProject(std::shared_ptr<gs::management::Project> _project) override;
+        std::shared_ptr<lfs::project::Project> getProject() override;
+        void attachProject(std::shared_ptr<lfs::project::Project> _project) override;
         // load project content to viewer
         bool LoadProject();
         void LoadProjectPlys();
@@ -146,7 +146,7 @@ namespace lfs::vis {
         bool gui_initialized_ = false;
         bool tools_initialized_ = false; // Added this member!
         // Project
-        std::shared_ptr<gs::management::Project> project_ = nullptr;
+        std::shared_ptr<lfs::project::Project> project_ = nullptr;
         void updateProjectOnModules();
     };
 

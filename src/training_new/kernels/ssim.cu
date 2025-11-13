@@ -11,6 +11,34 @@
 namespace cg = cooperative_groups;
 
 namespace {
+
+// ------------------------------------------
+// Utility: Copy rectangular crop from src to dst
+// ------------------------------------------
+__global__ void copy_crop_kernel(
+    const float* __restrict__ src,
+    float* __restrict__ dst,
+    int N, int C, int H, int W,
+    int crop_h, int crop_w,
+    int start_h, int start_w) {
+
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int total = N * C * crop_h * crop_w;
+
+    if (idx < total) {
+        int w = idx % crop_w;
+        int h = (idx / crop_w) % crop_h;
+        int c = (idx / (crop_w * crop_h)) % C;
+        int n = idx / (crop_w * crop_h * C);
+
+        int src_h = h + start_h;
+        int src_w = w + start_w;
+
+        int src_idx = n * (C * H * W) + c * (H * W) + src_h * W + src_w;
+        dst[idx] = src[src_idx];
+    }
+}
+
 // ------------------------------------------
 // Constant Memory for Gaussian Coefficients
 // ------------------------------------------
@@ -562,6 +590,154 @@ lfs::core::Tensor ssim_backward(
         ctx.dm_dsigma12.ptr<float>());
 
     return dL_dimg1;
+}
+
+// Optimized version with pre-allocated workspace (eliminates allocation churn)
+std::pair<lfs::core::Tensor, SSIMContext> ssim_forward(
+    const lfs::core::Tensor& img1_input,
+    const lfs::core::Tensor& img2_input,
+    SSIMWorkspace& workspace,
+    bool apply_valid_padding) {
+
+    const float C1 = 0.01f * 0.01f;
+    const float C2 = 0.03f * 0.03f;
+
+    // Make tensors contiguous and ensure 4D [N, C, H, W]
+    auto img1 = img1_input.contiguous();
+    auto img2 = img2_input.contiguous();
+
+    if (img1.ndim() == 3) {
+        img1 = img1.unsqueeze(0);
+    }
+    if (img2.ndim() == 3) {
+        img2 = img2.unsqueeze(0);
+    }
+
+    int N = static_cast<int>(img1.shape()[0]);
+    int C = static_cast<int>(img1.shape()[1]);
+    int H = static_cast<int>(img1.shape()[2]);
+    int W = static_cast<int>(img1.shape()[3]);
+
+    // Ensure workspace is sized correctly (only reallocates if shape changed)
+    workspace.ensure_size(img1.shape().dims());
+
+    // Launch config
+    dim3 grid((W + BLOCK_X - 1) / BLOCK_X,
+              (H + BLOCK_Y - 1) / BLOCK_Y,
+              N);
+    dim3 block(BLOCK_X, BLOCK_Y);
+
+    // Use pre-allocated workspace buffers (zero them out)
+    workspace.ssim_map.zero_();
+    workspace.dm_dmu1.zero_();
+    workspace.dm_dsigma1_sq.zero_();
+    workspace.dm_dsigma12.zero_();
+
+    fusedssimCUDA<<<grid, block>>>(
+        H, W, C, C1, C2,
+        img1.ptr<float>(),
+        img2.ptr<float>(),
+        workspace.ssim_map.ptr<float>(),
+        workspace.dm_dmu1.ptr<float>(),
+        workspace.dm_dsigma1_sq.ptr<float>(),
+        workspace.dm_dsigma12.ptr<float>());
+
+    // Store original dimensions
+    int h = H;
+    int w = W;
+
+    // Compute mean efficiently without .contiguous() allocation
+    lfs::core::Tensor ssim_value_tensor;
+    if (apply_valid_padding && H > 10 && W > 10) {
+        // Use custom kernel to copy cropped region directly to pre-allocated buffer
+        // This avoids the 8.6GB .contiguous() allocation that .slice().mean() causes!
+        int crop_h = H - 10;
+        int crop_w = W - 10;
+        int total = N * C * crop_h * crop_w;
+        int threads = 256;
+        int blocks = (total + threads - 1) / threads;
+
+        copy_crop_kernel<<<blocks, threads>>>(
+            workspace.ssim_map.ptr<float>(),
+            workspace.ssim_map_cropped.ptr<float>(),
+            N, C, H, W,
+            crop_h, crop_w,
+            5, 5);  // start_h=5, start_w=5
+
+        ssim_value_tensor = workspace.ssim_map_cropped.mean();
+    } else {
+        // No cropping needed
+        ssim_value_tensor = workspace.ssim_map.mean();
+    }
+
+    // Save context for backward (reference workspace buffers, not copies!)
+    SSIMContext ctx;
+    ctx.img1 = img1;
+    ctx.img2 = img2;
+    ctx.dm_dmu1 = workspace.dm_dmu1;       // Reference to workspace
+    ctx.dm_dsigma1_sq = workspace.dm_dsigma1_sq;
+    ctx.dm_dsigma12 = workspace.dm_dsigma12;
+    ctx.original_h = h;
+    ctx.original_w = w;
+    ctx.apply_valid_padding = apply_valid_padding;
+
+    return {ssim_value_tensor, ctx};
+}
+
+// Optimized version with pre-allocated workspace
+lfs::core::Tensor ssim_backward(
+    const SSIMContext& ctx,
+    SSIMWorkspace& workspace,
+    float grad_loss) {
+
+    const float C1 = 0.01f * 0.01f;
+    const float C2 = 0.03f * 0.03f;
+
+    // Compute gradient map size (after cropping if applicable)
+    int grad_h = ctx.original_h;
+    int grad_w = ctx.original_w;
+    size_t N = ctx.img1.shape()[0];
+    size_t C = ctx.img1.shape()[1];
+    size_t numel = N * C * grad_h * grad_w;
+
+    if (ctx.apply_valid_padding && grad_h > 10 && grad_w > 10) {
+        grad_h -= 10;
+        grad_w -= 10;
+        numel = N * C * grad_h * grad_w;
+    }
+
+    float grad_per_pixel = grad_loss / static_cast<float>(numel);
+
+    // Use pre-allocated workspace buffer
+    workspace.dL_dmap.zero_();
+
+    if (ctx.apply_valid_padding && ctx.original_h > 10 && ctx.original_w > 10) {
+        auto cropped_view = workspace.dL_dmap.slice(2, 5, ctx.original_h - 5).slice(3, 5, ctx.original_w - 5);
+        cropped_view.fill_(grad_per_pixel);
+    } else {
+        workspace.dL_dmap.fill_(grad_per_pixel);
+    }
+
+    // Use pre-allocated output buffer
+    workspace.dL_dimg1.zero_();
+
+    // Launch backward kernel
+    dim3 grid((ctx.original_w + BLOCK_X - 1) / BLOCK_X,
+              (ctx.original_h + BLOCK_Y - 1) / BLOCK_Y,
+              N);
+    dim3 block(BLOCK_X, BLOCK_Y);
+
+    fusedssim_backwardCUDA<<<grid, block>>>(
+        ctx.original_h, ctx.original_w, static_cast<int>(C), C1, C2,
+        ctx.img1.ptr<float>(),
+        ctx.img2.ptr<float>(),
+        workspace.dL_dmap.ptr<float>(),
+        workspace.dL_dimg1.ptr<float>(),
+        ctx.dm_dmu1.ptr<float>(),
+        ctx.dm_dsigma1_sq.ptr<float>(),
+        ctx.dm_dsigma12.ptr<float>());
+
+    return workspace.dL_dimg1;
 }
 
 } // namespace lfs::training::kernels

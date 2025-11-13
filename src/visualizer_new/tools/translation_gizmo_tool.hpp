@@ -32,14 +32,14 @@ namespace lfs::vis::tools {
         bool handleMouseMove(double x, double y, const ToolContext& ctx);
 
         // Get the current transform
-        gs::geometry::EuclideanTransform getTransform() const { return current_transform_; }
+        lfs::geometry::EuclideanTransform getTransform() const { return current_transform_; }
 
     protected:
         void onEnabledChanged(bool enabled) override;
 
     private:
         // Gizmo state
-        gs::geometry::EuclideanTransform current_transform_;
+        lfs::geometry::EuclideanTransform current_transform_;
         std::shared_ptr<lfs::rendering::GizmoInteraction> gizmo_interaction_;
 
         // Interaction state
@@ -50,7 +50,7 @@ namespace lfs::vis::tools {
         // Drag state
         glm::vec3 drag_start_position_;
         glm::vec3 drag_start_gizmo_pos_;
-        gs::geometry::EuclideanTransform drag_start_transform_;
+        lfs::geometry::EuclideanTransform drag_start_transform_;
 
         // Settings
         float gizmo_scale_ = 1.0f;

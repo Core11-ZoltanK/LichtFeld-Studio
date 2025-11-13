@@ -4,12 +4,12 @@
 
 #include "gui/windows/file_browser.hpp"
 #include "loader_new/loader.hpp"
-#include "project/project.hpp"
+#include "project_new/project.hpp"
 #include <algorithm>
 #include <imgui.h>
 
 namespace lfs::vis::gui {
-    using gs::management::Project;
+    using lfs::project::Project;
 }
 
 namespace lfs::vis::gui {

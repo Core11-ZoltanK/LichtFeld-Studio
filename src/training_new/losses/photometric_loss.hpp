@@ -5,6 +5,7 @@
 #pragma once
 
 #include "core_new/tensor.hpp"
+#include "lfs/kernels/ssim.cuh"
 #include <expected>
 #include <string>
 
@@ -16,6 +17,7 @@ namespace lfs::training::losses {
  * Loss = (1 - lambda_dssim) * L1 + lambda_dssim * (1 - SSIM)
  *
  * This is a libtorch-free implementation that wraps the existing CUDA SSIM kernels.
+ * OPTIMIZED: Pre-allocates SSIM workspace to eliminate 120GB allocation churn per training run.
  */
 struct PhotometricLoss {
     struct Params {
@@ -34,10 +36,24 @@ struct PhotometricLoss {
      * @param params Loss parameters
      * @return (loss_tensor, context) or error - loss stays on GPU!
      */
-    static std::expected<std::pair<lfs::core::Tensor, Context>, std::string> forward(
+    std::expected<std::pair<lfs::core::Tensor, Context>, std::string> forward(
         const lfs::core::Tensor& rendered,
         const lfs::core::Tensor& gt_image,
         const Params& params);
+
+private:
+    // Pre-allocated SSIM workspace (eliminates 120GB allocation churn)
+    lfs::training::kernels::SSIMWorkspace ssim_workspace_;
+
+    // Pre-allocated buffers for loss computation (eliminates ~35GB allocation churn)
+    lfs::core::Tensor grad_buffer_;           // Reusable gradient buffer [N, C, H, W]
+    lfs::core::Tensor loss_scalar_;           // Reusable scalar loss [1]
+    lfs::core::Tensor l1_reduction_buffer_;   // Reusable L1 reduction buffer [num_blocks]
+    std::vector<size_t> allocated_shape_;     // Track allocated shape
+    size_t allocated_num_blocks_ = 0;         // Track allocated reduction buffer size
+
+    // Ensure buffers are sized correctly (only reallocates if shape/size changed)
+    void ensure_buffers(const std::vector<size_t>& shape, size_t num_blocks);
 };
 
 } // namespace lfs::training::losses

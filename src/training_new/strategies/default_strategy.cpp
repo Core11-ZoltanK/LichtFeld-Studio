@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: GPL-3.0-or-later */
 
 #include "default_strategy.hpp"
-#include "Ops.h"
 #include "core_new/logger.hpp"
 #include "core_new/parameters.hpp"
 #include "optimizer/render_output.hpp"

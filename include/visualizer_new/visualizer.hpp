@@ -13,7 +13,7 @@ namespace lfs::core::param {
     struct TrainingParameters;
 }
 
-namespace gs::management {
+namespace lfs::project {
     class Project;
 }
 
@@ -40,8 +40,8 @@ namespace lfs::vis {
         // project handling
         virtual bool openProject(const std::filesystem::path& path) = 0;
         virtual bool closeProject(const std::filesystem::path& path) = 0;
-        virtual std::shared_ptr<gs::management::Project> getProject() = 0;
-        virtual void attachProject(std::shared_ptr<gs::management::Project> _project) = 0;
+        virtual std::shared_ptr<lfs::project::Project> getProject() = 0;
+        virtual void attachProject(std::shared_ptr<lfs::project::Project> _project) = 0;
 
         virtual void clearScene() = 0;
 

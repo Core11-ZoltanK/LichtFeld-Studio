@@ -401,7 +401,7 @@ namespace lfs::vis {
                 LOG_TIMER("LoadProject");
                 // write to project file on every change - maybe configurable in the future?
                 project_->setUpdateFileOnChange(true);
-// TODO: Fix this - gs::management::DataSetInfo != lfs::core::param::DatasetConfig
+// TODO: Fix this - lfs::project::DataSetInfo != lfs::core::param::DatasetConfig
 // Temporarily disabled during migration
 #if 0
                 auto dataset = static_cast<const lfs::core::param::DatasetConfig&>(project_->getProjectData().data_set_info);
@@ -442,7 +442,7 @@ namespace lfs::vis {
 
         // sort according to iter numbers
         std::sort(plys.begin(), plys.end(),
-                  [](const gs::management::PlyData& a, const gs::management::PlyData& b) {
+                  [](const lfs::project::PlyData& a, const lfs::project::PlyData& b) {
                       return a.ply_training_iter_number < b.ply_training_iter_number;
                   });
 
@@ -510,7 +510,7 @@ namespace lfs::vis {
                 data_config.data_path = path;
                 project_->setDataInfo(data_config);
             } else {
-                project_ = gs::management::CreateTempNewProject(data_config, project_->getOptimizationParams());
+                project_ = lfs::project::CreateTempNewProject(data_config, project_->getOptimizationParams());
                 updateProjectOnModules();
             }
         }
@@ -525,7 +525,7 @@ namespace lfs::vis {
     bool VisualizerImpl::openProject(const std::filesystem::path& path) {
         LOG_TIMER("OpenProject");
 
-        auto project = std::make_shared<gs::management::Project>();
+        auto project = std::make_shared<lfs::project::Project>();
 
         if (!project) {
             LOG_ERROR("Failed to create project object");
@@ -568,12 +568,12 @@ namespace lfs::vis {
         return success;
     }
 
-    void VisualizerImpl::attachProject(std::shared_ptr<gs::management::Project> _project) {
+    void VisualizerImpl::attachProject(std::shared_ptr<lfs::project::Project> _project) {
         project_ = _project;
         updateProjectOnModules();
     }
 
-    std::shared_ptr<gs::management::Project> VisualizerImpl::getProject() {
+    std::shared_ptr<lfs::project::Project> VisualizerImpl::getProject() {
         return project_;
     }
 
@@ -603,7 +603,7 @@ namespace lfs::vis {
 
             if (project_->getIsTempProject()) {
                 data_config.output_path.clear();
-                project_ = gs::management::CreateTempNewProject(data_config, project_->getOptimizationParams());
+                project_ = lfs::project::CreateTempNewProject(data_config, project_->getOptimizationParams());
             } else { // else: project already exits (with output dir) - only need to replace data path
                 project_->setDataInfo(data_config);
             }

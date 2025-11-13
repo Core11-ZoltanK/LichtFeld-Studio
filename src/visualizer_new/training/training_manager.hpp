@@ -98,9 +98,9 @@ namespace lfs::vis {
         std::shared_ptr<const lfs::core::Camera> getCamById(int camId) const;
         std::vector<std::shared_ptr<const lfs::core::Camera>> getCamList() const;
 
-        void setProject(std::shared_ptr<gs::management::Project> project);
+        void setProject(std::shared_ptr<lfs::project::Project> project);
 
-        std::shared_ptr<gs::management::Project> getProject() const { return project_; }
+        std::shared_ptr<lfs::project::Project> getProject() const { return project_; }
 
     private:
         // Helper method to avoid duplicated initialization logic
@@ -135,7 +135,7 @@ namespace lfs::vis {
         mutable std::mutex loss_buffer_mutex_;
 
         // project
-        std::shared_ptr<gs::management::Project> project_ = nullptr;
+        std::shared_ptr<lfs::project::Project> project_ = nullptr;
     };
 
 } // namespace lfs::vis

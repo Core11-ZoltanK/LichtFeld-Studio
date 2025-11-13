@@ -7,6 +7,7 @@
 #include "core_new/parameters.hpp"
 #include "core_new/point_cloud.hpp"
 #include "core_new/sogs.hpp"
+#include "geometry_new/bounding_box.hpp"
 #include "external/nanoflann.hpp"
 #include "external/tinyply.hpp"
 #include <iostream>
@@ -748,7 +749,7 @@ namespace lfs::core {
 
     // ========== CROPPING ==========
 
-    SplatData SplatData::crop_by_cropbox(const gs::geometry::BoundingBox& bounding_box) const {
+    SplatData SplatData::crop_by_cropbox(const lfs::geometry::BoundingBox& bounding_box) const {
         LOG_TIMER("SplatData::crop_by_cropbox");
 
         if (!_means.is_valid() || _means.size(0) == 0) {

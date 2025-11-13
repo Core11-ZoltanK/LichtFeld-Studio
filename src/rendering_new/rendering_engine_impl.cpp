@@ -5,7 +5,7 @@
 #include "rendering_engine_impl.hpp"
 #include "core_new/logger.hpp"
 #include "framebuffer_factory.hpp"
-#include "geometry/bounding_box.hpp"
+#include "geometry_new/bounding_box.hpp"
 
 namespace lfs::rendering {
 
@@ -163,13 +163,13 @@ namespace lfs::rendering {
             .gut = request.gut};
 
         // Convert crop box if present
-        std::unique_ptr<gs::geometry::BoundingBox> temp_crop_box;
+        std::unique_ptr<lfs::geometry::BoundingBox> temp_crop_box;
         if (request.crop_box.has_value()) {
-            temp_crop_box = std::make_unique<gs::geometry::BoundingBox>();
+            temp_crop_box = std::make_unique<lfs::geometry::BoundingBox>();
             temp_crop_box->setBounds(request.crop_box->min, request.crop_box->max);
 
             // Convert the transform matrix to EuclideanTransform
-            gs::geometry::EuclideanTransform transform(request.crop_box->transform);
+            lfs::geometry::EuclideanTransform transform(request.crop_box->transform);
             temp_crop_box->setworld2BBox(transform);
 
             pipeline_req.crop_box = temp_crop_box.get();
@@ -281,7 +281,7 @@ namespace lfs::rendering {
         bbox_renderer_.setLineWidth(line_width);
 
         // Set the transform from the box
-        gs::geometry::EuclideanTransform transform(box.transform);
+        lfs::geometry::EuclideanTransform transform(box.transform);
         bbox_renderer_.setworld2BBox(transform);
 
         auto view = createViewMatrix(viewport);
@@ -416,7 +416,7 @@ namespace lfs::rendering {
             .scaling_modifier = request.scaling_modifier,
             .antialiasing = request.antialiasing,
             .render_mode = request.render_mode,
-            .crop_box = static_cast<const gs::geometry::BoundingBox*>(request.crop_box),
+            .crop_box = static_cast<const lfs::geometry::BoundingBox*>(request.crop_box),
             .background_color = request.background_color,
             .point_cloud_mode = request.point_cloud_mode,
             .voxel_size = request.voxel_size,

@@ -482,6 +482,9 @@ RasterizerMemoryArena::Arena& RasterizerMemoryArena::get_or_create_arena(int dev
         while (initial_size >= (64 << 20) && !allocated) {
             err = cudaMalloc(&arena.fallback_buffer, initial_size);
             if (err == cudaSuccess) {
+                printf("[TRACKED] Arena cudaMalloc: %.2f MB\n", initial_size / (1024.0*1024));
+            }
+            if (err == cudaSuccess) {
                 arena.capacity = initial_size;
                 arena.committed_size = initial_size;
                 arena.generation = generation_counter_.fetch_add(1, std::memory_order_relaxed);
@@ -570,6 +573,11 @@ bool RasterizerMemoryArena::commit_more_memory(Arena& arena, size_t required_siz
     if (result != CUDA_SUCCESS) {
         return false;
     }
+
+    // Track VMM allocation
+    printf("[TRACKED-VMM] cuMemCreate: %.2f MB (total committed: %.2f MB)\n",
+           commit_size / (1024.0*1024),
+           (arena.committed_size + commit_size) / (1024.0*1024));
 
     // Map with proper alignment
     size_t map_offset = arena.committed_size;
@@ -818,6 +826,9 @@ bool RasterizerMemoryArena::grow_arena(Arena& arena, size_t required_size) {
     // Allocate new buffer
     void* new_buffer = nullptr;
     err = cudaMalloc(&new_buffer, new_capacity);
+    if (err == cudaSuccess) {
+        printf("[TRACKED] Arena realloc cudaMalloc: %.2f MB\n", new_capacity / (1024.0*1024));
+    }
     if (err != cudaSuccess) {
         std::cout << "  ❌ GROWTH FAILED: " << cudaGetErrorString(err) << "\n"
                   << "========================================\n" << std::endl;

@@ -4,13 +4,13 @@
 
 #pragma once
 
-#include "geometry/bounding_box.hpp"
+#include "geometry_new/bounding_box.hpp"
 #include "gl_resources.hpp"
 #include "rendering_new/rendering.hpp"
 #include "shader_manager.hpp"
 
 namespace lfs::rendering {
-    class RenderBoundingBox : public gs::geometry::BoundingBox, public IBoundingBox {
+    class RenderBoundingBox : public lfs::geometry::BoundingBox, public IBoundingBox {
     public:
         RenderBoundingBox();
         ~RenderBoundingBox() override = default;
@@ -31,10 +31,10 @@ namespace lfs::rendering {
         glm::vec3 getSize() const override { return BoundingBox::getSize(); }
         glm::vec3 getLocalCenter() const override { return BoundingBox::getLocalCenter(); }
 
-        void setworld2BBox(const gs::geometry::EuclideanTransform& transform) override {
+        void setworld2BBox(const lfs::geometry::EuclideanTransform& transform) override {
             BoundingBox::setworld2BBox(transform);
         }
-        gs::geometry::EuclideanTransform getworld2BBox() const override {
+        lfs::geometry::EuclideanTransform getworld2BBox() const override {
             return BoundingBox::getworld2BBox();
         }
 

@@ -35,7 +35,8 @@ target_link_libraries(rendering_cuda_tensor_backend
         CUDA::curand
         CUDA::cublas
         CUDA::cuda_driver
-        gs_core
+        spdlog::spdlog
+        # gs_core  # Temporarily disabled - requires LibTorch
 )
 
 target_compile_options(rendering_cuda_tensor_backend PRIVATE

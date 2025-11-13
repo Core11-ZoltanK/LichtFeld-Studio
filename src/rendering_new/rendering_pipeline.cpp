@@ -64,12 +64,12 @@ namespace lfs::rendering {
         lfs::core::Camera cam = std::move(*cam_result);
 
         // Handle crop box conversion
-        const gs::geometry::BoundingBox* geom_bbox = nullptr;
-        std::unique_ptr<gs::geometry::BoundingBox> temp_bbox;
+        const lfs::geometry::BoundingBox* geom_bbox = nullptr;
+        std::unique_ptr<lfs::geometry::BoundingBox> temp_bbox;
 
         if (request.crop_box) {
-            // Create a temporary gs::geometry::BoundingBox with the full transform
-            temp_bbox = std::make_unique<gs::geometry::BoundingBox>();
+            // Create a temporary lfs::geometry::BoundingBox with the full transform
+            temp_bbox = std::make_unique<lfs::geometry::BoundingBox>();
             temp_bbox->setBounds(request.crop_box->getMinBounds(), request.crop_box->getMaxBounds());
             temp_bbox->setworld2BBox(request.crop_box->getworld2BBox());
             geom_bbox = temp_bbox.get();

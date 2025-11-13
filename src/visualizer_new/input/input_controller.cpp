@@ -700,7 +700,7 @@ namespace lfs::vis {
 
         if (paths.size() == 1) {
             auto project_path = std::filesystem::path(paths[0]);
-            if (project_path.extension() == gs::management::Project::EXTENSION) {
+            if (project_path.extension() == lfs::project::Project::EXTENSION) {
                 cmd::LoadProject{.path = project_path}.emit();
                 LOG_INFO("Loading LS Project via drag-and-drop: {}", project_path.filename().string());
             }

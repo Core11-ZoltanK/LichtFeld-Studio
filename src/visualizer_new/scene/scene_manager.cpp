@@ -444,7 +444,7 @@ namespace lfs::vis {
         rendering_manager_ = rm;
     }
 
-    void SceneManager::handleCropActivePly(const gs::geometry::BoundingBox& crop_box) {
+    void SceneManager::handleCropActivePly(const lfs::geometry::BoundingBox& crop_box) {
         LOG_DEBUG("Starting crop operation for active PLY files");
 
         changeContentType(ContentType::SplatFiles);

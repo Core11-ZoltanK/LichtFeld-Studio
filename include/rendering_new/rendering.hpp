@@ -5,7 +5,7 @@
 #pragma once
 
 #include "core_new/tensor.hpp"
-#include "geometry/euclidean_transform.hpp"
+#include "geometry_new/euclidean_transform.hpp"
 #include <array>
 #include <expected>
 #include <glm/glm.hpp>
@@ -160,7 +160,7 @@ namespace lfs::rendering {
         float scaling_modifier = 1.0f;
         bool antialiasing = false;
         RenderMode render_mode = RenderMode::RGB;
-        const void* crop_box = nullptr; // Actually gs::geometry::BoundingBox*
+        const void* crop_box = nullptr; // Actually lfs::geometry::BoundingBox*
         glm::vec3 background_color = glm::vec3(0.0f, 0.0f, 0.0f);
         bool point_cloud_mode = false;
         float voxel_size = 0.01f;
@@ -189,8 +189,8 @@ namespace lfs::rendering {
         virtual void setLineWidth(float width) = 0;
         virtual bool isInitialized() const = 0;
 
-        virtual void setworld2BBox(const gs::geometry::EuclideanTransform& transform) = 0;
-        virtual gs::geometry::EuclideanTransform getworld2BBox() const = 0;
+        virtual void setworld2BBox(const lfs::geometry::EuclideanTransform& transform) = 0;
+        virtual lfs::geometry::EuclideanTransform getworld2BBox() const = 0;
 
         virtual glm::vec3 getColor() const = 0;
         virtual float getLineWidth() const = 0;

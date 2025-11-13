@@ -6,7 +6,7 @@
 #include "core_new/image_io.hpp"
 #include "core_new/logger.hpp"
 #include "core_new/tensor.hpp"
-#include "project/project.hpp"
+#include "project_new/project.hpp"
 
 #include <fstream>
 
@@ -135,8 +135,8 @@ namespace lfs::loader {
             return;
         }
 
-        auto cache_base = gs::management::GetLichtFeldBaseTemporaryFolder() / "cache";
-        std::string unique_cache_path = LFS_CACHE_PREFIX + gs::management::generateShortHash();
+        auto cache_base = lfs::project::GetLichtFeldBaseTemporaryFolder() / "cache";
+        std::string unique_cache_path = LFS_CACHE_PREFIX + lfs::project::generateShortHash();
         std::filesystem::path cache_folder = cache_base / unique_cache_path;
 
         std::error_code ec;
@@ -184,7 +184,7 @@ namespace lfs::loader {
     }
 
     void CacheLoader::clean_cache_folders() {
-        auto cache_base = gs::management::GetLichtFeldBaseTemporaryFolder() / "cache";
+        auto cache_base = lfs::project::GetLichtFeldBaseTemporaryFolder() / "cache";
         if (!std::filesystem::exists(cache_base) || !std::filesystem::is_directory(cache_base)) {
             LOG_ERROR("Invalid base folder: {}", cache_base.string());
             return;
