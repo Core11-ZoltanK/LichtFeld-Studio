@@ -16,6 +16,7 @@
 #include <stdexcept>
 #include <cstring>
 #include <iostream>
+#include <cstdio>
 
 namespace fast_lfs::rasterization {
 
@@ -82,6 +83,13 @@ ForwardContext forward_raw(
         throw std::runtime_error("Failed to allocate buffers from arena");
     }
 
+    printf("[Training Raster] Immediate allocations (%dx%d = %d tiles, %d primitives):\n",
+           width, height, n_tiles, n_primitives);
+    printf("[Training Raster]   PerPrimitive: %.2f MB (immediate)\n",
+           per_primitive_size / (1024.0 * 1024.0));
+    printf("[Training Raster]   PerTile: %.2f MB (immediate)\n",
+           per_tile_size / (1024.0 * 1024.0));
+
     // Allocate helper buffers for backward pass upfront to avoid allocation failures later
     const size_t grad_mean2d_size = n_primitives * 2 * sizeof(float);
     const size_t grad_conic_size = n_primitives * 3 * sizeof(float);
@@ -93,6 +101,14 @@ ForwardContext forward_raw(
         arena.end_frame(frame_id);
         throw std::runtime_error("Failed to allocate backward helper buffers from arena");
     }
+
+    printf("[Training Raster]   grad_mean2d_helper: %.2f MB (immediate, backward-only)\n",
+           grad_mean2d_size / (1024.0 * 1024.0));
+    printf("[Training Raster]   grad_conic_helper: %.2f MB (immediate, backward-only)\n",
+           grad_conic_size / (1024.0 * 1024.0));
+
+    const size_t immediate_total = per_primitive_size + per_tile_size + grad_mean2d_size + grad_conic_size;
+    printf("[Training Raster]   Immediate total: %.2f MB\n", immediate_total / (1024.0 * 1024.0));
 
     // Create allocation wrappers
     std::function<char*(size_t)> per_primitive_buffers_func =
@@ -119,6 +135,8 @@ ForwardContext forward_raw(
             if (!per_instance_buffers_blob) {
                 throw std::runtime_error("Failed to allocate instance buffers");
             }
+            printf("[Training Raster]   PerInstance: %.2f MB (lazy, after n_instances known)\n",
+                   size / (1024.0 * 1024.0));
             return per_instance_buffers_blob;
         };
 
@@ -129,6 +147,8 @@ ForwardContext forward_raw(
             if (!per_bucket_buffers_blob) {
                 throw std::runtime_error("Failed to allocate bucket buffers");
             }
+            printf("[Training Raster]   PerBucket: %.2f MB (lazy, after n_buckets known, training-only)\n",
+                   size / (1024.0 * 1024.0));
             return per_bucket_buffers_blob;
         };
 
@@ -172,6 +192,20 @@ ForwardContext forward_raw(
             arena.end_frame(frame_id);
             throw std::runtime_error("Bucket buffers were not allocated despite n_buckets > 0");
         }
+
+        // Log total allocation summary
+        const size_t total_allocated = per_primitive_size + per_tile_size + per_instance_size +
+                                       per_bucket_size + grad_mean2d_size + grad_conic_size;
+        printf("[Training Raster] Forward complete: %d visible, %d instances, %d buckets\n",
+               n_visible_primitives, n_instances, n_buckets);
+        printf("[Training Raster] Total allocated: %.2f MB (arena/VMM)\n",
+               total_allocated / (1024.0 * 1024.0));
+        printf("[Training Raster]   Breakdown: PerPrim=%.2f PerTile=%.2f PerInst=%.2f PerBucket=%.2f Backward=%.2f MB\n",
+               per_primitive_size / (1024.0 * 1024.0),
+               per_tile_size / (1024.0 * 1024.0),
+               per_instance_size / (1024.0 * 1024.0),
+               per_bucket_size / (1024.0 * 1024.0),
+               (grad_mean2d_size + grad_conic_size) / (1024.0 * 1024.0));
 
         // Create and return context
         ForwardContext ctx;

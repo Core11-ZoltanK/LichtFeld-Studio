@@ -194,6 +194,14 @@ elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
     target_compile_definitions(lfs_tensor PRIVATE RELEASE_BUILD)
 endif()
 
+# Allocation profiling
+if(ENABLE_ALLOCATION_PROFILING)
+    target_compile_definitions(lfs_tensor PUBLIC ENABLE_ALLOCATION_PROFILING=1)
+    message(STATUS "  • Allocation profiling: ENABLED for lfs_tensor")
+else()
+    target_compile_definitions(lfs_tensor PUBLIC ENABLE_ALLOCATION_PROFILING=0)
+endif()
+
 message(STATUS "╔════════════════════════════════════════════════════════════════╗")
 message(STATUS "║  lfs_tensor - LichtFeld Studio Tensor Library                 ║")
 message(STATUS "╚════════════════════════════════════════════════════════════════╝")

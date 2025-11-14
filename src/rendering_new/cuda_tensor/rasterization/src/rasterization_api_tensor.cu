@@ -5,6 +5,7 @@
 #include "forward.h"
 #include "rasterization_api_tensor.h"
 #include "rasterization_config.h"
+#include <cstdio>
 #include <functional>
 #include <stdexcept>
 #include <tuple>
@@ -12,13 +13,15 @@
 namespace lfs::rendering {
 
     // Helper to create resize function for custom Tensor
-    inline std::function<char*(size_t)> resize_function_wrapper_tensor(Tensor& t) {
-        return [&t](size_t N) -> char* {
+    inline std::function<char*(size_t)> resize_function_wrapper_tensor(Tensor& t, const char* buffer_name) {
+        return [&t, buffer_name](size_t N) -> char* {
             if (N == 0) {
                 t = Tensor::empty({0}, lfs::core::Device::CUDA, lfs::core::DataType::UInt8);
                 return nullptr;
             }
             t = Tensor::empty({N}, lfs::core::Device::CUDA, lfs::core::DataType::UInt8);
+            printf("[Rendering Raster]   %s: %.2f MB (lazy, pool)\n",
+                   buffer_name, N / (1024.0 * 1024.0));
             return reinterpret_cast<char*>(t.ptr<uint8_t>());
         };
     }
@@ -72,6 +75,18 @@ namespace lfs::rendering {
         Tensor alpha = Tensor::empty({1, static_cast<size_t>(height), static_cast<size_t>(width)},
                                      lfs::core::Device::CUDA, lfs::core::DataType::Float32);
 
+        const size_t image_size = 3 * width * height * sizeof(float);
+        const size_t alpha_size = width * height * sizeof(float);
+
+        printf("[Rendering Raster] Immediate allocations (%d×%d, %d primitives):\n",
+               width, height, n_primitives);
+        printf("[Rendering Raster]   Output image: %.2f MB (immediate, pool)\n",
+               image_size / (1024.0 * 1024.0));
+        printf("[Rendering Raster]   Output alpha: %.2f MB (immediate, pool)\n",
+               alpha_size / (1024.0 * 1024.0));
+        printf("[Rendering Raster]   Immediate total: %.2f MB\n",
+               (image_size + alpha_size) / (1024.0 * 1024.0));
+
         // Create buffer tensors (these will be resized by the forward function)
         Tensor per_primitive_buffers = Tensor::empty({0}, lfs::core::Device::CUDA, lfs::core::DataType::UInt8);
         Tensor per_tile_buffers = Tensor::empty({0}, lfs::core::Device::CUDA, lfs::core::DataType::UInt8);
@@ -79,11 +94,11 @@ namespace lfs::rendering {
 
         // Create allocator functions
         const std::function<char*(size_t)> per_primitive_buffers_func =
-            resize_function_wrapper_tensor(per_primitive_buffers);
+            resize_function_wrapper_tensor(per_primitive_buffers, "PerPrimitive");
         const std::function<char*(size_t)> per_tile_buffers_func =
-            resize_function_wrapper_tensor(per_tile_buffers);
+            resize_function_wrapper_tensor(per_tile_buffers, "PerTile");
         const std::function<char*(size_t)> per_instance_buffers_func =
-            resize_function_wrapper_tensor(per_instance_buffers);
+            resize_function_wrapper_tensor(per_instance_buffers, "PerInstance");
 
         // Ensure w2c and cam_position are contiguous
         Tensor w2c_contig = w2c.is_contiguous() ? w2c : w2c.contiguous();
@@ -115,6 +130,24 @@ namespace lfs::rendering {
             center_y,
             near_plane,
             far_plane);
+
+        // Log total allocation summary
+        const size_t per_prim_size = per_primitive_buffers.is_valid() ? per_primitive_buffers.numel() : 0;
+        const size_t per_tile_size = per_tile_buffers.is_valid() ? per_tile_buffers.numel() : 0;
+        const size_t per_inst_size = per_instance_buffers.is_valid() ? per_instance_buffers.numel() : 0;
+        const size_t total_allocated = image_size + alpha_size + per_prim_size + per_tile_size + per_inst_size;
+
+        printf("[Rendering Raster] Forward complete\n");
+        printf("[Rendering Raster] Total allocated: %.2f MB (pool)\n",
+               total_allocated / (1024.0 * 1024.0));
+        printf("[Rendering Raster]   Breakdown: Image=%.2f Alpha=%.2f PerPrim=%.2f PerTile=%.2f PerInst=%.2f MB\n",
+               image_size / (1024.0 * 1024.0),
+               alpha_size / (1024.0 * 1024.0),
+               per_prim_size / (1024.0 * 1024.0),
+               per_tile_size / (1024.0 * 1024.0),
+               per_inst_size / (1024.0 * 1024.0));
+        printf("[Rendering Raster]   NO backward helpers (saves ~80 MB vs training)\n");
+        printf("[Rendering Raster]   NO bucket buffers (saves ~20 MB vs training)\n");
 
         return {std::move(image), std::move(alpha)};
     }

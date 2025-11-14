@@ -85,24 +85,25 @@ namespace lfs::training {
         // Calculate initial capacity with pre-allocation if configured
         size_t initial_cap = compute_new_capacity(0, param_size);
 
-        // Allocate with extra capacity if growth_factor or initial_capacity is set
+        // STRATEGY: Use reserve() to pre-allocate outside the pool (direct cudaMalloc)
+        // This keeps optimizer state in persistent memory, not in the cudaMallocAsync pool
+        // which allows the pool to be trimmed for temporary allocations
+
+        // Create minimal tensors with actual size
+        state.exp_avg = lfs::core::Tensor::zeros(param.shape(), param.device());
+        state.exp_avg_sq = lfs::core::Tensor::zeros(param.shape(), param.device());
+
+        // Pre-allocate capacity if requested (uses direct cudaMalloc, not pool)
         if (initial_cap > param_size) {
-            auto param_shape = param.shape();
-            std::vector<size_t> alloc_dims(param_shape.rank());
-            for (size_t i = 0; i < param_shape.rank(); i++) {
-                alloc_dims[i] = (i == 0) ? initial_cap : param_shape[i];
-            }
-            state.exp_avg = lfs::core::Tensor::zeros(lfs::core::TensorShape(alloc_dims), param.device());
-            state.exp_avg_sq = lfs::core::Tensor::zeros(lfs::core::TensorShape(alloc_dims), param.device());
+            state.exp_avg.reserve(initial_cap);
+            state.exp_avg_sq.reserve(initial_cap);
             state.capacity = initial_cap;
             state.size = param_size;
 
-            LOG_DEBUG("Initialized optimizer state for {} with pre-allocation (size: {}, capacity: {})",
+            LOG_INFO("Initialized optimizer state for {} with reserve() (size: {}, capacity: {}) - outside pool",
                       name, param_size, initial_cap);
         } else {
             // No pre-allocation: exact fit
-            state.exp_avg = lfs::core::Tensor::zeros(param.shape(), param.device());
-            state.exp_avg_sq = lfs::core::Tensor::zeros(param.shape(), param.device());
             state.capacity = param_size;
             state.size = param_size;
 

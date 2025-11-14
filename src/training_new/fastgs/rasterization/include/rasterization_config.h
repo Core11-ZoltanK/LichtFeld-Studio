@@ -27,6 +27,11 @@ namespace fast_lfs::rasterization::config {
     DEF int tile_height = 16;
     DEF int block_size_blend = tile_width * tile_height;
     DEF int n_sequential_threshold = 4;
+    // checkpoint interval for gradient computation (how often to save intermediate blending state)
+    // higher values = less memory, more recomputation in backward pass
+    // 32: baseline (2.6 GB), 64: 1.3 GB, 128: 650 MB, 256: 325 MB
+    // NOTE: Currently only 32 is supported. Larger values require redesigning bucket/checkpoint separation.
+    DEF int checkpoint_interval = 32;
 } // namespace fast_lfs::rasterization::config
 
 namespace config = fast_lfs::rasterization::config;
