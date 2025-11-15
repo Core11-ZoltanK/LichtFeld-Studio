@@ -682,21 +682,39 @@ namespace lfs::core {
             auto src_same_device = ensure_same_device(src);
 
             if (device_ == Device::CUDA) {
-                tensor_ops::launch_index_add(ptr<float>(), idx_same_device.ptr<int>(),
+                // Convert int64 indices to int32 for kernel (kernel expects int* not int64_t*)
+                auto idx_int32 = (idx_same_device.dtype() == DataType::Int64)
+                    ? idx_same_device.to(DataType::Int32)
+                    : idx_same_device;
+
+                tensor_ops::launch_index_add(ptr<float>(), idx_int32.ptr<int>(),
                                              src_same_device.ptr<float>(), shape_.dims().data(),
                                              shape_.rank(), dim, idx.numel(), 0);
                 // No sync - tensor operation
             } else {
                 float* data = ptr<float>();
-                const int* indices = idx_same_device.ptr<int>();
                 const float* src_data = src_same_device.ptr<float>();
 
-                for (size_t i = 0; i < idx.numel(); ++i) {
-                    int pos = indices[i];
-                    if (pos < 0)
-                        pos += shape_[0];
-                    if (pos >= 0 && pos < static_cast<int>(shape_[0])) {
-                        data[pos] += src_data[i];
+                // Handle int64 indices correctly
+                if (idx_same_device.dtype() == DataType::Int64) {
+                    const int64_t* indices = idx_same_device.ptr<int64_t>();
+                    for (size_t i = 0; i < idx.numel(); ++i) {
+                        int64_t pos = indices[i];
+                        if (pos < 0)
+                            pos += shape_[0];
+                        if (pos >= 0 && pos < static_cast<int64_t>(shape_[0])) {
+                            data[pos] += src_data[i];
+                        }
+                    }
+                } else {
+                    const int* indices = idx_same_device.ptr<int>();
+                    for (size_t i = 0; i < idx.numel(); ++i) {
+                        int pos = indices[i];
+                        if (pos < 0)
+                            pos += shape_[0];
+                        if (pos >= 0 && pos < static_cast<int>(shape_[0])) {
+                            data[pos] += src_data[i];
+                        }
                     }
                 }
             }
@@ -716,7 +734,12 @@ namespace lfs::core {
         auto src_same_device = ensure_same_device(src);
 
         if (device_ == Device::CUDA) {
-            tensor_ops::launch_index_add(ptr<float>(), idx_same_device.ptr<int>(),
+            // Convert int64 indices to int32 for kernel (kernel expects int* not int64_t*)
+            auto idx_int32 = (idx_same_device.dtype() == DataType::Int64)
+                ? idx_same_device.to(DataType::Int32)
+                : idx_same_device;
+
+            tensor_ops::launch_index_add(ptr<float>(), idx_int32.ptr<int>(),
                                          src_same_device.ptr<float>(), shape_.dims().data(),
                                          shape_.rank(), dim, idx.numel(), 0);
             // No sync - tensor operation
@@ -732,25 +755,49 @@ namespace lfs::core {
             }
 
             float* data = ptr<float>();
-            const int* indices = idx_same_device.ptr<int>();
             const float* src_data = src_same_device.ptr<float>();
 
-            for (size_t o = 0; o < outer; ++o) {
-                for (size_t i = 0; i < idx.numel(); ++i) {
-                    int pos = indices[i];
+            // Handle int64 indices correctly
+            if (idx_same_device.dtype() == DataType::Int64) {
+                const int64_t* indices = idx_same_device.ptr<int64_t>();
+                for (size_t o = 0; o < outer; ++o) {
+                    for (size_t i = 0; i < idx.numel(); ++i) {
+                        int64_t pos = indices[i];
 
-                    if (pos < 0)
-                        pos += static_cast<int>(shape_[dim]);
+                        if (pos < 0)
+                            pos += static_cast<int64_t>(shape_[dim]);
 
-                    if (pos < 0 || pos >= static_cast<int>(shape_[dim])) {
-                        continue;
+                        if (pos < 0 || pos >= static_cast<int64_t>(shape_[dim])) {
+                            continue;
+                        }
+
+                        size_t src_base = o * idx.numel() * inner + i * inner;
+                        size_t dst_base = o * shape_[dim] * inner + pos * inner;
+
+                        for (size_t j = 0; j < inner; ++j) {
+                            data[dst_base + j] += src_data[src_base + j];
+                        }
                     }
+                }
+            } else {
+                const int* indices = idx_same_device.ptr<int>();
+                for (size_t o = 0; o < outer; ++o) {
+                    for (size_t i = 0; i < idx.numel(); ++i) {
+                        int pos = indices[i];
 
-                    size_t src_base = o * idx.numel() * inner + i * inner;
-                    size_t dst_base = o * shape_[dim] * inner + pos * inner;
+                        if (pos < 0)
+                            pos += static_cast<int>(shape_[dim]);
 
-                    for (size_t j = 0; j < inner; ++j) {
-                        data[dst_base + j] += src_data[src_base + j];
+                        if (pos < 0 || pos >= static_cast<int>(shape_[dim])) {
+                            continue;
+                        }
+
+                        size_t src_base = o * idx.numel() * inner + i * inner;
+                        size_t dst_base = o * shape_[dim] * inner + pos * inner;
+
+                        for (size_t j = 0; j < inner; ++j) {
+                            data[dst_base + j] += src_data[src_base + j];
+                        }
                     }
                 }
             }
