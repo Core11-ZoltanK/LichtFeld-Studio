@@ -290,14 +290,17 @@ BackwardOutputs backward_raw(
     cudaMemset(grad_mean2d_helper, 0, grad_mean2d_size);
     cudaMemset(grad_conic_helper, 0, grad_conic_size);
 
-    // Zero out output gradients
-    cudaMemset(grad_means_ptr, 0, n_primitives * 3 * sizeof(float));
-    cudaMemset(grad_scales_raw_ptr, 0, n_primitives * 3 * sizeof(float));
-    cudaMemset(grad_rotations_raw_ptr, 0, n_primitives * 4 * sizeof(float));
-    cudaMemset(grad_opacities_raw_ptr, 0, n_primitives * sizeof(float));
-    cudaMemset(grad_sh_coefficients_0_ptr, 0, n_primitives * 3 * sizeof(float));
-    cudaMemset(grad_sh_coefficients_rest_ptr, 0,
-               n_primitives * total_bases_sh_rest * 3 * sizeof(float));
+    // NOTE: Output gradients are NOT zeroed here to support tile-based training
+    // where gradients accumulate across multiple backward calls (one per tile).
+    // The caller (e.g., fast_rasterize_backward wrapper) is responsible for zeroing
+    // gradients once before the first tile.
+    //
+    // cudaMemset(grad_means_ptr, 0, n_primitives * 3 * sizeof(float));
+    // cudaMemset(grad_scales_raw_ptr, 0, n_primitives * 3 * sizeof(float));
+    // cudaMemset(grad_rotations_raw_ptr, 0, n_primitives * 4 * sizeof(float));
+    // cudaMemset(grad_opacities_raw_ptr, 0, n_primitives * sizeof(float));
+    // cudaMemset(grad_sh_coefficients_0_ptr, 0, n_primitives * 3 * sizeof(float));
+    // cudaMemset(grad_sh_coefficients_rest_ptr, 0, n_primitives * total_bases_sh_rest * 3 * sizeof(float));
 
     if (grad_w2c_ptr) {
         cudaMemset(grad_w2c_ptr, 0, 4 * 4 * sizeof(float));

@@ -38,13 +38,24 @@ namespace lfs::training {
         float center_y;
         float near_plane;
         float far_plane;
+
+        // Tile information (for tile-based training)
+        int tile_x_offset = 0;     // Horizontal offset of this tile
+        int tile_y_offset = 0;     // Vertical offset of this tile
+        int tile_width = 0;         // Width of this tile (0 = full image)
+        int tile_height = 0;        // Height of this tile (0 = full image)
     };
 
     // Explicit forward pass - returns render output and context for backward
+    // Optional tile parameters for memory-efficient training (tile_width/height=0 means full image)
     std::pair<RenderOutput, FastRasterizeContext> fast_rasterize_forward(
         lfs::core::Camera& viewpoint_camera,
         lfs::core::SplatData& gaussian_model,
-        lfs::core::Tensor& bg_color);
+        lfs::core::Tensor& bg_color,
+        int tile_x_offset = 0,
+        int tile_y_offset = 0,
+        int tile_width = 0,
+        int tile_height = 0);
 
     // Explicit backward pass - computes gradients and accumulates them manually
     void fast_rasterize_backward(

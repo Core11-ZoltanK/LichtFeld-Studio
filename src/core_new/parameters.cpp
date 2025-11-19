@@ -124,11 +124,11 @@ namespace lfs::core {
                     {"random", defaults.random, "Use random initialization instead of SfM"},
                     {"init_num_pts", defaults.init_num_pts, "Number of random initialization points"},
                     {"init_extent", defaults.init_extent, "Extent of random initialization"},
+                    {"tile_mode", defaults.tile_mode, "Tile mode for memory-efficient training (1=1 tile, 2=2 tiles, 4=4 tiles)"},
                     {"enable_sparsity", defaults.enable_sparsity, "Enable sparsity optimization"},
                     {"sparsify_steps", defaults.sparsify_steps, "Number of steps for sparsification"},
                     {"init_rho", defaults.init_rho, "Initial ADMM penalty parameter"},
                     {"prune_ratio", defaults.prune_ratio, "Final pruning ratio for sparsity"},
-                    {"init_extent", defaults.init_extent, "Extent of random initialization"},
                     {"save_sog", defaults.save_sog, "Save in SOG format alongside PLY"},
                     {"sog_iterations", defaults.sog_iterations, "K-means iterations for SOG compression"}};
 
@@ -280,6 +280,7 @@ namespace lfs::core {
             opt_json["random"] = random;
             opt_json["init_num_pts"] = init_num_pts;
             opt_json["init_extent"] = init_extent;
+            opt_json["tile_mode"] = tile_mode;
             opt_json["save_sog"] = save_sog;
             opt_json["sog_iterations"] = sog_iterations;
             opt_json["enable_sparsity"] = enable_sparsity;
@@ -438,6 +439,9 @@ namespace lfs::core {
             }
             if (json.contains("init_extent")) {
                 params.init_extent = json["init_extent"];
+            }
+            if (json.contains("tile_mode")) {
+                params.tile_mode = json["tile_mode"];
             }
             if (json.contains("save_sog")) {
                 params.save_sog = json["save_sog"];

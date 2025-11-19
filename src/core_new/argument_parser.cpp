@@ -134,6 +134,7 @@ namespace {
             ::args::ValueFlagList<std::string> timelapse_images(parser, "timelapse_images", "Image filenames to render timelapse images for", {"timelapse-images"});
             ::args::ValueFlag<int> timelapse_every(parser, "timelapse_every", "Render timelapse image every N iterations (default: 50)", {"timelapse-every"});
             ::args::ValueFlag<std::string> init_ply(parser, "init_ply", "Optional PLY splat file for initialization", {"init-ply"});
+            ::args::ValueFlag<int> tile_mode(parser, "tile_mode", "Tile mode for memory-efficient training: 1=1 tile, 2=2 tiles, 4=4 tiles (default: 1)", {"tile-mode"});
 
             // Sparsity optimization arguments
             ::args::ValueFlag<int> sparsify_steps(parser, "sparsify_steps", "Number of steps for sparsification (default: 15000)", {"sparsify-steps"});
@@ -328,6 +329,13 @@ namespace {
                 }
             }
 
+            if (tile_mode) {
+                int mode = ::args::get(tile_mode);
+                if (mode != 1 && mode != 2 && mode != 4) {
+                    return std::unexpected("ERROR: --tile-mode must be 1 (1 tile), 2 (2 tiles), or 4 (4 tiles)");
+                }
+            }
+
             // Create lambda to apply command line overrides after JSON loading
             auto apply_cmd_overrides = [&params,
                                         // Capture values, not references
@@ -354,6 +362,7 @@ namespace {
                                         timelapse_images_val = timelapse_images ? std::optional<std::vector<std::string>>(::args::get(timelapse_images)) : std::optional<std::vector<std::string>>(),
                                         timelapse_every_val = timelapse_every ? std::optional<int>(::args::get(timelapse_every)) : std::optional<int>(),
                                         sog_iterations_val = sog_iterations ? std::optional<int>(::args::get(sog_iterations)) : std::optional<int>(),
+                                        tile_mode_val = tile_mode ? std::optional<int>(::args::get(tile_mode)) : std::optional<int>(),
                                         // Sparsity parameters
                                         sparsify_steps_val = sparsify_steps ? std::optional<int>(::args::get(sparsify_steps)) : std::optional<int>(),
                                         init_rho_val = init_rho ? std::optional<float>(::args::get(init_rho)) : std::optional<float>(),
@@ -407,6 +416,7 @@ namespace {
                 setVal(timelapse_images_val, ds.timelapse_images);
                 setVal(timelapse_every_val, ds.timelapse_every);
                 setVal(sog_iterations_val, opt.sog_iterations);
+                setVal(tile_mode_val, opt.tile_mode);
 
                 // Sparsity parameters
                 setVal(sparsify_steps_val, opt.sparsify_steps);

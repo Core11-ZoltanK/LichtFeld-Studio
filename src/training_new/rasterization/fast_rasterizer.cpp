@@ -10,11 +10,25 @@ namespace lfs::training {
     std::pair<RenderOutput, FastRasterizeContext> fast_rasterize_forward(
         core::Camera& viewpoint_camera,
         core::SplatData& gaussian_model,
-        core::Tensor& bg_color) {
+        core::Tensor& bg_color,
+        int tile_x_offset,
+        int tile_y_offset,
+        int tile_width,
+        int tile_height) {
         // Get camera parameters
-        const int width = viewpoint_camera.image_width();
-        const int height =viewpoint_camera.image_height();
+        const int full_width = viewpoint_camera.image_width();
+        const int full_height = viewpoint_camera.image_height();
+
+        // Determine tile dimensions (tile_width/height=0 means render full image)
+        const int width = (tile_width > 0) ? tile_width : full_width;
+        const int height = (tile_height > 0) ? tile_height : full_height;
+
         auto [fx, fy, cx, cy] = viewpoint_camera.get_intrinsics();
+
+        // Adjust camera center point for tile rendering
+        // When rendering a tile at offset, the principal point shifts
+        const float cx_adjusted = cx - static_cast<float>(tile_x_offset);
+        const float cy_adjusted = cy - static_cast<float>(tile_y_offset);
 
         // Get Gaussian parameters
         auto &means = gaussian_model.means();
@@ -54,6 +68,7 @@ namespace lfs::training {
         }
 
         // Call forward_raw with raw pointers (no PyTorch wrappers)
+        // Use adjusted cx/cy for tile rendering
         auto forward_ctx = fast_lfs::rasterization::forward_raw(
             means.ptr<float>(),
             raw_scales.ptr<float>(),
@@ -72,8 +87,8 @@ namespace lfs::training {
             height,
             fx,
             fy,
-            cx,
-            cy,
+            cx_adjusted,  // Use adjusted cx for tile offset
+            cy_adjusted,  // Use adjusted cy for tile offset
             near_plane,
             far_plane);
 
@@ -122,10 +137,16 @@ namespace lfs::training {
         ctx.height = height;
         ctx.focal_x = fx;
         ctx.focal_y = fy;
-        ctx.center_x = cx;
-        ctx.center_y = cy;
+        ctx.center_x = cx_adjusted;  // Store adjusted cx for backward
+        ctx.center_y = cy_adjusted;  // Store adjusted cy for backward
         ctx.near_plane = near_plane;
         ctx.far_plane = far_plane;
+
+        // Store tile information
+        ctx.tile_x_offset = tile_x_offset;
+        ctx.tile_y_offset = tile_y_offset;
+        ctx.tile_width = tile_width;
+        ctx.tile_height = tile_height;
 
         return {render_output, ctx};
     }

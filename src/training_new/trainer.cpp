@@ -31,6 +31,13 @@
 
 namespace lfs::training {
 
+    // Tile configuration for memory-efficient training
+    enum class TileMode {
+        One = 1,   // 1 tile  - 1x1 - Render full image (no tiling)
+        Two = 2,   // 2 tiles - 2x1 - Two horizontal tiles
+        Four = 4   // 4 tiles - 2x2 - Four tiles in a grid
+    };
+
     void Trainer::cleanup() {
         LOG_DEBUG("Cleaning up trainer for re-initialization");
 
@@ -654,50 +661,105 @@ namespace lfs::training {
             lfs::core::Tensor& bg = background_for_step(iter);
             nvtxRangePop();
 
-            RenderOutput r_output;
-            std::optional<FastRasterizeContext> fast_raster_ctx;
-            // TODO: Port 3DGUT rasterizer to LibTorch-free implementation
-            // std::optional<RasterizeContext> gut_raster_ctx;
+            // Configurable tile-based training to reduce peak memory
+            const int full_width = cam->image_width();
+            const int full_height = cam->image_height();
 
-            // Use the render mode from parameters (FastGS backend only for now)
-            // TODO: Port 3DGUT rasterizer to LibTorch-free implementation
-            // if (!params_.optimization.gut) {
-                // FastGS backend
+            // Read tile mode from parameters (1=1 tile, 2=2 tiles, 4=4 tiles)
+            const TileMode tile_mode = static_cast<TileMode>(params_.optimization.tile_mode);
+
+            // Determine tile configuration
+            int tile_rows = 1, tile_cols = 1;
+            switch (tile_mode) {
+                case TileMode::One:
+                    tile_rows = 1; tile_cols = 1;
+                    break;
+                case TileMode::Two:
+                    tile_rows = 2; tile_cols = 1;
+                    break;
+                case TileMode::Four:
+                    tile_rows = 2; tile_cols = 2;
+                    break;
+            }
+
+            const int tile_width = full_width / tile_cols;
+            const int tile_height = full_height / tile_rows;
+            const int num_tiles = tile_rows * tile_cols;
+
+            // Accumulate loss across tiles (keep on GPU until final sync)
+            lfs::core::Tensor loss_tensor_gpu;
+            RenderOutput r_output;  // Last tile's output (for densification info)
+
+            // Loop over tiles (row-major order)
+            for (int tile_idx = 0; tile_idx < num_tiles; ++tile_idx) {
+                const int tile_row = tile_idx / tile_cols;
+                const int tile_col = tile_idx % tile_cols;
+                const int tile_x_offset = tile_col * tile_width;
+                const int tile_y_offset = tile_row * tile_height;
+
+                nvtxRangePush(std::format("tile_{}x{}", tile_row, tile_col).c_str());
+
+                // Extract GT image tile
+                lfs::core::Tensor gt_tile;
+                if (num_tiles == 1) {
+                    // No tiling - use full image
+                    gt_tile = gt_image;
+                } else if (gt_image.shape()[0] == 3) {
+                    // CHW layout: gt_image is [3, H, W]
+                    // Slice both height and width dimensions
+                    auto tile_h = gt_image.slice(1, tile_y_offset, tile_y_offset + tile_height);
+                    gt_tile = tile_h.slice(2, tile_x_offset, tile_x_offset + tile_width);
+                } else {
+                    // HWC layout: gt_image is [H, W, 3]
+                    auto tile_h = gt_image.slice(0, tile_y_offset, tile_y_offset + tile_height);
+                    gt_tile = tile_h.slice(1, tile_x_offset, tile_x_offset + tile_width);
+                }
+
+                // Render the tile
                 nvtxRangePush("rasterize_forward");
-                auto [output, ctx] = fast_rasterize_forward(*cam, strategy_->get_model(), bg);
-                r_output = output;
-                fast_raster_ctx = std::move(ctx);
+                auto [output, ctx] = fast_rasterize_forward(
+                    *cam, strategy_->get_model(), bg,
+                    tile_x_offset, tile_y_offset,
+                    (num_tiles > 1) ? tile_width : 0,   // 0 means full image
+                    (num_tiles > 1) ? tile_height : 0);
+                r_output = output;  // Save last tile for densification
                 nvtxRangePop();
 
-            // Apply bilateral grid if enabled (manual forward - no autograd)
-            // Compute photometric loss and gradients manually (no autograd)
-            // Keep loss on GPU to avoid sync!
-            lfs::core::Tensor loss_tensor_gpu;
-            lfs::core::Tensor grad_image;
+                // Compute photometric loss and gradients for this tile
+                nvtxRangePush("compute_photometric_loss");
+                auto loss_grad_result = compute_photometric_loss_with_gradient(
+                    output.image,
+                    gt_tile,
+                    params_.optimization);
+                if (!loss_grad_result) {
+                    return std::unexpected(loss_grad_result.error());
+                }
+                auto [tile_loss, tile_grad] = *loss_grad_result;
 
-            nvtxRangePush("compute_photometric_loss");
-            auto loss_grad_result = compute_photometric_loss_with_gradient(
-                r_output.image,
-                gt_image,
-                params_.optimization);
-            if (!loss_grad_result) {
-                return std::unexpected(loss_grad_result.error());
+                // Accumulate tile loss (stay on GPU)
+                if (tile_idx == 0) {
+                    loss_tensor_gpu = tile_loss;
+                } else {
+                    loss_tensor_gpu = loss_tensor_gpu + tile_loss;
+                }
+                nvtxRangePop();
+
+                // Backward pass for this tile (gradients accumulate in SplatData)
+                nvtxRangePush("rasterize_backward");
+                fast_rasterize_backward(ctx, tile_grad, strategy_->get_model());
+                nvtxRangePop();
+
+                nvtxRangePop();  // End tile
             }
-            auto [loss_t, grad] = *loss_grad_result;
-            loss_tensor_gpu = loss_t;
-            grad_image = grad;
-            nvtxRangePop();
 
-            // IMPORTANT: Call rasterizer backward FIRST to accumulate main gradients
-            // Then regularization losses will accumulate additional gradients on top
-            nvtxRangePush("rasterize_backward");
-            fast_rasterize_backward(*fast_raster_ctx, grad_image, strategy_->get_model());
-            // TODO: Port 3DGUT rasterizer to LibTorch-free implementation
-            // else if (gut_raster_ctx.has_value()) {
-            //     // GUT path: Use manual rasterizer backward (no autograd)
-            //     rasterize_backward(*gut_raster_ctx, grad_image, strategy_->get_model());
-            // }
-            nvtxRangePop();
+            // Average the loss across tiles for correct reporting
+            // (Gradients are already correct from accumulation, this is only for loss display)
+            if (num_tiles > 1) {
+                loss_tensor_gpu = loss_tensor_gpu / static_cast<float>(num_tiles);
+            }
+
+            // Regularization losses are computed ONCE on full model (after all tiles)
+            // They accumulate gradients on top of the per-tile gradients
 
             // Scale regularization loss - accumulate on GPU (AFTER rasterizer backward)
             if (params_.optimization.scale_reg > 0.0f) {
