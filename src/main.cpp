@@ -22,11 +22,8 @@ int main(int argc, char* argv[]) {
 
     // Logger is now ready to use
     LOG_INFO("========================================");
-    LOG_INFO("LichtFeld Studio");
+    LOG_INFO("           LichtFeld Studio             ");
     LOG_INFO("========================================");
-
-    // Pre-warm pinned memory cache to avoid cudaHostAlloc overhead during training
-    lfs::core::PinnedMemoryAllocator::instance().prewarm();
 
     auto params = std::move(*params_result);
 

@@ -307,8 +307,11 @@ namespace lfs::loader {
                 // Update last access time
                 it->second.last_access = std::chrono::steady_clock::now();
 
-                // Return a copy of the cached tensor
-                return it->second.tensor->clone();
+                // Cache stores unpinned (regular RAM), but active tensors use pinned memory
+                const auto& cached = *it->second.tensor;
+                auto pinned_tensor = Tensor::empty(cached.shape(), Device::CPU, cached.dtype(), true);  // use_pinned=true
+                std::memcpy(pinned_tensor.ptr<float>(), cached.ptr<float>(), cached.bytes());
+                return pinned_tensor;
             }
         }
 
@@ -381,9 +384,14 @@ namespace lfs::loader {
                 // Evict old entries if needed
                 evict_if_needed(tensor_bytes);
 
+                // Store in UNPINNED memory to avoid exhausting OS pinned memory limits
+                // Only active-use tensors should use pinned memory (limited ~2-4 GB)
+                auto unpinned_tensor = Tensor::empty_unpinned(tensor.shape(), DataType::Float32);
+                std::memcpy(unpinned_tensor.ptr<float>(), tensor.ptr<float>(), tensor_bytes);
+
                 // Store preprocessed tensor in cache
                 CachedImageData cached_data;
-                cached_data.tensor = std::make_shared<Tensor>(tensor.clone());  // Store a copy in shared_ptr
+                cached_data.tensor = std::make_shared<Tensor>(std::move(unpinned_tensor));  // Store unpinned copy
                 cached_data.width = width;
                 cached_data.height = height;
                 cached_data.channels = channels;
@@ -392,7 +400,7 @@ namespace lfs::loader {
 
                 cpu_cache_[cache_key] = std::move(cached_data);
 
-                LOG_DEBUG("Cached preprocessed tensor {} in CPU memory ({} bytes, total cache: {} bytes)",
+                LOG_DEBUG("Cached preprocessed tensor {} in UNPINNED CPU memory ({} bytes, total cache: {} bytes)",
                           cache_key, tensor_bytes, get_cpu_cache_size());
             } else {
                 LOG_DEBUG("Insufficient memory to cache preprocessed tensor {} ({} bytes required)",
@@ -404,6 +412,7 @@ namespace lfs::loader {
 
         evict_until_satisfied();
 
+        // Return the pinned version
         return tensor;
     }
 

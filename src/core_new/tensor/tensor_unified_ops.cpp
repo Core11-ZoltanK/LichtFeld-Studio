@@ -83,13 +83,20 @@ namespace lfs::core {
                         CudaMemoryPool::instance().deallocate(p, nullptr);
                     });
                 } else {
-                    // Even dummy allocations use pinned memory
-                    void* dummy = PinnedMemoryAllocator::instance().allocate(1);
-                    cudaStream_t stream = result.stream_;
-                    result.data_owner_ = std::shared_ptr<void>(dummy, [stream](void* p) {
-                        if (p)
-                            PinnedMemoryAllocator::instance().deallocate(p, stream);
-                    });
+                    void* dummy = nullptr;
+                    if (args.use_pinned) {
+                        dummy = PinnedMemoryAllocator::instance().allocate(1);
+                        cudaStream_t stream = result.stream_;
+                        result.data_owner_ = std::shared_ptr<void>(dummy, [stream](void* p) {
+                            if (p)
+                                PinnedMemoryAllocator::instance().deallocate(p, stream);
+                        });
+                    } else {
+                        dummy = std::malloc(1);
+                        result.data_owner_ = std::shared_ptr<void>(dummy, [](void* p) {
+                            std::free(p);
+                        });
+                    }
                 }
                 result.data_ = nullptr; // Empty tensor has no usable data
                 return result;
@@ -115,17 +122,34 @@ namespace lfs::core {
                     dtype_name(result.dtype_)
                 );
             } else {
-                // Use pinned memory for CPU tensors (2-3x faster PCIe bandwidth)
-                void* ptr = PinnedMemoryAllocator::instance().allocate(bytes);
-                if (!ptr) {
-                    LOG_ERROR("Failed to allocate {} bytes on CPU (pinned memory)", bytes);
-                    return Tensor();
+                // CPU tensor allocation - choose between pinned and regular memory
+                void* ptr = nullptr;
+
+                if (args.use_pinned) {
+                    // Use pinned memory for fast GPU transfers (2-3x faster PCIe bandwidth)
+                    // Limited by OS (typically 2-4 GB total)
+                    ptr = PinnedMemoryAllocator::instance().allocate(bytes);
+                    if (!ptr) {
+                        LOG_ERROR("Failed to allocate {} bytes of pinned memory", bytes);
+                        return Tensor();
+                    }
+                    cudaStream_t stream = result.stream_;
+                    result.data_owner_ = std::shared_ptr<void>(ptr, [stream](void* p) {
+                        if (p)
+                            PinnedMemoryAllocator::instance().deallocate(p, stream);
+                    });
+                } else {
+                    // Use regular malloc for CPU memory
+                    ptr = std::malloc(bytes);
+                    if (!ptr) {
+                        LOG_ERROR("Failed to allocate {} bytes of regular CPU memory", bytes);
+                        return Tensor();
+                    }
+                    result.data_owner_ = std::shared_ptr<void>(ptr, [](void* p) {
+                        std::free(p);
+                    });
                 }
-                cudaStream_t stream = result.stream_;
-                result.data_owner_ = std::shared_ptr<void>(ptr, [stream](void* p) {
-                    if (p)
-                        PinnedMemoryAllocator::instance().deallocate(p, stream);
-                });
+
                 result.data_ = result.data_owner_.get();
                 result.compute_alignment(); // Compute alignment flags once
             }
@@ -517,7 +541,7 @@ namespace lfs::core {
         }
 
         case LoadOp::Eye: {
-            result = load(LoadOp::Const, {args.shape, args.device, args.dtype, 0.0f});
+            result = load(LoadOp::Const, {args.shape, args.device, args.dtype, args.use_pinned, 0.0f});
             if (!result.is_valid() || args.shape.rank() != 2)
                 return result;
 

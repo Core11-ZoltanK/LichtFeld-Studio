@@ -261,6 +261,7 @@ namespace lfs::core {
         TensorShape shape;
         Device device = Device::CUDA;
         DataType dtype = DataType::Float32;
+        bool use_pinned = true;
         std::variant<
             std::monostate,
             float,
@@ -744,11 +745,23 @@ namespace lfs::core {
 
         // ============= FACTORY METHODS =============
         static Tensor empty(TensorShape shape, Device device = Device::CUDA,
-                            DataType dtype = DataType::Float32) {
+                            DataType dtype = DataType::Float32, bool use_pinned = true) {
             LoadArgs args;
             args.shape = shape;
             args.device = device;
             args.dtype = dtype;
+            args.use_pinned = use_pinned;
+            args.args = std::monostate{};
+            return load(LoadOp::Empty, args);
+        }
+
+        // Helper for creating CPU tensors without pinned memory (for caching large datasets)
+        static Tensor empty_unpinned(TensorShape shape, DataType dtype = DataType::Float32) {
+            LoadArgs args;
+            args.shape = shape;
+            args.device = Device::CPU;
+            args.dtype = dtype;
+            args.use_pinned = false;  // Use regular malloc, not pinned memory
             args.args = std::monostate{};
             return load(LoadOp::Empty, args);
         }
