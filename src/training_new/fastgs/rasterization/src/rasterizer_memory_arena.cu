@@ -554,8 +554,9 @@ bool RasterizerMemoryArena::commit_more_memory(Arena& arena, size_t required_siz
         cudaMemGetInfo(&free_memory, &total_memory);
 
         if (free_memory < commit_size + buffer_needed) {
-            // Try smaller allocation
-            commit_size = free_memory - buffer_needed;
+            // Not enough memory - try to allocate as much as we can up to requested size
+            size_t available = free_memory > buffer_needed ? free_memory - buffer_needed : 0;
+            commit_size = std::min(commit_size, available);
             commit_size = (commit_size / arena.granularity) * arena.granularity;
             if (commit_size < arena.granularity) {
                 return false;
@@ -570,6 +571,63 @@ bool RasterizerMemoryArena::commit_more_memory(Arena& arena, size_t required_siz
 
     CUmemGenericAllocationHandle handle;
     CUresult result = cuMemCreate(&handle, commit_size, &prop, 0);
+
+    // If large allocation fails, try splitting into smaller chunks
+    if (result != CUDA_SUCCESS && commit_size > arena.granularity * 4) {
+        std::cout << "[RasterizerMemoryArena] Large allocation of " << (commit_size >> 20)
+                  << " MB failed, trying multiple smaller chunks...\n";
+
+        // Try 4 smaller chunks (each 1/4 of requested size)
+        size_t chunk_size = (commit_size / 4);
+        chunk_size = (chunk_size / arena.granularity) * arena.granularity; // Round to granularity
+
+        size_t total_allocated = 0;
+        for (int i = 0; i < 4 && total_allocated < commit_size; ++i) {
+            CUmemGenericAllocationHandle chunk_handle;
+            result = cuMemCreate(&chunk_handle, chunk_size, &prop, 0);
+            if (result == CUDA_SUCCESS) {
+                // Map this chunk
+                size_t map_offset = arena.committed_size + total_allocated;
+                map_offset = (map_offset + arena.granularity - 1) & ~(arena.granularity - 1);
+
+                result = cuMemMap(arena.d_ptr + map_offset, chunk_size, 0, chunk_handle, 0);
+                if (result == CUDA_SUCCESS) {
+                    CUmemAccessDesc access_desc = {};
+                    access_desc.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+                    access_desc.location.id = arena.device;
+                    access_desc.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
+
+                    result = cuMemSetAccess(arena.d_ptr + map_offset, chunk_size, &access_desc, 1);
+                    if (result == CUDA_SUCCESS) {
+                        // Track the chunk
+                        {
+                            std::lock_guard<std::mutex> lock(arena.chunks_mutex);
+                            arena.chunks.push_back({chunk_handle, map_offset, chunk_size, true});
+                        }
+                        total_allocated += chunk_size;
+                        printf("[TRACKED-VMM] cuMemCreate chunk %d: %.2f MB\n", i, chunk_size / (1024.0*1024));
+                    } else {
+                        cuMemUnmap(arena.d_ptr + map_offset, chunk_size);
+                        cuMemRelease(chunk_handle);
+                    }
+                } else {
+                    cuMemRelease(chunk_handle);
+                }
+            }
+        }
+
+        if (total_allocated > 0) {
+            arena.committed_size += total_allocated;
+            arena.capacity = arena.committed_size;
+            arena.realloc_count.fetch_add(1, std::memory_order_relaxed);
+            std::cout << "[RasterizerMemoryArena] Committed " << (total_allocated >> 20)
+                      << " MB via multiple chunks (total: " << (arena.committed_size >> 20) << " MB)\n";
+            return true;
+        }
+
+        return false;
+    }
+
     if (result != CUDA_SUCCESS) {
         return false;
     }
@@ -700,14 +758,27 @@ char* RasterizerMemoryArena::allocate_internal(Arena& arena, size_t size, uint64
         }
 
         // We need to grow - calculate how much
-        // Moderate growth: balance between memory efficiency and avoiding frequent reallocations
         size_t growth_needed = total_needed - arena.committed_size;
 
-        // Grow by 1.5x what's needed, with minimum 1GB to reduce reallocation frequency
-        size_t growth_amount = std::max({
-            growth_needed + (growth_needed / 2),    // 1.5x what's needed
-            size_t(1) << 30                         // At least 1GB
-        });
+        // Progressive fallback: start with generous growth, then fall back to smaller increments
+        // Retry 0-2: Try growth_needed * 2 - generous headroom for concurrent allocations
+        // Retry 3-4: Try growth_needed * 1.5 - minimal overhead, just what's needed
+        size_t growth_amount;
+        if (retry < 3) {
+            // First attempts: 2x needed to avoid repeated allocations
+            growth_amount = growth_needed * 2;
+            if (retry > 0) {
+                std::cout << "[RasterizerMemoryArena] Retry " << retry
+                          << ": attempting growth of " << (growth_amount >> 20)
+                          << " MB (2x needed)\n";
+            }
+        } else {
+            // Final attempts: minimal growth, just what's needed plus 50% headroom
+            growth_amount = (growth_needed * 3) / 2;
+            std::cout << "[RasterizerMemoryArena] Retry " << retry
+                      << ": attempting minimal growth of " << (growth_amount >> 20)
+                      << " MB (1.5x needed)\n";
+        }
 
         // Cap at max physical
         size_t new_committed = std::min(arena.committed_size + growth_amount, config_.max_physical);
