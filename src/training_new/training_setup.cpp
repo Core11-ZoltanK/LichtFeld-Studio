@@ -77,9 +77,37 @@ namespace lfs::training {
                         if (max_cap > 0) {
                             // Move point cloud to CPU to avoid pool allocations (init will be on CPU)
                             LOG_INFO("Moving point cloud to CPU to avoid pool allocations ({} points)", data.point_cloud->size());
+                            LOG_DEBUG("  Original point cloud: means.device={}, means.is_valid={}, means.shape={}, means.ptr={}",
+                                      data.point_cloud->means.device() == lfs::core::Device::CUDA ? "CUDA" : "CPU",
+                                      data.point_cloud->means.is_valid(),
+                                      data.point_cloud->means.shape().str(),
+                                      static_cast<void*>(data.point_cloud->means.ptr<float>()));
+                            LOG_DEBUG("  Original point cloud: colors.device={}, colors.is_valid={}, colors.shape={}, colors.ptr={}",
+                                      data.point_cloud->colors.device() == lfs::core::Device::CUDA ? "CUDA" : "CPU",
+                                      data.point_cloud->colors.is_valid(),
+                                      data.point_cloud->colors.shape().str(),
+                                      static_cast<void*>(data.point_cloud->colors.ptr<uint8_t>()));
+
                             point_cloud_to_use = *data.point_cloud;
+                            LOG_DEBUG("  After copy: point_cloud_to_use.means.device={}, is_valid={}, ptr={}",
+                                      point_cloud_to_use.means.device() == lfs::core::Device::CUDA ? "CUDA" : "CPU",
+                                      point_cloud_to_use.means.is_valid(),
+                                      static_cast<void*>(point_cloud_to_use.means.ptr<float>()));
+
                             point_cloud_to_use.means = point_cloud_to_use.means.cpu();
+                            LOG_DEBUG("  After .cpu() on means: device={}, is_valid={}, ptr={}, shape={}",
+                                      point_cloud_to_use.means.device() == lfs::core::Device::CUDA ? "CUDA" : "CPU",
+                                      point_cloud_to_use.means.is_valid(),
+                                      static_cast<const void*>(point_cloud_to_use.means.ptr<float>()),
+                                      point_cloud_to_use.means.shape().str());
+
                             point_cloud_to_use.colors = point_cloud_to_use.colors.cpu();
+                            LOG_DEBUG("  After .cpu() on colors: device={}, is_valid={}, ptr={}, shape={}",
+                                      point_cloud_to_use.colors.device() == lfs::core::Device::CUDA ? "CUDA" : "CPU",
+                                      point_cloud_to_use.colors.is_valid(),
+                                      static_cast<const void*>(point_cloud_to_use.colors.ptr<uint8_t>()),
+                                      point_cloud_to_use.colors.shape().str());
+
                             // Free the original CUDA point cloud to eliminate pool allocations
                             data.point_cloud->means = lfs::core::Tensor();  // Clear CUDA tensor
                             data.point_cloud->colors = lfs::core::Tensor(); // Clear CUDA tensor

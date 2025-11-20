@@ -979,6 +979,22 @@ namespace lfs::core {
         int capacity) {
 
         try {
+            LOG_DEBUG("=== init_model_from_pointcloud starting ===");
+            LOG_DEBUG("  capacity={}, random={}, sh_degree={}",
+                      capacity, params.optimization.random, params.optimization.sh_degree);
+            LOG_DEBUG("  scene_center: is_valid={}, device={}, shape={}",
+                      scene_center.is_valid(),
+                      scene_center.device() == Device::CUDA ? "CUDA" : "CPU",
+                      scene_center.shape().str());
+            LOG_DEBUG("  pcd.means: is_valid={}, device={}, shape={}, numel={}",
+                      pcd.means.is_valid(),
+                      pcd.means.device() == Device::CUDA ? "CUDA" : "CPU",
+                      pcd.means.shape().str(), pcd.means.numel());
+            LOG_DEBUG("  pcd.colors: is_valid={}, device={}, shape={}, numel={}",
+                      pcd.colors.is_valid(),
+                      pcd.colors.device() == Device::CUDA ? "CUDA" : "CPU",
+                      pcd.colors.shape().str(), pcd.colors.numel());
+
             // Generate positions and colors based on init type
             Tensor positions, colors;
 
@@ -986,19 +1002,38 @@ namespace lfs::core {
                 const int num_points = params.optimization.init_num_pts;
                 const float extent = params.optimization.init_extent;
 
+                LOG_DEBUG("  Using random initialization: num_points={}, extent={}", num_points, extent);
                 positions = (Tensor::rand({static_cast<size_t>(num_points), 3}, Device::CUDA)
                                  .mul(2.0f)
                                  .sub(1.0f))
                                 .mul(extent);
                 colors = Tensor::rand({static_cast<size_t>(num_points), 3}, Device::CUDA);
+                LOG_DEBUG("  Random positions created: shape={}, numel={}", positions.shape().str(), positions.numel());
+                LOG_DEBUG("  Random colors created: shape={}, numel={}", colors.shape().str(), colors.numel());
             } else {
+                LOG_DEBUG("  Using point cloud initialization");
                 if (!pcd.means.is_valid() || !pcd.colors.is_valid()) {
+                    LOG_ERROR("Point cloud has invalid means or colors: means.is_valid()={}, colors.is_valid()={}",
+                              pcd.means.is_valid(), pcd.colors.is_valid());
                     return std::unexpected("Point cloud has invalid _means or colors");
                 }
 
+                LOG_DEBUG("  Converting pcd.means to CUDA...");
                 positions = pcd.means.cuda();
+                LOG_DEBUG("  positions after .cuda(): is_valid={}, device={}, ptr={}, shape={}, numel={}",
+                          positions.is_valid(),
+                          positions.device() == Device::CUDA ? "CUDA" : "CPU",
+                          static_cast<void*>(positions.ptr<float>()),
+                          positions.shape().str(), positions.numel());
+
                 // Normalize colors from uint8 [0,255] to float32 [0,1] to match old behavior
+                LOG_DEBUG("  Converting pcd.colors (dtype={}) to float32...",
+                          pcd.colors.dtype() == DataType::UInt8 ? "UInt8" : "Float32");
                 colors = pcd.colors.to(DataType::Float32).div(255.0f).cuda();
+                LOG_DEBUG("  colors after conversion: is_valid={}, device={}, shape={}, numel={}",
+                          colors.is_valid(),
+                          colors.device() == Device::CUDA ? "CUDA" : "CPU",
+                          colors.shape().str(), colors.numel());
             }
 
             auto scene_center_device = scene_center.to(positions.device());
@@ -1025,11 +1060,34 @@ namespace lfs::core {
                 LOG_DEBUG("Creating direct tensors with capacity={}", capacity);
 
                 means_ = Tensor::zeros_direct(TensorShape({num_points, 3}), capacity);
+                LOG_DEBUG("  means_ allocated: is_valid={}, ptr={}, shape={}, numel={}",
+                          means_.is_valid(), static_cast<void*>(means_.ptr<float>()),
+                          means_.shape().str(), means_.numel());
+
                 scaling_ = Tensor::zeros_direct(TensorShape({num_points, 3}), capacity);
+                LOG_DEBUG("  scaling_ allocated: is_valid={}, ptr={}, shape={}, numel={}",
+                          scaling_.is_valid(), static_cast<void*>(scaling_.ptr<float>()),
+                          scaling_.shape().str(), scaling_.numel());
+
                 rotation_ = Tensor::zeros_direct(TensorShape({num_points, 4}), capacity);
+                LOG_DEBUG("  rotation_ allocated: is_valid={}, ptr={}, shape={}, numel={}",
+                          rotation_.is_valid(), static_cast<void*>(rotation_.ptr<float>()),
+                          rotation_.shape().str(), rotation_.numel());
+
                 opacity_ = Tensor::zeros_direct(TensorShape({num_points, 1}), capacity);
+                LOG_DEBUG("  opacity_ allocated: is_valid={}, ptr={}, shape={}, numel={}",
+                          opacity_.is_valid(), static_cast<void*>(opacity_.ptr<float>()),
+                          opacity_.shape().str(), opacity_.numel());
+
                 sh0_ = Tensor::zeros_direct(TensorShape({num_points, 1, 3}), capacity);
+                LOG_DEBUG("  sh0_ allocated: is_valid={}, ptr={}, shape={}, numel={}",
+                          sh0_.is_valid(), static_cast<void*>(sh0_.ptr<float>()),
+                          sh0_.shape().str(), sh0_.numel());
+
                 shN_ = Tensor::zeros_direct(TensorShape({num_points, static_cast<size_t>(feature_shape - 1), 3}), capacity);
+                LOG_DEBUG("  shN_ allocated: is_valid={}, ptr={}, shape={}, numel={}",
+                          shN_.is_valid(), static_cast<void*>(shN_.ptr<float>()),
+                          shN_.shape().str(), shN_.numel());
 
                 LOG_DEBUG("Computing and filling values...");
             }
@@ -1039,43 +1097,84 @@ namespace lfs::core {
 
             if (capacity > 0) {
                 LOG_DEBUG("Computing values on CPU");
+                LOG_DEBUG("  positions tensor: is_valid={}, device={}, shape={}, numel={}",
+                          positions.is_valid(), positions.device() == Device::CUDA ? "CUDA" : "CPU",
+                          positions.shape().str(), positions.numel());
 
                 // Compute means on CPU
                 auto positions_cpu = positions.cpu();
+                LOG_DEBUG("  positions_cpu after .cpu(): is_valid={}, ptr={}, device={}, shape={}, numel={}",
+                          positions_cpu.is_valid(), static_cast<const void*>(positions_cpu.ptr<float>()),
+                          positions_cpu.device() == Device::CUDA ? "CUDA" : "CPU",
+                          positions_cpu.shape().str(), positions_cpu.numel());
+
                 if (params.optimization.random) {
                     means_cpu = positions_cpu.mul(_scene_scale);
                 } else {
                     means_cpu = positions_cpu;
                 }
+                LOG_DEBUG("  means_cpu computed: is_valid={}, ptr={}, device={}, shape={}, numel={}",
+                          means_cpu.is_valid(), static_cast<const void*>(means_cpu.ptr<float>()),
+                          means_cpu.device() == Device::CUDA ? "CUDA" : "CPU",
+                          means_cpu.shape().str(), means_cpu.numel());
 
                 // Compute scaling on CPU
+                LOG_DEBUG("  Computing neighbor distances...");
                 auto nn_dist = compute_mean_neighbor_distances(means_cpu).clamp_min(1e-7f);
+                LOG_DEBUG("  nn_dist computed: is_valid={}, shape={}, numel={}",
+                          nn_dist.is_valid(), nn_dist.shape().str(), nn_dist.numel());
+
                 std::vector<int> scale_expand_shape = {static_cast<int>(num_points), 3};
                 scaling_cpu = nn_dist.sqrt()
                                   .mul(params.optimization.init_scaling)
                                   .log()
                                   .unsqueeze(-1)
                                   .expand(std::span<const int>(scale_expand_shape));
+                LOG_DEBUG("  scaling_cpu computed: is_valid={}, ptr={}, device={}, shape={}, numel={}",
+                          scaling_cpu.is_valid(), static_cast<const void*>(scaling_cpu.ptr<float>()),
+                          scaling_cpu.device() == Device::CUDA ? "CUDA" : "CPU",
+                          scaling_cpu.shape().str(), scaling_cpu.numel());
 
                 // Create identity quaternion rotations on CPU
+                LOG_DEBUG("  Creating identity quaternions...");
                 rotation_cpu = Tensor::zeros({num_points, 4}, Device::CPU);
                 auto rot_acc = rotation_cpu.accessor<float, 2>();
                 for (size_t i = 0; i < num_points; i++) {
                     rot_acc(i, 0) = 1.0f;
                 }
+                LOG_DEBUG("  rotation_cpu created: is_valid={}, ptr={}, shape={}, numel={}",
+                          rotation_cpu.is_valid(), static_cast<const void*>(rotation_cpu.ptr<float>()),
+                          rotation_cpu.shape().str(), rotation_cpu.numel());
 
                 // Compute opacity on CPU
+                LOG_DEBUG("  Computing opacity (init_val={})...", params.optimization.init_opacity);
                 auto init_val = params.optimization.init_opacity;
                 opacity_cpu = Tensor::full({num_points, 1}, init_val, Device::CPU).logit();
+                LOG_DEBUG("  opacity_cpu computed: is_valid={}, ptr={}, shape={}, numel={}",
+                          opacity_cpu.is_valid(), static_cast<const void*>(opacity_cpu.ptr<float>()),
+                          opacity_cpu.shape().str(), opacity_cpu.numel());
 
                 // Compute SH coefficients on CPU
+                LOG_DEBUG("  Computing SH coefficients...");
+                LOG_DEBUG("    colors tensor: is_valid={}, device={}, shape={}, numel={}",
+                          colors.is_valid(), colors.device() == Device::CUDA ? "CUDA" : "CPU",
+                          colors.shape().str(), colors.numel());
+
                 auto colors_cpu = colors.cpu();
+                LOG_DEBUG("    colors_cpu: is_valid={}, ptr={}, shape={}, numel={}",
+                          colors_cpu.is_valid(), static_cast<const void*>(colors_cpu.ptr<float>()),
+                          colors_cpu.shape().str(), colors_cpu.numel());
+
                 auto fused_color = rgb_to_sh(colors_cpu);
+                LOG_DEBUG("    fused_color: is_valid={}, shape={}, numel={}",
+                          fused_color.is_valid(), fused_color.shape().str(), fused_color.numel());
 
                 // Create SH tensor on CPU
                 auto shs_cpu_tensor = Tensor::zeros(
                     {fused_color.size(0), static_cast<size_t>(feature_shape), 3},
                     Device::CPU);
+                LOG_DEBUG("    shs_cpu_tensor: is_valid={}, shape={}, numel={}",
+                          shs_cpu_tensor.is_valid(), shs_cpu_tensor.shape().str(), shs_cpu_tensor.numel());
 
                 auto shs_acc = shs_cpu_tensor.accessor<float, 3>();
                 auto fused_acc = fused_color.accessor<float, 2>();
@@ -1088,34 +1187,122 @@ namespace lfs::core {
 
                 sh0_cpu = shs_cpu_tensor.slice(1, 0, 1).contiguous();
                 shN_cpu = shs_cpu_tensor.slice(1, 1, feature_shape).contiguous();
+                LOG_DEBUG("  sh0_cpu: is_valid={}, ptr={}, shape={}, numel={}",
+                          sh0_cpu.is_valid(), static_cast<const void*>(sh0_cpu.ptr<float>()),
+                          sh0_cpu.shape().str(), sh0_cpu.numel());
+                LOG_DEBUG("  shN_cpu: is_valid={}, ptr={}, shape={}, numel={}",
+                          shN_cpu.is_valid(), static_cast<const void*>(shN_cpu.ptr<float>()),
+                          shN_cpu.shape().str(), shN_cpu.numel());
 
                 // Copy CPU data to direct CUDA tensors
                 LOG_DEBUG("Copying CPU values to direct CUDA tensors");
                 cudaError_t err;
 
+                // Means copy
+                LOG_DEBUG("  Copying means: src_ptr={}, dst_ptr={}, bytes={}",
+                          static_cast<const void*>(means_cpu.ptr<float>()),
+                          static_cast<void*>(means_.ptr<float>()),
+                          means_cpu.numel() * sizeof(float));
                 err = cudaMemcpy(means_.ptr<float>(), means_cpu.ptr<float>(),
                                 means_cpu.numel() * sizeof(float), cudaMemcpyHostToDevice);
-                if (err != cudaSuccess) throw TensorError("cudaMemcpy failed for means: " + std::string(cudaGetErrorString(err)));
+                if (err != cudaSuccess) {
+                    LOG_ERROR("cudaMemcpy failed for means:");
+                    LOG_ERROR("  src (CPU): is_valid={}, ptr={}, device={}, numel={}",
+                              means_cpu.is_valid(), static_cast<const void*>(means_cpu.ptr<float>()),
+                              means_cpu.device() == Device::CPU ? "CPU" : "CUDA", means_cpu.numel());
+                    LOG_ERROR("  dst (CUDA): is_valid={}, ptr={}, device={}, numel={}",
+                              means_.is_valid(), static_cast<void*>(means_.ptr<float>()),
+                              means_.device() == Device::CPU ? "CPU" : "CUDA", means_.numel());
+                    throw TensorError("cudaMemcpy failed for means: " + std::string(cudaGetErrorString(err)));
+                }
+                LOG_DEBUG("  Means copy successful");
 
+                // Scaling copy
+                LOG_DEBUG("  Copying scaling: src_ptr={}, dst_ptr={}, bytes={}",
+                          static_cast<const void*>(scaling_cpu.ptr<float>()),
+                          static_cast<void*>(scaling_.ptr<float>()),
+                          scaling_cpu.numel() * sizeof(float));
                 err = cudaMemcpy(scaling_.ptr<float>(), scaling_cpu.ptr<float>(),
                                 scaling_cpu.numel() * sizeof(float), cudaMemcpyHostToDevice);
-                if (err != cudaSuccess) throw TensorError("cudaMemcpy failed for scaling: " + std::string(cudaGetErrorString(err)));
+                if (err != cudaSuccess) {
+                    LOG_ERROR("cudaMemcpy failed for scaling:");
+                    LOG_ERROR("  src (CPU): is_valid={}, ptr={}, numel={}",
+                              scaling_cpu.is_valid(), static_cast<const void*>(scaling_cpu.ptr<float>()), scaling_cpu.numel());
+                    LOG_ERROR("  dst (CUDA): is_valid={}, ptr={}, numel={}",
+                              scaling_.is_valid(), static_cast<void*>(scaling_.ptr<float>()), scaling_.numel());
+                    throw TensorError("cudaMemcpy failed for scaling: " + std::string(cudaGetErrorString(err)));
+                }
+                LOG_DEBUG("  Scaling copy successful");
 
+                // Rotation copy
+                LOG_DEBUG("  Copying rotation: src_ptr={}, dst_ptr={}, bytes={}",
+                          static_cast<const void*>(rotation_cpu.ptr<float>()),
+                          static_cast<void*>(rotation_.ptr<float>()),
+                          rotation_cpu.numel() * sizeof(float));
                 err = cudaMemcpy(rotation_.ptr<float>(), rotation_cpu.ptr<float>(),
                                 rotation_cpu.numel() * sizeof(float), cudaMemcpyHostToDevice);
-                if (err != cudaSuccess) throw TensorError("cudaMemcpy failed for rotation: " + std::string(cudaGetErrorString(err)));
+                if (err != cudaSuccess) {
+                    LOG_ERROR("cudaMemcpy failed for rotation:");
+                    LOG_ERROR("  src (CPU): is_valid={}, ptr={}, numel={}",
+                              rotation_cpu.is_valid(), static_cast<const void*>(rotation_cpu.ptr<float>()), rotation_cpu.numel());
+                    LOG_ERROR("  dst (CUDA): is_valid={}, ptr={}, numel={}",
+                              rotation_.is_valid(), static_cast<void*>(rotation_.ptr<float>()), rotation_.numel());
+                    throw TensorError("cudaMemcpy failed for rotation: " + std::string(cudaGetErrorString(err)));
+                }
+                LOG_DEBUG("  Rotation copy successful");
 
+                // Opacity copy
+                LOG_DEBUG("  Copying opacity: src_ptr={}, dst_ptr={}, bytes={}",
+                          static_cast<const void*>(opacity_cpu.ptr<float>()),
+                          static_cast<void*>(opacity_.ptr<float>()),
+                          opacity_cpu.numel() * sizeof(float));
                 err = cudaMemcpy(opacity_.ptr<float>(), opacity_cpu.ptr<float>(),
                                 opacity_cpu.numel() * sizeof(float), cudaMemcpyHostToDevice);
-                if (err != cudaSuccess) throw TensorError("cudaMemcpy failed for opacity: " + std::string(cudaGetErrorString(err)));
+                if (err != cudaSuccess) {
+                    LOG_ERROR("cudaMemcpy failed for opacity:");
+                    LOG_ERROR("  src (CPU): is_valid={}, ptr={}, numel={}",
+                              opacity_cpu.is_valid(), static_cast<const void*>(opacity_cpu.ptr<float>()), opacity_cpu.numel());
+                    LOG_ERROR("  dst (CUDA): is_valid={}, ptr={}, numel={}",
+                              opacity_.is_valid(), static_cast<void*>(opacity_.ptr<float>()), opacity_.numel());
+                    throw TensorError("cudaMemcpy failed for opacity: " + std::string(cudaGetErrorString(err)));
+                }
+                LOG_DEBUG("  Opacity copy successful");
 
+                // SH0 copy
+                LOG_DEBUG("  Copying sh0: src_ptr={}, dst_ptr={}, bytes={}",
+                          static_cast<const void*>(sh0_cpu.ptr<float>()),
+                          static_cast<void*>(sh0_.ptr<float>()),
+                          sh0_cpu.numel() * sizeof(float));
                 err = cudaMemcpy(sh0_.ptr<float>(), sh0_cpu.ptr<float>(),
                                 sh0_cpu.numel() * sizeof(float), cudaMemcpyHostToDevice);
-                if (err != cudaSuccess) throw TensorError("cudaMemcpy failed for sh0: " + std::string(cudaGetErrorString(err)));
+                if (err != cudaSuccess) {
+                    LOG_ERROR("cudaMemcpy failed for sh0:");
+                    LOG_ERROR("  src (CPU): is_valid={}, ptr={}, numel={}",
+                              sh0_cpu.is_valid(), static_cast<const void*>(sh0_cpu.ptr<float>()), sh0_cpu.numel());
+                    LOG_ERROR("  dst (CUDA): is_valid={}, ptr={}, numel={}",
+                              sh0_.is_valid(), static_cast<void*>(sh0_.ptr<float>()), sh0_.numel());
+                    throw TensorError("cudaMemcpy failed for sh0: " + std::string(cudaGetErrorString(err)));
+                }
+                LOG_DEBUG("  SH0 copy successful");
 
+                // SHN copy
+                LOG_DEBUG("  Copying shN: src_ptr={}, dst_ptr={}, bytes={}",
+                          static_cast<const void*>(shN_cpu.ptr<float>()),
+                          static_cast<void*>(shN_.ptr<float>()),
+                          shN_cpu.numel() * sizeof(float));
                 err = cudaMemcpy(shN_.ptr<float>(), shN_cpu.ptr<float>(),
                                 shN_cpu.numel() * sizeof(float), cudaMemcpyHostToDevice);
-                if (err != cudaSuccess) throw TensorError("cudaMemcpy failed for shN: " + std::string(cudaGetErrorString(err)));
+                if (err != cudaSuccess) {
+                    LOG_ERROR("cudaMemcpy failed for shN:");
+                    LOG_ERROR("  src (CPU): is_valid={}, ptr={}, numel={}",
+                              shN_cpu.is_valid(), static_cast<const void*>(shN_cpu.ptr<float>()), shN_cpu.numel());
+                    LOG_ERROR("  dst (CUDA): is_valid={}, ptr={}, numel={}",
+                              shN_.is_valid(), static_cast<void*>(shN_.ptr<float>()), shN_.numel());
+                    throw TensorError("cudaMemcpy failed for shN: " + std::string(cudaGetErrorString(err)));
+                }
+                LOG_DEBUG("  SHN copy successful");
+
+                LOG_DEBUG("All CPU to CUDA copies completed successfully");
             } else {
                 // No capacity specified - use pool
                 Tensor means_temp;
