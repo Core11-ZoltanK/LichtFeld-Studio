@@ -41,6 +41,9 @@ namespace fast_lfs::rasterization {
         // Add helper buffer pointers to avoid re-allocation in backward
         void* grad_mean2d_helper;
         void* grad_conic_helper;
+        // Error handling for OOM
+        bool success;
+        const char* error_message;
     };
 
     ForwardContext forward_raw(

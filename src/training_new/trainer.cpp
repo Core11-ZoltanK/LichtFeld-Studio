@@ -18,6 +18,7 @@
 // #include "kernels/regularization.cuh"
 #include "loader_new/cache_image_loader.hpp"
 #include "rasterization/fast_rasterizer.hpp"
+#include <rasterizer_memory_arena.h>
 // TODO: Port 3DGUT rasterizer to LibTorch-free implementation
 // #include "rasterization/rasterizer.hpp"
 #include "losses/losses.hpp"
@@ -717,11 +718,45 @@ namespace lfs::training {
 
                 // Render the tile
                 nvtxRangePush("rasterize_forward");
-                auto [output, ctx] = fast_rasterize_forward(
+                auto rasterize_result = fast_rasterize_forward(
                     *cam, strategy_->get_model(), bg,
                     tile_x_offset, tile_y_offset,
                     (num_tiles > 1) ? tile_width : 0,   // 0 means full image
                     (num_tiles > 1) ? tile_height : 0);
+
+                // Check for OOM error
+                if (!rasterize_result) {
+                    const std::string& error = rasterize_result.error();
+                    if (error.find("OUT_OF_MEMORY") != std::string::npos) {
+                        nvtxRangePop();  // rasterize_forward
+                        nvtxRangePop();  // tile
+
+                        // Handle OOM by switching tile mode
+                        if (tile_mode == TileMode::Four) {
+                            // Already at maximum tiling - can't tile further, stop gracefully
+                            LOG_ERROR("OUT OF MEMORY at maximum tile mode (2x2). Stopping training gracefully.");
+                            LOG_ERROR("Arena error: {}", error);
+                            return StepResult::Stop;
+                        } else {
+                            // Upgrade to next tile mode
+                            TileMode new_mode = (tile_mode == TileMode::One) ? TileMode::Two : TileMode::Four;
+                            LOG_WARN("OUT OF MEMORY detected. Switching tile mode from {} to {}",
+                                     static_cast<int>(tile_mode), static_cast<int>(new_mode));
+                            LOG_WARN("Arena error: {}", error);
+                            params_.optimization.tile_mode = static_cast<int>(new_mode);
+
+                            // Retry this step with new tile mode
+                            return std::unexpected("OOM_RETRY");  // Signal to retry the step
+                        }
+                    } else {
+                        // Non-OOM error - propagate
+                        nvtxRangePop();
+                        nvtxRangePop();
+                        return std::unexpected(error);
+                    }
+                }
+
+                auto& [output, ctx] = *rasterize_result;
                 r_output = output;  // Save last tile for densification
                 nvtxRangePop();
 
@@ -979,7 +1014,54 @@ namespace lfs::training {
 
                 auto step_result = train_step(iter, cam, gt_image, render_mode, stop_token);
                 if (!step_result) {
-                    return std::unexpected(step_result.error());
+                    // Check if this is an OOM_RETRY signal
+                    if (step_result.error() == "OOM_RETRY") {
+                        // Aggressive memory cleanup before retry
+                        LOG_INFO("Performing aggressive memory cleanup before retry...");
+
+                        // 0. CRITICAL: Synchronize and clear any pending CUDA errors
+                        cudaError_t sync_err = cudaDeviceSynchronize();
+                        if (sync_err != cudaSuccess) {
+                            LOG_WARN("cudaDeviceSynchronize before cleanup returned: {}", cudaGetErrorString(sync_err));
+                            // Clear the error so we can continue
+                            cudaGetLastError();
+                        }
+
+                        // 1. Emergency cleanup of arena (resets offsets, clears inactive frames)
+                        fast_lfs::rasterization::GlobalArenaManager::instance().get_arena().emergency_cleanup();
+
+                        // 2. Trim cached memory pool
+                        lfs::core::CudaMemoryPool::instance().trim_cached_memory();
+
+                        // 3. Synchronize again after cleanup
+                        cudaDeviceSynchronize();
+
+                        // 4. Clear any error state from the OOM
+                        cudaGetLastError();
+
+                        // 5. Log memory status
+                        size_t free_mem = 0, total_mem = 0;
+                        cudaError_t err = cudaMemGetInfo(&free_mem, &total_mem);
+                        if (err == cudaSuccess) {
+                            LOG_INFO("CUDA memory after aggressive cleanup: {:.2f} GB free / {:.2f} GB total",
+                                     free_mem / (1024.0 * 1024.0 * 1024.0),
+                                     total_mem / (1024.0 * 1024.0 * 1024.0));
+                        } else {
+                            LOG_WARN("cudaMemGetInfo failed: {}", cudaGetErrorString(err));
+                            cudaGetLastError();  // Clear this error too
+                        }
+
+                        // Retry the same step with upgraded tile mode
+                        LOG_INFO("Retrying iteration {} with upgraded tile mode", iter);
+                        step_result = train_step(iter, cam, gt_image, render_mode, stop_token);
+                        if (!step_result) {
+                            // If retry also failed, propagate the error
+                            return std::unexpected(step_result.error());
+                        }
+                    } else {
+                        // Regular error - propagate
+                        return std::unexpected(step_result.error());
+                    }
                 }
 
                 if (*step_result == StepResult::Stop) {

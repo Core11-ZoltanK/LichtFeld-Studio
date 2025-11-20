@@ -197,11 +197,6 @@ void RasterizerMemoryArena::end_frame(uint64_t frame_id) {
                     break;
                 }
             }
-
-            // Decommit unused memory if under pressure
-            if (get_memory_pressure() > 0.75f) {
-                decommit_unused_memory(*it->second);
-            }
         }
     }
 
@@ -370,11 +365,11 @@ void RasterizerMemoryArena::emergency_cleanup() {
         }
     }
 
-    // Reset all arena offsets and decommit unused memory
+    // Decommit unused memory BEFORE resetting offsets (so we know what's in use)
     for (auto& [device, arena] : device_arenas_) {
         if (arena) {
-            arena->offset.store(0, std::memory_order_release);
-            decommit_unused_memory(*arena);
+            decommit_unused_memory(*arena);  // Check offset before resetting
+            arena->offset.store(0, std::memory_order_release);  // Now safe to reset
             std::cout << "  Reset arena on device " << device
                      << " (committed: " << (arena->committed_size >> 20) << " MB)" << std::endl;
         }
@@ -677,8 +672,67 @@ bool RasterizerMemoryArena::commit_more_memory(Arena& arena, size_t required_siz
 
 void RasterizerMemoryArena::decommit_unused_memory(Arena& arena) {
     // Called with arena_mutex_ held
-    // For now, we don't decommit to avoid fragmentation
-    return;
+    // Free ALL chunks BEYOND the current offset (unused memory)
+    // This is called during emergency cleanup, so be aggressive
+
+    std::lock_guard<std::mutex> chunk_lock(arena.chunks_mutex);
+
+    if (arena.chunks.empty()) {
+        return;  // Nothing to decommit
+    }
+
+    const size_t current_offset = arena.offset.load(std::memory_order_acquire);
+    size_t total_freed = 0;
+    size_t chunks_to_remove = 0;
+
+    // Free ALL chunks beyond the current offset (no 1GB limit during emergency)
+    // CRITICAL: Only free chunks that are completely beyond the current offset
+    for (size_t i = arena.chunks.size(); i > 0; --i) {
+        size_t idx = i - 1;
+        auto& chunk = arena.chunks[idx];
+
+        // Don't free the first chunk (keep at least initial allocation)
+        if (idx == 0) {
+            break;
+        }
+
+        // Only free chunks that are completely unused (beyond current offset)
+        if (chunk.offset >= current_offset) {
+            // This chunk is completely unused, safe to free
+            if (chunk.is_mapped) {
+                // Unmap the physical memory from virtual address space
+                CUresult result = cuMemUnmap(arena.d_ptr + chunk.offset, chunk.size);
+                if (result == CUDA_SUCCESS) {
+                    // Release the physical memory allocation
+                    cuMemRelease(chunk.handle);
+                    chunk.is_mapped = false;
+                    total_freed += chunk.size;
+                    chunks_to_remove++;
+                }
+            } else {
+                chunks_to_remove++;
+            }
+        } else {
+            // This chunk (or earlier chunks) are still in use, stop here
+            break;
+        }
+    }
+
+    // Remove the freed chunks from the end
+    if (chunks_to_remove > 0) {
+        size_t new_size = arena.chunks.size() - chunks_to_remove;
+        arena.chunks.erase(arena.chunks.begin() + new_size, arena.chunks.end());
+        arena.committed_size -= total_freed;
+
+        std::cout << "[RasterizerMemoryArena] Decommitted " << (total_freed >> 20)
+                  << " MB (freed " << chunks_to_remove << " chunks), "
+                  << "arena now at " << (arena.committed_size >> 20) << " MB" << std::endl;
+    } else {
+        std::cout << "[RasterizerMemoryArena] No unused chunks to decommit (all in use)" << std::endl;
+    }
+
+    // Reset peak usage tracking
+    arena.peak_usage_period.store(0, std::memory_order_release);
 }
 
 char* RasterizerMemoryArena::allocate_internal(Arena& arena, size_t size, uint64_t frame_id) {
@@ -785,10 +839,11 @@ char* RasterizerMemoryArena::allocate_internal(Arena& arena, size_t size, uint64
         growth_amount = new_committed - arena.committed_size;
 
         if (growth_amount == 0) {
-            // Can't grow anymore - we're at max
-            throw std::runtime_error("Arena at maximum size (" +
-                                   std::to_string(config_.max_physical >> 30) + " GB), cannot allocate " +
-                                   std::to_string(aligned_size >> 20) + " MB");
+            // Can't grow anymore - we're at max capacity
+            std::cerr << "\n[RasterizerMemoryArena] ⚠️  CAPACITY LIMIT REACHED ⚠️\n"
+                      << "Arena at maximum size: " << (config_.max_physical >> 20) << " MB\n"
+                      << "Cannot allocate additional: " << (aligned_size >> 20) << " MB\n"
+            return nullptr;
         }
 
         // Try to grow
@@ -820,18 +875,24 @@ char* RasterizerMemoryArena::allocate_internal(Arena& arena, size_t size, uint64
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 continue;
             } else {
-                throw std::runtime_error("Failed to grow arena after " + std::to_string(MAX_RETRIES) +
-                                       " attempts for allocation of " + std::to_string(size >> 20) +
-                                       " MB (usage: " + std::to_string(current_offset >> 20) +
-                                       " MB, committed: " + std::to_string(arena.committed_size >> 20) + " MB)");
+                // All retries exhausted - return nullptr for graceful degradation
+                std::cerr << "\n[RasterizerMemoryArena] ⚠️  OUT OF MEMORY ⚠️\n"
+                          << "Failed to grow arena after " << MAX_RETRIES << " attempts\n"
+                          << "  Requested allocation: " << (size >> 20) << " MB\n"
+                          << "  Current usage: " << (current_offset >> 20) << " MB\n"
+                          << "  Committed size: " << (arena.committed_size >> 20) << " MB\n"
+                          << "  Max capacity: " << (config_.max_physical >> 20) << " MB\n"
+                          << "\n⚠️  Returning nullptr - caller should handle gracefully\n\n";
+                return nullptr;
             }
         }
 
         // Growth succeeded, retry allocation
     }
 
-    // Should never reach here
-    throw std::runtime_error("Allocation failed after maximum retries");
+    // Should never reach here - return nullptr for safety
+    std::cerr << "[RasterizerMemoryArena] ERROR: Allocation loop exhausted, returning nullptr\n";
+    return nullptr;
 }
 
 bool RasterizerMemoryArena::grow_arena(Arena& arena, size_t required_size) {

@@ -79,7 +79,11 @@ ForwardContext forward_raw(
 
     if (!per_primitive_buffers_blob || !per_tile_buffers_blob) {
         arena.end_frame(frame_id);
-        throw std::runtime_error("Failed to allocate buffers from arena");
+        ForwardContext error_ctx = {};
+        error_ctx.success = false;
+        error_ctx.error_message = "OUT_OF_MEMORY: Failed to allocate initial buffers from arena";
+        error_ctx.frame_id = frame_id;  // Set frame_id so caller knows it's ended
+        return error_ctx;
     }
 
     // Allocate helper buffers for backward pass upfront to avoid allocation failures later
@@ -91,7 +95,11 @@ ForwardContext forward_raw(
 
     if (!grad_mean2d_helper || !grad_conic_helper) {
         arena.end_frame(frame_id);
-        throw std::runtime_error("Failed to allocate backward helper buffers from arena");
+        ForwardContext error_ctx = {};
+        error_ctx.success = false;
+        error_ctx.error_message = "OUT_OF_MEMORY: Failed to allocate backward helper buffers from arena";
+        error_ctx.frame_id = frame_id;
+        return error_ctx;
     }
 
     // Create allocation wrappers
@@ -111,13 +119,15 @@ ForwardContext forward_raw(
     char* per_bucket_buffers_blob = nullptr;
     size_t per_instance_size = 0;
     size_t per_bucket_size = 0;
+    bool allocation_failed = false;
 
     std::function<char*(size_t)> per_instance_buffers_func =
         [&arena_allocator, &per_instance_buffers_blob, &per_instance_size](size_t size) -> char* {
             per_instance_size = size;
             per_instance_buffers_blob = arena_allocator(size);
             if (!per_instance_buffers_blob) {
-                throw std::runtime_error("Failed to allocate instance buffers");
+                // Throw immediately to prevent nullptr from being used
+                throw std::runtime_error("OUT_OF_MEMORY: Failed to allocate instance buffers");
             }
             return per_instance_buffers_blob;
         };
@@ -127,7 +137,8 @@ ForwardContext forward_raw(
             per_bucket_size = size;
             per_bucket_buffers_blob = arena_allocator(size);
             if (!per_bucket_buffers_blob) {
-                throw std::runtime_error("Failed to allocate bucket buffers");
+                // Throw immediately to prevent nullptr from being used
+                throw std::runtime_error("OUT_OF_MEMORY: Failed to allocate bucket buffers");
             }
             return per_bucket_buffers_blob;
         };
@@ -166,11 +177,19 @@ ForwardContext forward_raw(
         // Verify allocations happened
         if (n_instances > 0 && !per_instance_buffers_blob) {
             arena.end_frame(frame_id);
-            throw std::runtime_error("Instance buffers were not allocated despite n_instances > 0");
+            ForwardContext error_ctx = {};
+            error_ctx.success = false;
+            error_ctx.error_message = "OUT_OF_MEMORY: Instance buffers were not allocated despite n_instances > 0";
+            error_ctx.frame_id = frame_id;
+            return error_ctx;
         }
         if (n_buckets > 0 && !per_bucket_buffers_blob) {
             arena.end_frame(frame_id);
-            throw std::runtime_error("Bucket buffers were not allocated despite n_buckets > 0");
+            ForwardContext error_ctx = {};
+            error_ctx.success = false;
+            error_ctx.error_message = "OUT_OF_MEMORY: Bucket buffers were not allocated despite n_buckets > 0";
+            error_ctx.frame_id = frame_id;
+            return error_ctx;
         }
 
         // Create and return context
@@ -191,13 +210,19 @@ ForwardContext forward_raw(
         ctx.frame_id = frame_id;
         ctx.grad_mean2d_helper = grad_mean2d_helper;
         ctx.grad_conic_helper = grad_conic_helper;
+        ctx.success = true;
+        ctx.error_message = nullptr;
 
         return ctx;
 
     } catch (const std::exception& e) {
-        // Clean up frame on error
+        // Clean up frame on error and return error context instead of throwing
         arena.end_frame(frame_id);
-        throw;
+        ForwardContext error_ctx = {};
+        error_ctx.success = false;
+        error_ctx.error_message = e.what();
+        error_ctx.frame_id = frame_id;
+        return error_ctx;
     }
 }
 

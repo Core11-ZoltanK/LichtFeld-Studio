@@ -8,6 +8,8 @@
 #include "core_new/splat_data.hpp"
 #include "optimizer/render_output.hpp"
 #include <rasterization_api.h>  // Use angle brackets to search include paths, not relative
+#include <expected>
+#include <string>
 
 namespace lfs::training {
     // Forward pass context - holds intermediate buffers needed for backward
@@ -48,7 +50,7 @@ namespace lfs::training {
 
     // Explicit forward pass - returns render output and context for backward
     // Optional tile parameters for memory-efficient training (tile_width/height=0 means full image)
-    std::pair<RenderOutput, FastRasterizeContext> fast_rasterize_forward(
+    std::expected<std::pair<RenderOutput, FastRasterizeContext>, std::string> fast_rasterize_forward(
         lfs::core::Camera& viewpoint_camera,
         lfs::core::SplatData& gaussian_model,
         lfs::core::Tensor& bg_color,
@@ -68,7 +70,10 @@ namespace lfs::training {
         lfs::core::Camera& viewpoint_camera,
         lfs::core::SplatData& gaussian_model,
         lfs::core::Tensor& bg_color) {
-        auto [output, ctx] = fast_rasterize_forward(viewpoint_camera, gaussian_model, bg_color);
-        return output;
+        auto result = fast_rasterize_forward(viewpoint_camera, gaussian_model, bg_color);
+        if (!result) {
+            throw std::runtime_error(result.error());
+        }
+        return result->first;
     }
 } // namespace lfs::training

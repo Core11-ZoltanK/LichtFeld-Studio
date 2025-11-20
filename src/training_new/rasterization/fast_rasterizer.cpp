@@ -7,7 +7,7 @@
 #include "training_new/kernels/grad_alpha.hpp"
 
 namespace lfs::training {
-    std::pair<RenderOutput, FastRasterizeContext> fast_rasterize_forward(
+    std::expected<std::pair<RenderOutput, FastRasterizeContext>, std::string> fast_rasterize_forward(
         core::Camera& viewpoint_camera,
         core::SplatData& gaussian_model,
         core::Tensor& bg_color,
@@ -92,6 +92,11 @@ namespace lfs::training {
             near_plane,
             far_plane);
 
+        // Check if forward failed due to OOM
+        if (!forward_ctx.success) {
+            return std::unexpected(std::string(forward_ctx.error_message));
+        }
+
         // Prepare render output
         RenderOutput render_output;
         // output = image + (1 - alpha) * bg_color
@@ -148,7 +153,7 @@ namespace lfs::training {
         ctx.tile_width = tile_width;
         ctx.tile_height = tile_height;
 
-        return {render_output, ctx};
+        return std::pair{render_output, ctx};
     }
 
     void fast_rasterize_backward(
