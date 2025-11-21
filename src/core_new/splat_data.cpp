@@ -1055,7 +1055,8 @@ namespace lfs::core {
 
             // Create final tensors first to avoid pool allocations
             Tensor means_, scaling_, rotation_, opacity_, sh0_, shN_;
-            if (capacity < num_points) {
+
+            if (capacity > 0 && capacity < num_points) {
                 LOG_DEBUG("capacity {} was lower than num_points cloud num_points {}.  Matching capacity to points. ", capacity, num_points);
                 capacity = num_points;
             }
