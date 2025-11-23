@@ -371,6 +371,7 @@ namespace lfs::vis {
             settings_.voxel_size = event.voxel_size;
             LOG_DEBUG("Point cloud mode: {}, voxel size: {}",
                       event.enabled ? "enabled" : "disabled", event.voxel_size);
+            cached_result_ = {};  // Clear cache (was rendered in different mode)
             markDirty();
         });
     }
@@ -621,7 +622,6 @@ namespace lfs::vis {
 
         // Detect model switch
         if (model_ptr != last_model_ptr_) {
-            LOG_TRACE("Model pointer changed, clearing cache");
             needs_render_ = true;
             render_texture_valid_ = false;
             last_model_ptr_ = model_ptr;
@@ -666,17 +666,8 @@ namespace lfs::vis {
             if (!cached_result_.image || needs_render_now || split_view_active) {
                 should_render = true;
                 needs_render_ = false;
-                if (!cached_result_.image) {
-                    LOG_INFO("Render triggered: no cached result");
-                } else if (needs_render_now) {
-                    // During interactive camera movement, this happens every frame - reduce noise
-                    LOG_TRACE("Render triggered: scene changed (marked dirty)");
-                } else if (split_view_active) {
-                    LOG_DEBUG("Render triggered: split view active");
-                }
             } else if (context.has_focus) {
                 should_render = true;
-                LOG_TRACE("Render triggered: viewport has focus (interactive mode)");
             }
         }
 
@@ -774,7 +765,6 @@ namespace lfs::vis {
                     cached_result_,
                     viewport_pos,
                     render_size);
-
                 if (!present_result) {
                     LOG_ERROR("Failed to present render result: {}", present_result.error());
                 }

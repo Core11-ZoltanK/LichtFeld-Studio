@@ -94,6 +94,8 @@ namespace lfs::rendering {
         // CUDA-GL interop for direct FBO→CUDA texture readback (eliminates CPU round-trip)
         std::optional<CudaGLInteropTexture> fbo_interop_texture_;
         bool use_fbo_interop_ = true;
+        int fbo_interop_last_width_ = 0;   // Track FBO size when interop was initialized
+        int fbo_interop_last_height_ = 0;  // to detect when we need to reinitialize
 #endif
     };
 

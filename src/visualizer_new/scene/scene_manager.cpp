@@ -343,6 +343,16 @@ namespace lfs::vis {
 
             emitSceneChanged();
 
+            // Switch to point cloud rendering mode by default for datasets
+            // Re-enabled with debug logging to investigate dimension mismatch
+            if (num_gaussians > 0 && trainer_manager_ && trainer_manager_->getTrainer()) {
+                ui::PointCloudModeChanged{
+                    .enabled = true,
+                    .voxel_size = 0.01f}
+                    .emit();
+                LOG_INFO("Switched to point cloud rendering mode for dataset ({} gaussians)", num_gaussians);
+            }
+
         } catch (const std::exception& e) {
             LOG_ERROR("Failed to load dataset: {} (path: {})", e.what(), path.string());
             throw;

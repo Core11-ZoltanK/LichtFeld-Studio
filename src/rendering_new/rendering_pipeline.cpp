@@ -224,18 +224,35 @@ namespace lfs::rendering {
         if (use_fbo_interop_) {
             LOG_TIMER_TRACE("CUDA-GL FBO interop readback");
 
-            // Initialize interop texture if needed
-            if (!fbo_interop_texture_) {
-                LOG_DEBUG("Initializing CUDA-GL FBO interop texture");
+            // Initialize interop texture if needed or if FBO size changed
+            bool should_init = persistent_color_texture_ != 0 &&
+                              (!fbo_interop_texture_ ||
+                               fbo_interop_last_width_ != persistent_fbo_width_ ||
+                               fbo_interop_last_height_ != persistent_fbo_height_);
+
+            if (should_init) {
+                if (fbo_interop_texture_) {
+                    LOG_TRACE("Reinitializing CUDA-GL FBO interop texture due to size change: {}x{} -> {}x{}",
+                             fbo_interop_last_width_, fbo_interop_last_height_,
+                             persistent_fbo_width_, persistent_fbo_height_);
+                    fbo_interop_texture_.reset();
+                } else {
+                    LOG_TRACE("Initializing CUDA-GL FBO interop texture: {}x{}", width, height);
+                }
+
                 fbo_interop_texture_.emplace();
                 if (auto init_result = fbo_interop_texture_->initForReading(
                         persistent_color_texture_, width, height);
                     !init_result) {
-                    LOG_WARN("Failed to initialize FBO interop: {}", init_result.error());
-                    LOG_INFO("Falling back to PBO readback mode");
-                    use_fbo_interop_ = false;
+                    LOG_TRACE("Failed to initialize FBO interop: {}", init_result.error());
                     fbo_interop_texture_.reset();
+                } else {
+                    LOG_TRACE("FBO interop initialized successfully");
                 }
+
+                // Update tracked size even if init failed to avoid retry loops
+                fbo_interop_last_width_ = persistent_fbo_width_;
+                fbo_interop_last_height_ = persistent_fbo_height_;
             }
 
             if (use_fbo_interop_ && fbo_interop_texture_) {
@@ -247,16 +264,15 @@ namespace lfs::rendering {
                     result.valid = true;
                     LOG_TRACE("Successfully read FBO via CUDA-GL interop");
                 } else {
-                    LOG_WARN("Failed to read FBO via interop: {}", read_result.error());
-                    LOG_INFO("Falling back to PBO readback mode");
-                    use_fbo_interop_ = false;
+                    LOG_TRACE("Failed to read FBO via interop: {}", read_result.error());
                     fbo_interop_texture_.reset();
+                    result.valid = false; // Force PBO fallback
                 }
             }
         }
 
-        // Fallback to PBO path if interop failed or is disabled
-        if (!use_fbo_interop_)
+        // Fallback to PBO path if interop failed, not initialized, or is disabled
+        if (!result.valid)
 #endif
         {
             // OPTIMIZATION: Use PBO for async GPU→CPU readback via DMA
@@ -411,7 +427,6 @@ namespace lfs::rendering {
     void RenderingPipeline::ensureFBOSize(int width, int height) {
         // Check if we need to create or resize the FBO
         if (persistent_fbo_ != 0 && persistent_fbo_width_ == width && persistent_fbo_height_ == height) {
-            // FBO already exists with correct size
             glBindFramebuffer(GL_FRAMEBUFFER, persistent_fbo_);
             return;
         }
@@ -420,6 +435,14 @@ namespace lfs::rendering {
         if (persistent_fbo_ != 0) {
             LOG_DEBUG("Resizing persistent FBO from {}x{} to {}x{}",
                       persistent_fbo_width_, persistent_fbo_height_, width, height);
+
+#ifdef CUDA_GL_INTEROP_ENABLED
+            // Clean up CUDA interop before deleting OpenGL texture to prevent ID reuse issues
+            if (fbo_interop_texture_) {
+                fbo_interop_texture_.reset();
+            }
+#endif
+
             cleanupFBO();
         } else {
             LOG_DEBUG("Creating persistent FBO with size {}x{}", width, height);
@@ -460,9 +483,18 @@ namespace lfs::rendering {
             return;
         }
 
+        // Unbind texture to avoid conflicts with CUDA interop registration
+        glBindTexture(GL_TEXTURE_2D, 0);
+
+        // Ensure all OpenGL commands are completed before CUDA interop registration
+        glFinish();
+
         // Update size tracking
         persistent_fbo_width_ = width;
         persistent_fbo_height_ = height;
+
+        LOG_TRACE("Persistent FBO created successfully: {}x{}, color_tex={}, depth_tex={}",
+                 width, height, persistent_color_texture_, persistent_depth_texture_);
     }
 
     void RenderingPipeline::cleanupFBO() {

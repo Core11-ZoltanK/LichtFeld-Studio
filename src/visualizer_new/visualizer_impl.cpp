@@ -171,6 +171,13 @@ namespace lfs::vis {
             }
         });
 
+        // Point cloud mode changes - request redraw
+        ui::PointCloudModeChanged::when([this](const auto&) {
+            if (window_manager_) {
+                window_manager_->requestRedraw();
+            }
+        });
+
         internal::TrainerReady::when([this](const auto&) {
             internal::TrainingReadyToStart{}.emit();
         });
@@ -325,10 +332,13 @@ namespace lfs::vis {
         }
 
         // Create render context
+        // NOTE: Disable viewport_region for point cloud mode to prevent visibility issues
+        // Point cloud rendering has issues when restricted to ImGui viewport regions
+        bool use_viewport_region = has_viewport_region && !rendering_manager_->getSettings().point_cloud_mode;
         RenderingManager::RenderContext context{
             .viewport = viewport_,
             .settings = rendering_manager_->getSettings(),
-            .viewport_region = has_viewport_region ? &viewport_region : nullptr,
+            .viewport_region = use_viewport_region ? &viewport_region : nullptr,
             .has_focus = gui_manager_ && gui_manager_->isViewportFocused(),
             .scene_manager = scene_manager_.get()};
 

@@ -37,7 +37,9 @@ namespace lfs::rendering {
                 LOG_TRACE("Switching from program {} to program {}", current_program, shader_->programID());
             }
 
-            shader_->bind();
+            // Don't bind VAO/buffers - shaders created without buffers should not try to bind them
+            // The caller (e.g., point cloud renderer) manages its own VAO
+            shader_->bind(false);
 
             // Verify binding was successful
             glGetIntegerv(GL_CURRENT_PROGRAM, &current_program);
@@ -53,7 +55,7 @@ namespace lfs::rendering {
             LOG_ERROR("Exception while binding shader '{}': {}", name_, e.what());
             return std::unexpected(std::format("Failed to bind shader '{}': {}", name_, e.what()));
         } catch (...) {
-            LOG_ERROR("Unknown exception while binding shader '{}'", name_);
+            LOG_ERROR("Unknown exception while binding shader'{}'", name_);
             return std::unexpected(std::format("Failed to bind shader '{}': unknown exception", name_));
         }
     }
@@ -75,7 +77,8 @@ namespace lfs::rendering {
                          name_, shader_->programID(), current_program);
             }
 
-            shader_->unbind();
+            // Don't unbind VAO/buffers - they are managed externally
+            shader_->unbind(false);
 
             // Verify unbinding was successful
             glGetIntegerv(GL_CURRENT_PROGRAM, &current_program);

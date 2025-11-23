@@ -301,6 +301,9 @@ namespace lfs::rendering {
         }
 
         void bind(bool use_buffer = true) {
+            // Clear any pre-existing OpenGL errors before binding
+            while (glGetError() != GL_NO_ERROR);
+
             if (use_buffer) {
                 glBindVertexArray(vertex_array);
                 CHECK_GL_ERROR("glBindVertexArray");
