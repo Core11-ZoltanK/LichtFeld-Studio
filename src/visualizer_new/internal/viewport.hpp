@@ -105,79 +105,49 @@ class Viewport {
         }
 
         void advance_forward(float deltaTime) {
-            // Move in camera's forward direction projected onto XZ plane
-            glm::vec3 forward = R * glm::vec3(0, 0, 1);
-            glm::vec3 forward_xz = glm::vec3(forward.x, 0.0f, forward.z);
+            // Camera moves in view direction, pivot stays on XZ plane
+            glm::vec3 forward = glm::normalize(R * glm::vec3(0, 0, 1));
+            glm::vec3 movement = forward * deltaTime * wasdSpeed;
 
-            // Handle edge case when looking straight up/down
-            float len_sq = glm::dot(forward_xz, forward_xz);
-            if (len_sq < 0.0001f) {
-                return; // Can't move forward on XZ plane when looking straight up/down
-            }
-
-            forward_xz = glm::normalize(forward_xz);
-            glm::vec3 movement = forward_xz * deltaTime * wasdSpeed;
-
-            pivot += movement;
-            pivot.y = 0.0f; // Ensure pivot stays on XZ plane
+            // Move camera in full 3D
             t += movement;
+
+            // Move pivot only horizontally (keeps orbit center at same height)
+            glm::vec3 movement_xz = glm::vec3(movement.x, 0.0f, movement.z);
+            pivot += movement_xz;
         }
 
         void advance_backward(float deltaTime) {
-            // Move in camera's backward direction projected onto XZ plane
-            glm::vec3 forward = R * glm::vec3(0, 0, 1);
-            glm::vec3 forward_xz = glm::vec3(forward.x, 0.0f, forward.z);
+            // Camera moves in view direction, pivot stays on XZ plane
+            glm::vec3 forward = glm::normalize(R * glm::vec3(0, 0, 1));
+            glm::vec3 movement = -forward * deltaTime * wasdSpeed;
 
-            // Handle edge case when looking straight up/down
-            float len_sq = glm::dot(forward_xz, forward_xz);
-            if (len_sq < 0.0001f) {
-                return; // Can't move backward on XZ plane when looking straight up/down
-            }
-
-            forward_xz = glm::normalize(forward_xz);
-            glm::vec3 movement = -forward_xz * deltaTime * wasdSpeed;
-
-            pivot += movement;
-            pivot.y = 0.0f;
             t += movement;
+
+            glm::vec3 movement_xz = glm::vec3(movement.x, 0.0f, movement.z);
+            pivot += movement_xz;
         }
 
         void advance_left(float deltaTime) {
-            // Move in camera's left direction projected onto XZ plane
-            glm::vec3 right = R * glm::vec3(1, 0, 0);
-            glm::vec3 right_xz = glm::vec3(right.x, 0.0f, right.z);
+            // Camera moves left, pivot stays on XZ plane
+            glm::vec3 right = glm::normalize(R * glm::vec3(1, 0, 0));
+            glm::vec3 movement = -right * deltaTime * wasdSpeed;
 
-            // Handle edge case (though right vector should always be horizontal)
-            float len_sq = glm::dot(right_xz, right_xz);
-            if (len_sq < 0.0001f) {
-                return;
-            }
-
-            right_xz = glm::normalize(right_xz);
-            glm::vec3 movement = -right_xz * deltaTime * wasdSpeed;
-
-            pivot += movement;
-            pivot.y = 0.0f;
             t += movement;
+
+            glm::vec3 movement_xz = glm::vec3(movement.x, 0.0f, movement.z);
+            pivot += movement_xz;
         }
 
         void advance_right(float deltaTime) {
-            // Move in camera's right direction projected onto XZ plane
-            glm::vec3 right = R * glm::vec3(1, 0, 0);
-            glm::vec3 right_xz = glm::vec3(right.x, 0.0f, right.z);
+            // Camera moves right, pivot stays on XZ plane
+            glm::vec3 right = glm::normalize(R * glm::vec3(1, 0, 0));
+            glm::vec3 movement = right * deltaTime * wasdSpeed;
 
-            // Handle edge case (though right vector should always be horizontal)
-            float len_sq = glm::dot(right_xz, right_xz);
-            if (len_sq < 0.0001f) {
-                return;
-            }
-
-            right_xz = glm::normalize(right_xz);
-            glm::vec3 movement = right_xz * deltaTime * wasdSpeed;
-
-            pivot += movement;
-            pivot.y = 0.0f;
             t += movement;
+
+            glm::vec3 movement_xz = glm::vec3(movement.x, 0.0f, movement.z);
+            pivot += movement_xz;
         }
 
         void advance_up(float deltaTime) {
