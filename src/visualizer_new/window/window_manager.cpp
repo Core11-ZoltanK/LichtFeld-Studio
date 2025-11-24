@@ -5,7 +5,7 @@
 #include "window_manager.hpp"
 #include "core_new/events.hpp"
 // clang-format off
-// CRITICAL: GLAD must be included before GLFW to avoid OpenGL header conflicts
+// GLAD must be included before GLFW
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 // clang-format on

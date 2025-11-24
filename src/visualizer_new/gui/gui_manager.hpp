@@ -12,6 +12,7 @@
 #include <GLFW/glfw3.h>
 #include <filesystem>
 #include <imgui.h>
+#include <ImGuizmo.h>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -53,6 +54,12 @@ namespace lfs::vis {
             bool isViewportFocused() const;
             bool isPositionInViewport(double x, double y) const;
 
+            // Crop box gizmo state access
+            void setCropGizmoOperation(ImGuizmo::OPERATION op) { crop_gizmo_operation_ = op; }
+            void setCropGizmoMode(ImGuizmo::MODE mode) { crop_gizmo_mode_ = mode; }
+            ImGuizmo::OPERATION getCropGizmoOperation() const { return crop_gizmo_operation_; }
+            ImGuizmo::MODE getCropGizmoMode() const { return crop_gizmo_mode_; }
+
             bool isForceExit() const { return force_exit_; }
 
         private:
@@ -88,9 +95,14 @@ namespace lfs::vis {
             bool viewport_has_focus_;
             bool force_exit_ = false;
 
+            // Crop box gizmo state (shared between panel and rendering)
+            ImGuizmo::OPERATION crop_gizmo_operation_ = ImGuizmo::TRANSLATE;
+            ImGuizmo::MODE crop_gizmo_mode_ = ImGuizmo::WORLD;
+
             // Method declarations
             void renderSpeedOverlay();
             void showSpeedOverlay(float current_speed, float max_speed);
+            void renderCropBoxGizmo(const UIContext& ctx);
 
             std::unique_ptr<SaveProjectBrowser> save_project_browser_;
             std::unique_ptr<MenuBar> menu_bar_;

@@ -62,7 +62,7 @@ namespace lfs::vis {
     }
 
     void InputController::initialize() {
-        // CRITICAL: This must be called AFTER ImGui_ImplGlfw_InitForOpenGL
+        // Must be called after ImGui_ImplGlfw_InitForOpenGL
         instance_ = this;
 
         // Store ImGui's callbacks so we can chain to them

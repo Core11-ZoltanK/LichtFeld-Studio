@@ -7,29 +7,37 @@
 #include "rendering/rendering_manager.hpp"
 #include "visualizer_impl.hpp"
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 #include <imgui.h>
+#include <ImGuizmo.h>
 
 namespace lfs::vis::gui::panels {
 
     using namespace lfs::core::events;
 
-    // Apply rotation to crop box transform
+    // Apply rotation delta to crop box transform (in local space)
     static void updateRotationMatrix(lfs::geometry::EuclideanTransform& transform,
-                                     const glm::vec3& min_bounds,
-                                     const glm::vec3& max_bounds,
                                      float delta_rot_x, float delta_rot_y, float delta_rot_z) {
+        // Extract current rotation and translation
+        glm::mat3 currentRot = transform.getRotationMat();
+        glm::vec3 translation = transform.getTranslation();
+
+        // Create rotation delta
         float rad_x = glm::radians(delta_rot_x);
         float rad_y = glm::radians(delta_rot_y);
         float rad_z = glm::radians(delta_rot_z);
 
-        lfs::geometry::EuclideanTransform rotate(rad_x, rad_y, rad_z, 0.0f, 0.0f, 0.0f);
+        glm::mat3 deltaRot = glm::mat3(
+            glm::rotate(glm::mat4(1.0f), rad_z, glm::vec3(0, 0, 1)) *
+            glm::rotate(glm::mat4(1.0f), rad_y, glm::vec3(0, 1, 0)) *
+            glm::rotate(glm::mat4(1.0f), rad_x, glm::vec3(1, 0, 0))
+        );
 
-        glm::vec3 center = (min_bounds + max_bounds) * 0.5f;
+        // Apply delta rotation in local space
+        glm::mat3 newRot = currentRot * deltaRot;
 
-        lfs::geometry::EuclideanTransform translate_to_origin(-center);
-        lfs::geometry::EuclideanTransform translate_back = translate_to_origin.inv();
-
-        transform = translate_back * rotate * translate_to_origin * transform;
+        // Update transform with new rotation, keep translation
+        transform = lfs::geometry::EuclideanTransform(newRot, translation);
     }
 
     void DrawCropBoxControls(const UIContext& ctx) {
@@ -69,6 +77,34 @@ namespace lfs::vis::gui::panels {
         ImGui::PopStyleColor(1); // pop orange color
 
         if (settings.show_crop_box) {
+            // ImGuizmo controls
+            ImGui::Separator();
+            ImGui::Text("Gizmo Controls:");
+
+            // Get current gizmo state from GUI manager
+            auto* gui_manager = ctx.viewer->gui_manager_.get();
+            ImGuizmo::OPERATION currentGizmoOperation = gui_manager->getCropGizmoOperation();
+            ImGuizmo::MODE currentGizmoMode = gui_manager->getCropGizmoMode();
+
+            // Operation selection
+            if (ImGui::RadioButton("Translate##CropGizmo", currentGizmoOperation == ImGuizmo::TRANSLATE)) {
+                gui_manager->setCropGizmoOperation(ImGuizmo::TRANSLATE);
+            }
+            ImGui::SameLine();
+            if (ImGui::RadioButton("Rotate##CropGizmo", currentGizmoOperation == ImGuizmo::ROTATE)) {
+                gui_manager->setCropGizmoOperation(ImGuizmo::ROTATE);
+            }
+            ImGui::SameLine();
+            if (ImGui::RadioButton("Scale##CropGizmo", currentGizmoOperation == ImGuizmo::SCALE)) {
+                gui_manager->setCropGizmoOperation(ImGuizmo::SCALE);
+            }
+            ImGui::SameLine();
+            if (ImGui::RadioButton("Bounds##CropGizmo", currentGizmoOperation == ImGuizmo::BOUNDS)) {
+                gui_manager->setCropGizmoOperation(ImGuizmo::BOUNDS);
+            }
+
+            ImGui::Separator();
+
             // Appearance controls
             float bbox_color[3] = {settings.crop_color.x, settings.crop_color.y, settings.crop_color.z};
             if (ImGui::ColorEdit3("Box Color", bbox_color)) {
@@ -200,16 +236,15 @@ namespace lfs::vis::gui::panels {
                 }
 
                 if (diff_x != 0 || diff_y != 0 || diff_z != 0) {
-                    updateRotationMatrix(settings.crop_transform, settings.crop_min, settings.crop_max,
-                                         diff_x, diff_y, diff_z);
+                    updateRotationMatrix(settings.crop_transform, diff_x, diff_y, diff_z);
                     settings_changed = true;
                 }
 
                 ImGui::TreePop();
             }
 
-            // Bounds controls
-            if (ImGui::TreeNode("Bounds")) {
+            // Bounds controls (local space)
+            if (ImGui::TreeNode("Local Bounds")) {
                 float min_bounds[3] = {settings.crop_min.x, settings.crop_min.y, settings.crop_min.z};
                 float max_bounds[3] = {settings.crop_max.x, settings.crop_max.y, settings.crop_max.z};
 
@@ -222,7 +257,7 @@ namespace lfs::vis::gui::panels {
                 const float bound_step_fast = 0.1f;
 
                 ImGui::Text("Ctrl+click for faster steps");
-                ImGui::Text("Min Bounds:");
+                ImGui::Text("Local Min Bounds:");
 
                 // calculate the exact width to hold 0000.000 string in the text box + extra
                 float text_width = ImGui::CalcTextSize("0000.000").x + ImGui::GetStyle().FramePadding.x * 2.0f + 50.0f;
@@ -250,7 +285,7 @@ namespace lfs::vis::gui::panels {
                 min_bounds[2] = std::min(min_bounds[2], max_bounds[2]);
 
                 ImGui::Separator();
-                ImGui::Text("Max Bounds:");
+                ImGui::Text("Local Max Bounds:");
 
                 // Max bounds
                 ImGui::Text("X:");
@@ -288,10 +323,10 @@ namespace lfs::vis::gui::panels {
                 }
 
                 // Display info
-                glm::vec3 center = (settings.crop_min + settings.crop_max) * 0.5f;
+                glm::vec3 translation = settings.crop_transform.getTranslation();
                 glm::vec3 size = settings.crop_max - settings.crop_min;
 
-                ImGui::Text("Center: (%.3f, %.3f, %.3f)", center.x, center.y, center.z);
+                ImGui::Text("Center: (%.3f, %.3f, %.3f)", translation.x, translation.y, translation.z);
                 ImGui::Text("Size: (%.3f, %.3f, %.3f)", size.x, size.y, size.z);
 
                 ImGui::TreePop();

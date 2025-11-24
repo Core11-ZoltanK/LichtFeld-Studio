@@ -71,6 +71,7 @@ target_link_libraries(lfs_visualizer
         glad::glad
         glfw
         imgui::imgui
+        imguizmo::imguizmo # 3D manipulation gizmo
         glm::glm
         TBB::tbb
         spdlog::spdlog

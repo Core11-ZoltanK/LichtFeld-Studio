@@ -5,6 +5,14 @@
 # External dependencies for new LichtFeld-Studio build (LibTorch-free)
 # These are NOT used by the legacy build
 
+# ImGuizmo - 3D manipulation gizmo library
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/imguizmo/CMakeLists.txt")
+    message(STATUS "Adding ImGuizmo from external/imguizmo")
+    add_subdirectory(imguizmo)
+else()
+    message(WARNING "ImGuizmo not found at external/imguizmo - Gizmo controls will not be available")
+endif()
+
 # nvImageCodec - GPU-accelerated image codec library
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/nvImageCodec/CMakeLists.txt")
     message(STATUS "Adding nvImageCodec from external/nvImageCodec")

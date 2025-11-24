@@ -2,7 +2,7 @@
  *
  * SPDX-License-Identifier: GPL-3.0-or-later */
 
-// IMPORTANT: glad must be included FIRST, before any header that includes OpenGL
+// glad must be included before OpenGL headers
 // clang-format off
 #include <glad/glad.h>
 // clang-format on
@@ -29,6 +29,7 @@
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
 #include <imgui_internal.h>
+#include <ImGuizmo.h>
 
 namespace lfs::vis::gui {
 
@@ -204,15 +205,24 @@ namespace lfs::vis::gui {
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
 
-        // CRITICAL: Check mouse state BEFORE ImGui::NewFrame()
-        // This is important because ImGui updates WantCaptureMouse during NewFrame()
+        // Check mouse state before ImGui::NewFrame() updates WantCaptureMouse
         ImVec2 mouse_pos = ImGui::GetMousePos();
         bool mouse_in_viewport = isPositionInViewport(mouse_pos.x, mouse_pos.y);
 
         ImGui::NewFrame();
 
+        // Initialize ImGuizmo for this frame
+        ImGuizmo::BeginFrame();
+
         if (menu_bar_) {
             menu_bar_->render();
+        }
+
+        // Override ImGui's mouse capture for gizmo interaction
+        // If ImGuizmo is being used or hovered, let it handle the mouse
+        if (ImGuizmo::IsOver() || ImGuizmo::IsUsing()) {
+            ImGui::GetIO().WantCaptureMouse = false;
+            ImGui::GetIO().WantCaptureKeyboard = false;
         }
 
         // Override ImGui's mouse capture for right/middle buttons when in viewport
@@ -224,7 +234,7 @@ namespace lfs::vis::gui {
             }
         }
 
-        // CRITICAL FIX: In point cloud mode, always disable ImGui mouse capture in viewport
+        // In point cloud mode, disable ImGui mouse capture in viewport
         auto* rendering_manager = viewer_->getRenderingManager();
         if (rendering_manager) {
             const auto& settings = rendering_manager->getSettings();
@@ -365,6 +375,9 @@ namespace lfs::vis::gui {
             auto project = viewer_->getProject();
             menu_bar_->setIsProjectTemp(project ? project->getIsTempProject() : false);
         }
+
+        // Render crop box gizmo over viewport
+        renderCropBoxGizmo(ctx);
 
         // Render speed overlay if visible
         renderSpeedOverlay();
@@ -735,4 +748,196 @@ namespace lfs::vis::gui {
             project_changed_dialog_box_->setOnDialogClose(callback);
         }
     }
+
+    void GuiManager::renderCropBoxGizmo(const UIContext& ctx) {
+        auto* render_manager = ctx.viewer->getRenderingManager();
+        if (!render_manager)
+            return;
+
+        auto settings = render_manager->getSettings();
+
+        // Only draw gizmo if crop box is visible
+        if (!settings.show_crop_box)
+            return;
+
+        // Get camera matrices
+        auto& viewport = ctx.viewer->getViewport();
+        glm::mat4 view = viewport.getViewMatrix();
+        glm::mat4 projection = viewport.getProjectionMatrix(settings.fov);
+
+        // Build gizmo matrix: T * R * S (translation * rotation * scale)
+        // crop_min/crop_max are local bounds, crop_transform stores world transform
+        glm::vec3 size = settings.crop_max - settings.crop_min;
+        glm::vec3 translation = settings.crop_transform.getTranslation();
+        glm::mat3 rotation3x3 = settings.crop_transform.getRotationMat();
+        glm::mat4 rotation = glm::mat4(rotation3x3);
+        glm::mat4 scale_matrix = glm::scale(glm::mat4(1.0f), size);
+        glm::mat4 gizmo_matrix = glm::translate(glm::mat4(1.0f), translation) * rotation * scale_matrix;
+
+        ImGuizmo::SetOrthographic(false);
+
+        // Convert viewport position to absolute screen coordinates
+        const ImGuiViewport* main_vp = ImGui::GetMainViewport();
+        float screen_x = main_vp->WorkPos.x + viewport_pos_.x;
+        float screen_y = main_vp->WorkPos.y + viewport_pos_.y;
+
+        ImGuizmo::SetRect(screen_x, screen_y, viewport_size_.x, viewport_size_.y);
+
+        // Disable view angle culling - make everything visible before drag
+        ImGuizmo::SetAxisLimit(0.0001f);
+        ImGuizmo::SetPlaneLimit(0.0001f);
+
+        // Axis mask depends on operation mode
+        if (crop_gizmo_operation_ == ImGuizmo::BOUNDS) {
+            // BOUNDS mode: always use full mask for visibility
+            ImGuizmo::SetAxisMask(true, true, true);
+        } else {
+            // TRANSLATE/ROTATE/SCALE: dynamic masking based on hover state
+            static bool hovered_axis = false;
+
+            if (!ImGuizmo::IsUsing()) {
+                hovered_axis = ImGuizmo::IsOver(ImGuizmo::TRANSLATE_X) ||
+                              ImGuizmo::IsOver(ImGuizmo::TRANSLATE_Y) ||
+                              ImGuizmo::IsOver(ImGuizmo::TRANSLATE_Z);
+                ImGuizmo::SetAxisMask(false, false, false);
+            } else {
+                if (hovered_axis) {
+                    ImGuizmo::SetAxisMask(true, true, true);
+                } else {
+                    ImGuizmo::SetAxisMask(false, false, false);
+                }
+            }
+        }
+
+        // Set drawlist to override BeginFrame's default
+        ImDrawList* overlay_drawlist = ImGui::GetForegroundDrawList();
+        ImGuizmo::SetDrawlist(overlay_drawlist);
+
+        // Draw the gizmo - matrix is modified in-place by ImGuizmo
+        glm::mat4 deltaMatrix;
+        glm::vec3 original_size = settings.crop_max - settings.crop_min;
+
+        // BOUNDS mode uses unit bounds (matrix has scale that ImGuizmo modifies)
+        float localBounds[6] = {-0.5f, -0.5f, -0.5f, 0.5f, 0.5f, 0.5f};
+
+        // Force correct mode based on operation:
+        // - TRANSLATE: always WORLD coordinates
+        // - ROTATE/SCALE/BOUNDS: always LOCAL coordinates
+        ImGuizmo::MODE gizmo_mode = (crop_gizmo_operation_ == ImGuizmo::TRANSLATE)
+                                    ? ImGuizmo::WORLD
+                                    : ImGuizmo::LOCAL;
+
+        bool gizmo_changed = ImGuizmo::Manipulate(glm::value_ptr(view),
+                                                   glm::value_ptr(projection),
+                                                   crop_gizmo_operation_,
+                                                   gizmo_mode,
+                                                   glm::value_ptr(gizmo_matrix),
+                                                   glm::value_ptr(deltaMatrix),
+                                                   nullptr,  // snap
+                                                   crop_gizmo_operation_ == ImGuizmo::BOUNDS ? localBounds : nullptr);
+
+        // Check if user is still manipulating (for event emission)
+        bool is_using = ImGuizmo::IsUsing();
+
+        if (gizmo_changed) {
+            // Gizmo was manipulated, extract new transform and bounds
+            if (crop_gizmo_operation_ == ImGuizmo::TRANSLATE) {
+                // TRANSLATE: extract translation and add to transform
+                float matrixTranslation[3], matrixRotation[3], matrixScale[3];
+                ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(gizmo_matrix),
+                                                      matrixTranslation,
+                                                      matrixRotation,
+                                                      matrixScale);
+
+                // Update transform with new translation (keep rotation)
+                float rad_x = glm::radians(matrixRotation[0]);
+                float rad_y = glm::radians(matrixRotation[1]);
+                float rad_z = glm::radians(matrixRotation[2]);
+                settings.crop_transform = lfs::geometry::EuclideanTransform(
+                    rad_x, rad_y, rad_z,
+                    matrixTranslation[0], matrixTranslation[1], matrixTranslation[2]);
+
+                // Keep min/max as LOCAL bounds (centered at origin)
+                settings.crop_min = -original_size * 0.5f;
+                settings.crop_max = original_size * 0.5f;
+            } else if (crop_gizmo_operation_ == ImGuizmo::SCALE) {
+                // SCALE: update size and translation, keep rotation
+                float matrixTranslation[3], matrixRotation[3], matrixScale[3];
+                ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(gizmo_matrix),
+                                                      matrixTranslation,
+                                                      matrixRotation,
+                                                      matrixScale);
+
+                glm::vec3 new_size(matrixScale[0], matrixScale[1], matrixScale[2]);
+                new_size = glm::max(new_size, glm::vec3(0.001f));
+
+                // Update transform with new translation (keep rotation)
+                float rad_x = glm::radians(matrixRotation[0]);
+                float rad_y = glm::radians(matrixRotation[1]);
+                float rad_z = glm::radians(matrixRotation[2]);
+                settings.crop_transform = lfs::geometry::EuclideanTransform(
+                    rad_x, rad_y, rad_z,
+                    matrixTranslation[0], matrixTranslation[1], matrixTranslation[2]);
+
+                // Update local bounds with new size
+                settings.crop_min = -new_size * 0.5f;
+                settings.crop_max = new_size * 0.5f;
+            } else if (crop_gizmo_operation_ == ImGuizmo::BOUNDS) {
+                // BOUNDS: update size, translation, and rotation
+                float matrixTranslation[3], matrixRotation[3], matrixScale[3];
+                ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(gizmo_matrix),
+                                                      matrixTranslation,
+                                                      matrixRotation,
+                                                      matrixScale);
+
+                glm::vec3 new_size(matrixScale[0], matrixScale[1], matrixScale[2]);
+                new_size = glm::max(new_size, glm::vec3(0.001f));
+
+                // Update transform with everything
+                float rad_x = glm::radians(matrixRotation[0]);
+                float rad_y = glm::radians(matrixRotation[1]);
+                float rad_z = glm::radians(matrixRotation[2]);
+                settings.crop_transform = lfs::geometry::EuclideanTransform(
+                    rad_x, rad_y, rad_z,
+                    matrixTranslation[0], matrixTranslation[1], matrixTranslation[2]);
+
+                // Update local bounds with new size
+                settings.crop_min = -new_size * 0.5f;
+                settings.crop_max = new_size * 0.5f;
+            } else if (crop_gizmo_operation_ == ImGuizmo::ROTATE) {
+                // ROTATE: Update rotation in transform, keep local bounds
+                float matrixTranslation[3], matrixRotation[3], matrixScale[3];
+                ImGuizmo::DecomposeMatrixToComponents(glm::value_ptr(gizmo_matrix),
+                                                      matrixTranslation,
+                                                      matrixRotation,
+                                                      matrixScale);
+
+                // Update transform with new rotation and translation
+                float rad_x = glm::radians(matrixRotation[0]);
+                float rad_y = glm::radians(matrixRotation[1]);
+                float rad_z = glm::radians(matrixRotation[2]);
+                settings.crop_transform = lfs::geometry::EuclideanTransform(
+                    rad_x, rad_y, rad_z,
+                    matrixTranslation[0], matrixTranslation[1], matrixTranslation[2]);
+
+                // Keep min/max as local bounds (centered at origin)
+                settings.crop_min = -original_size * 0.5f;
+                settings.crop_max = original_size * 0.5f;
+            }
+
+            // Always update settings for visual feedback during dragging
+            render_manager->updateSettings(settings);
+
+            // Only emit event when manipulation is complete (mouse released)
+            if (!is_using) {
+                using namespace lfs::core::events;
+                ui::CropBoxChanged{
+                    .min_bounds = settings.crop_min,
+                    .max_bounds = settings.crop_max,
+                    .enabled = settings.use_crop_box}
+                    .emit();
+            }
+        }
+    }
+
 } // namespace lfs::vis::gui

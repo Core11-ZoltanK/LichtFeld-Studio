@@ -233,7 +233,7 @@ namespace lfs::vis {
             }
             window_initialized_ = true;
 
-            // CRITICAL: Poll events once to get actual window dimensions from the OS
+            // Poll events to get actual window dimensions
             window_manager_->pollEvents();
             window_manager_->updateWindowSize();
 
@@ -340,9 +340,7 @@ namespace lfs::vis {
             has_viewport_region = true;
         }
 
-        // Create render context
-        // NOTE: Disable viewport_region for point cloud mode to prevent visibility issues
-        // Point cloud rendering has issues when restricted to ImGui viewport regions
+        // Disable viewport region for point cloud mode
         bool use_viewport_region = has_viewport_region && !rendering_manager_->getSettings().point_cloud_mode;
         RenderingManager::RenderContext context{
             .viewport = viewport_,
