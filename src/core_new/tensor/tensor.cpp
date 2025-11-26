@@ -109,8 +109,6 @@ namespace lfs::core {
         if (this == &other) {
             return *this;
         }
-        other.has_inf()
-
         // PyTorch semantics: slice/view assignment does deep copy, regular assignment does shallow copy
         // Example: t1[0:5] = t2  -> deep copy into the slice
         //          t1 = t2        -> shallow copy (both point to same data)
