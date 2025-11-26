@@ -2,24 +2,21 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# CUDA rasterization backend for rendering module (Tensor-based, libtorch-free)
-# Includes all necessary CUDA implementation files
-set(CUDA_RASTERIZER_TENSOR_SOURCES
+set(RASTERIZER_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/rasterization/src/forward.cu
         ${CMAKE_CURRENT_SOURCE_DIR}/rasterization/src/rasterization_api_tensor.cu
 )
 
-# Create internal CUDA tensor rasterization library (libtorch-free)
-add_library(rendering_cuda_tensor_backend STATIC ${CUDA_RASTERIZER_TENSOR_SOURCES})
+add_library(lfs_rasterizer STATIC ${RASTERIZER_SOURCES})
 
-set_target_properties(rendering_cuda_tensor_backend PROPERTIES
+set_target_properties(lfs_rasterizer PROPERTIES
         CUDA_ARCHITECTURES "${LichtFeld-Studio_CUDA_ARCH}"
         CUDA_SEPARABLE_COMPILATION ON
         POSITION_INDEPENDENT_CODE ON
         CUDA_RESOLVE_DEVICE_SYMBOLS ON
 )
 
-target_include_directories(rendering_cuda_tensor_backend
+target_include_directories(lfs_rasterizer
         PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/rasterization/include
         ${CMAKE_CURRENT_SOURCE_DIR}/utils
@@ -28,7 +25,7 @@ target_include_directories(rendering_cuda_tensor_backend
         ${CUDAToolkit_INCLUDE_DIRS}
 )
 
-target_link_libraries(rendering_cuda_tensor_backend
+target_link_libraries(lfs_rasterizer
         PUBLIC
         CUDA::cudart
         CUDA::curand
@@ -39,7 +36,7 @@ target_link_libraries(rendering_cuda_tensor_backend
         # gs_core  # Temporarily disabled - requires LibTorch
 )
 
-target_compile_options(rendering_cuda_tensor_backend PRIVATE
+target_compile_options(lfs_rasterizer PRIVATE
         # CUDA
         $<$<AND:$<COMPILE_LANGUAGE:CUDA>,$<CONFIG:Debug>>:-O0 -g -G -lineinfo>
         $<$<AND:$<COMPILE_LANGUAGE:CUDA>,$<CONFIG:Release>>:-O3 --use_fast_math --expt-relaxed-constexpr --diag-suppress=20012,186,221>
@@ -62,13 +59,13 @@ target_compile_options(rendering_cuda_tensor_backend PRIVATE
 
 # Windows: Disable fmt Unicode check for CUDA files (nvcc doesn't properly propagate /utf-8)
 if(MSVC)
-    target_compile_definitions(rendering_cuda_tensor_backend PRIVATE
+    target_compile_definitions(lfs_rasterizer PRIVATE
         $<$<COMPILE_LANGUAGE:CUDA>:FMT_UNICODE=0>
     )
 endif()
 
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-    target_compile_definitions(rendering_cuda_tensor_backend PRIVATE _DEBUG DEBUG_BUILD)
+    target_compile_definitions(lfs_rasterizer PRIVATE _DEBUG DEBUG_BUILD)
 elseif(CMAKE_BUILD_TYPE STREQUAL "Release")
-    target_compile_definitions(rendering_cuda_tensor_backend PRIVATE RELEASE_BUILD)
+    target_compile_definitions(lfs_rasterizer PRIVATE RELEASE_BUILD)
 endif()

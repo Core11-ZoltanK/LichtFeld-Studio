@@ -8,7 +8,7 @@
 #include "core_new/logger.hpp"
 #include "core_new/splat_data.hpp"
 #include "geometry_new/euclidean_transform.hpp"
-#include "rendering_new/cuda_tensor/rasterization/include/rasterization_api_tensor.h"
+#include "rendering_new/rasterizer/rasterization/include/rasterization_api_tensor.h"
 #include "rendering_new/rendering.hpp"
 #include "scene/scene_manager.hpp"
 #include "training/training_manager.hpp"

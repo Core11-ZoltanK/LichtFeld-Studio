@@ -2,8 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# Add the internal CUDA subdirectories first
-add_subdirectory(cuda_tensor)
+add_subdirectory(rasterizer)
 
 set(RENDERING_SOURCES
         rendering_engine.cpp
@@ -39,7 +38,7 @@ target_link_libraries(lfs_rendering
         lfs_geometry            # LibTorch-free geometry module
         # gs_kernels              # Temporarily disabled - requires LibTorch
         PRIVATE
-        rendering_cuda_tensor_backend
+        lfs_rasterizer
         glm::glm
         glad::glad
         glfw
