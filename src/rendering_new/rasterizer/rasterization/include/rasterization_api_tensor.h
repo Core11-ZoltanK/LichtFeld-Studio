@@ -65,14 +65,15 @@ namespace lfs::rendering {
         const Tensor* model_transforms = nullptr,
         const Tensor* transform_indices = nullptr,
         const Tensor* selection_mask = nullptr,
-        Tensor* screen_positions_out = nullptr,      // Optional output: screen positions [N, 2] for brush tool
-        // Brush selection (computed in preprocess for coordinate consistency)
-        bool brush_active = false,                   // Whether brush selection is active this frame
-        float brush_x = 0.0f,                        // Brush center X in screen coords
-        float brush_y = 0.0f,                        // Brush center Y in screen coords
-        float brush_radius = 0.0f,                   // Brush radius in pixels
-        bool brush_add_mode = true,                  // true = add to selection, false = remove from selection
-        Tensor* brush_selection_out = nullptr);      // Output: Gaussians within brush radius [N]
+        Tensor* screen_positions_out = nullptr,
+        bool brush_active = false,
+        float brush_x = 0.0f,
+        float brush_y = 0.0f,
+        float brush_radius = 0.0f,
+        bool brush_add_mode = true,
+        Tensor* brush_selection_out = nullptr,
+        bool brush_saturation_mode = false,
+        float brush_saturation_amount = 0.0f);
 
     /**
      * @brief Select Gaussians within brush radius using GPU

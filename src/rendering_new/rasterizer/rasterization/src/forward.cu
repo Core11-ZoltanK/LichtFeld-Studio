@@ -126,7 +126,9 @@ void lfs::rendering::forward(
     float brush_y,
     float brush_radius,
     bool brush_add_mode,
-    bool* brush_selection_out) {
+    bool* brush_selection_out,
+    bool brush_saturation_mode,
+    float brush_saturation_amount) {
 
     const dim3 grid(div_round_up(width, config::tile_width), div_round_up(height, config::tile_height), 1);
     const dim3 block(config::tile_width, config::tile_height, 1);
@@ -201,7 +203,9 @@ void lfs::rendering::forward(
         brush_y,
         brush_radius * brush_radius,  // Pass squared radius for efficient comparison
         brush_add_mode,
-        brush_selection_out);
+        brush_selection_out,
+        brush_saturation_mode,
+        brush_saturation_amount);
     CHECK_CUDA(config::debug, "preprocess")
 
 

@@ -54,13 +54,14 @@ namespace lfs::rendering {
         const int* transform_indices = nullptr,     // Per-Gaussian index into transforms array [N]
         const int num_transforms = 0,               // Number of transforms in array
         const uint8_t* selection_mask = nullptr,    // Per-Gaussian selection mask [N], 1=selected (yellow)
-        float2* screen_positions_out = nullptr,     // Optional output: screen positions [N, 2] for brush tool
-        // Brush selection (computed in preprocess for coordinate consistency)
-        bool brush_active = false,                  // Whether brush selection is active this frame
-        float brush_x = 0.0f,                       // Brush center X in screen coords
-        float brush_y = 0.0f,                       // Brush center Y in screen coords
-        float brush_radius = 0.0f,                  // Brush radius in pixels
-        bool brush_add_mode = true,                 // true = add to selection, false = remove from selection
-        bool* brush_selection_out = nullptr);       // Output: Gaussians within brush radius [N]
+        float2* screen_positions_out = nullptr,
+        bool brush_active = false,
+        float brush_x = 0.0f,
+        float brush_y = 0.0f,
+        float brush_radius = 0.0f,
+        bool brush_add_mode = true,
+        bool* brush_selection_out = nullptr,
+        bool brush_saturation_mode = false,
+        float brush_saturation_amount = 0.0f);
 
 }

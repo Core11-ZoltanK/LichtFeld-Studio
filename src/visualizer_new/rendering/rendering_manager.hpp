@@ -196,11 +196,12 @@ namespace lfs::vis {
         // Brush selection on GPU - mouse_x/y in image coords (not window coords!)
         void brushSelect(float mouse_x, float mouse_y, float radius, lfs::core::Tensor& selection_out);
 
-        // Brush selection state (computed during preprocess for coordinate consistency)
-        // selection_tensor is the cumulative selection that the kernel writes into
-        // add_mode: true = add to selection, false = remove from selection
-        void setBrushState(bool active, float x, float y, float radius, bool add_mode = true, lfs::core::Tensor* selection_tensor = nullptr);
+        void setBrushState(bool active, float x, float y, float radius, bool add_mode = true,
+                           lfs::core::Tensor* selection_tensor = nullptr,
+                           bool saturation_mode = false, float saturation_amount = 0.0f);
         void clearBrushState();
+        void adjustSaturation(float mouse_x, float mouse_y, float radius, float saturation_delta,
+                              lfs::core::Tensor& sh0_tensor);
 
     private:
         void doFullRender(const RenderContext& context, SceneManager* scene_manager, const lfs::core::SplatData* model);
@@ -259,13 +260,15 @@ namespace lfs::vis {
         // Screen positions output flag
         bool output_screen_positions_ = false;
 
-        // Brush state for preprocess-based selection
+        // Brush state
         bool brush_active_ = false;
         float brush_x_ = 0.0f;
         float brush_y_ = 0.0f;
         float brush_radius_ = 0.0f;
-        bool brush_add_mode_ = true;  // true = add to selection, false = remove from selection
-        lfs::core::Tensor* brush_selection_tensor_ = nullptr;  // Cumulative selection tensor (owned by BrushTool)
+        bool brush_add_mode_ = true;
+        lfs::core::Tensor* brush_selection_tensor_ = nullptr;
+        bool brush_saturation_mode_ = false;
+        float brush_saturation_amount_ = 0.0f;
     };
 
 } // namespace lfs::vis

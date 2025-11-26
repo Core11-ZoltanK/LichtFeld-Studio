@@ -531,6 +531,15 @@ namespace lfs::vis {
             return;
         }
 
+        // B key cycles brush mode when brush tool is active
+        if (key == GLFW_KEY_B && action == GLFW_PRESS && !ImGui::IsAnyItemActive()) {
+            if (brush_tool_ && brush_tool_->isEnabled() && tool_context_) {
+                if (brush_tool_->handleKeyPress(key, mods, *tool_context_)) {
+                    return;
+                }
+            }
+        }
+
         if (key == GLFW_KEY_RIGHT && action == GLFW_PRESS && !ImGui::IsAnyItemActive()) {
             if (!training_manager_) {
                 LOG_WARN("Training manager is not set; cannot cycle camera view.");

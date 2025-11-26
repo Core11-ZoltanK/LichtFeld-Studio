@@ -8,6 +8,7 @@
 #include "core_new/logger.hpp"
 #include "core_new/splat_data.hpp"
 #include "geometry_new/euclidean_transform.hpp"
+#include "rendering_new/cuda_kernels.hpp"
 #include "rendering_new/rasterizer/rasterization/include/rasterization_api_tensor.h"
 #include "rendering_new/rendering.hpp"
 #include "scene/scene_manager.hpp"
@@ -569,7 +570,9 @@ namespace lfs::vis {
             .brush_y = brush_y_,
             .brush_radius = brush_radius_,
             .brush_add_mode = brush_add_mode_,
-            .brush_selection_tensor = brush_selection_tensor_};
+            .brush_selection_tensor = brush_selection_tensor_,
+            .brush_saturation_mode = brush_saturation_mode_,
+            .brush_saturation_amount = brush_saturation_amount_};
 
         // Add crop box if enabled
         if (settings_.use_crop_box) {
@@ -1179,13 +1182,16 @@ namespace lfs::vis {
         lfs::rendering::brush_select_tensor(*cached_result_.screen_positions, mouse_x, mouse_y, radius, selection_out);
     }
 
-    void RenderingManager::setBrushState(bool active, float x, float y, float radius, bool add_mode, lfs::core::Tensor* selection_tensor) {
+    void RenderingManager::setBrushState(bool active, float x, float y, float radius, bool add_mode, lfs::core::Tensor* selection_tensor,
+                                          bool saturation_mode, float saturation_amount) {
         brush_active_ = active;
         brush_x_ = x;
         brush_y_ = y;
         brush_radius_ = radius;
         brush_add_mode_ = add_mode;
         brush_selection_tensor_ = selection_tensor;
+        brush_saturation_mode_ = saturation_mode;
+        brush_saturation_amount_ = saturation_amount;
         markDirty();  // Need to re-render with brush selection
     }
 
@@ -1195,7 +1201,29 @@ namespace lfs::vis {
         brush_y_ = 0.0f;
         brush_radius_ = 0.0f;
         brush_selection_tensor_ = nullptr;
+        brush_saturation_mode_ = false;
+        brush_saturation_amount_ = 0.0f;
         // Don't mark dirty - clearing brush doesn't need immediate re-render
+    }
+
+    void RenderingManager::adjustSaturation(const float mouse_x, const float mouse_y, const float radius,
+                                             const float saturation_delta, lfs::core::Tensor& sh0_tensor) {
+        const auto& screen_pos = cached_result_.screen_positions;
+        if (!screen_pos || !screen_pos->is_valid()) return;
+        if (!sh0_tensor.is_valid() || sh0_tensor.device() != lfs::core::Device::CUDA) return;
+
+        const int num_gaussians = static_cast<int>(screen_pos->size(0));
+        if (num_gaussians == 0) return;
+
+        lfs::launchAdjustSaturation(
+            sh0_tensor.ptr<float>(),
+            screen_pos->ptr<float>(),
+            mouse_x, mouse_y, radius,
+            saturation_delta,
+            num_gaussians,
+            nullptr);
+
+        markDirty();
     }
 
 } // namespace lfs::vis

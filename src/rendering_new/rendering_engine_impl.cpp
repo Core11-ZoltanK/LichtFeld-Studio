@@ -166,7 +166,9 @@ namespace lfs::rendering {
             .brush_y = request.brush_y,
             .brush_radius = request.brush_radius,
             .brush_add_mode = request.brush_add_mode,
-            .brush_selection_tensor = request.brush_selection_tensor};
+            .brush_selection_tensor = request.brush_selection_tensor,
+            .brush_saturation_mode = request.brush_saturation_mode,
+            .brush_saturation_amount = request.brush_saturation_amount};
 
         // Convert crop box if present
         std::unique_ptr<lfs::geometry::BoundingBox> temp_crop_box;

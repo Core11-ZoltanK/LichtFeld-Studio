@@ -63,7 +63,9 @@ namespace lfs::rendering {
         float brush_y,
         float brush_radius,
         bool brush_add_mode,
-        Tensor* brush_selection_out) {
+        Tensor* brush_selection_out,
+        bool brush_saturation_mode,
+        float brush_saturation_amount) {
 
         check_tensor_input(config::debug, means, "means");
         check_tensor_input(config::debug, scales_raw, "scales_raw");
@@ -175,7 +177,9 @@ namespace lfs::rendering {
             brush_y,
             brush_radius,
             brush_add_mode,
-            brush_selection_ptr);
+            brush_selection_ptr,
+            brush_saturation_mode,
+            brush_saturation_amount);
 
         arena.end_frame(frame_id, true);  // true = from_rendering
         arena.set_rendering_active(false);

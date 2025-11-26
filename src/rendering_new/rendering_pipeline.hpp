@@ -47,16 +47,16 @@ namespace lfs::rendering {
             std::vector<glm::mat4> model_transforms;          // Array of transforms, one per node
             std::shared_ptr<lfs::core::Tensor> transform_indices;  // Per-Gaussian index [N], nullable
             // Selection mask for highlighting selected Gaussians
-            std::shared_ptr<lfs::core::Tensor> selection_mask;  // Per-Gaussian uint8 [N], nullable (1 = selected, 0 = not)
-            // Request screen positions output for brush tool
+            std::shared_ptr<lfs::core::Tensor> selection_mask;
             bool output_screen_positions = false;
-            // Brush selection (computed in preprocess for coordinate consistency)
-            bool brush_active = false;              // Whether brush selection is active this frame
-            float brush_x = 0.0f;                   // Brush center X in screen coords
-            float brush_y = 0.0f;                   // Brush center Y in screen coords
-            float brush_radius = 0.0f;              // Brush radius in pixels
-            bool brush_add_mode = true;             // true = add to selection, false = remove from selection
-            lfs::core::Tensor* brush_selection_tensor = nullptr;  // Cumulative selection tensor (kernel accumulates into this)
+            bool brush_active = false;
+            float brush_x = 0.0f;
+            float brush_y = 0.0f;
+            float brush_radius = 0.0f;
+            bool brush_add_mode = true;
+            lfs::core::Tensor* brush_selection_tensor = nullptr;
+            bool brush_saturation_mode = false;
+            float brush_saturation_amount = 0.0f;
         };
 
         struct RenderResult {

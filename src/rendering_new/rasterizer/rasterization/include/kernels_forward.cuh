@@ -50,14 +50,15 @@ namespace lfs::rendering::kernels::forward {
         const float* model_transforms,      // Array of 4x4 transforms (row-major), one per node
         const int* transform_indices,       // Per-Gaussian index into transforms array [N]
         const int num_transforms,           // Number of transforms in array
-        const uint8_t* selection_mask,      // Per-Gaussian selection mask [N], 1=selected (yellow)
-        // Brush selection parameters (computed in same pass for coordinate consistency)
-        const bool brush_active,            // Whether brush selection is active
-        const float brush_x,                // Brush center X in screen coords
-        const float brush_y,                // Brush center Y in screen coords
-        const float brush_radius_sq,        // Brush radius squared (for efficient distance check)
-        const bool brush_add_mode,          // true = add to selection, false = remove from selection
-        bool* brush_selection_out) {        // Output: Gaussians within brush radius get marked/cleared
+        const uint8_t* selection_mask,
+        const bool brush_active,
+        const float brush_x,
+        const float brush_y,
+        const float brush_radius_sq,
+        const bool brush_add_mode,
+        bool* brush_selection_out,
+        const bool brush_saturation_mode,
+        const float brush_saturation_amount) {
         auto primitive_idx = cg::this_grid().thread_rank();
         bool active = true;
         if (primitive_idx >= n_primitives) {
@@ -301,12 +302,21 @@ namespace lfs::rendering::kernels::forward {
             brush_selection_out[primitive_idx] = brush_add_mode;
         }
 
-        // Highlight: show preview (under brush) OR cumulative brush selection OR existing selection mask
-        const bool in_cumulative = (brush_selection_out != nullptr && brush_selection_out[primitive_idx]);
-        const bool in_scene_selection = (selection_mask != nullptr && selection_mask[primitive_idx]);
-        const bool is_selected = under_brush || in_cumulative || in_scene_selection;
-        if (is_selected) {
-            color.x = fminf(color.x * 2.0f + 0.4f, 1.0f);
+        // Saturation mode: show saturation preview under brush
+        if (brush_saturation_mode && under_brush) {
+            const float lum = 0.2126f * color.x + 0.7152f * color.y + 0.0722f * color.z;
+            const float factor = 1.0f + brush_saturation_amount;
+            color.x = fmaxf(0.0f, fminf(1.0f, lum + factor * (color.x - lum)));
+            color.y = fmaxf(0.0f, fminf(1.0f, lum + factor * (color.y - lum)));
+            color.z = fmaxf(0.0f, fminf(1.0f, lum + factor * (color.z - lum)));
+        }
+        // Selection mode: show selection highlights
+        else if (!brush_saturation_mode) {
+            const bool in_cumulative = (brush_selection_out != nullptr && brush_selection_out[primitive_idx]);
+            const bool in_scene_selection = (selection_mask != nullptr && selection_mask[primitive_idx]);
+            if (under_brush || in_cumulative || in_scene_selection) {
+                color.x = fminf(color.x * 2.0f + 0.4f, 1.0f);
+            }
         }
 
         primitive_color[primitive_idx] = color;
