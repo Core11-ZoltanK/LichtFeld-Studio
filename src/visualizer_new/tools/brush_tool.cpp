@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: GPL-3.0-or-later */
 
 #include "tools/brush_tool.hpp"
+#include "command/command_history.hpp"
+#include "command/commands/selection_command.hpp"
 #include "internal/viewport.hpp"
 #include "scene/scene_manager.hpp"
 #include "core_new/tensor.hpp"
@@ -130,12 +132,18 @@ namespace lfs::vis::tools {
         const size_t num_gaussians = sm->getScene().getTotalGaussianCount();
         if (num_gaussians == 0) return;
 
+        auto existing = sm->getScene().getSelectionMask();
+        if (existing && existing->is_valid()) {
+            selection_before_stroke_ = std::make_shared<lfs::core::Tensor>(existing->clone());
+        } else {
+            selection_before_stroke_.reset();
+        }
+
         if (clear_existing) {
             sm->getScene().clearSelection();
             cumulative_selection_ = lfs::core::Tensor::zeros(
                 {num_gaussians}, lfs::core::Device::CUDA, lfs::core::DataType::Bool);
         } else {
-            auto existing = sm->getScene().getSelectionMask();
             if (existing && existing->is_valid() && existing->size(0) == num_gaussians) {
                 cumulative_selection_ = existing->to(lfs::core::DataType::Bool);
             } else {
@@ -148,13 +156,28 @@ namespace lfs::vis::tools {
     void BrushTool::endStroke() {
         is_painting_ = false;
 
+        std::shared_ptr<lfs::core::Tensor> new_selection;
+
         if (tool_context_ && cumulative_selection_.is_valid()) {
             auto* const sm = tool_context_->getSceneManager();
             if (sm) {
                 auto mask = cumulative_selection_.to(lfs::core::DataType::UInt8);
+                new_selection = std::make_shared<lfs::core::Tensor>(mask.clone());
                 sm->getScene().setSelectionMask(std::make_shared<lfs::core::Tensor>(std::move(mask)));
             }
         }
+
+        if (tool_context_ && new_selection && new_selection->is_valid()) {
+            auto* const ch = tool_context_->getCommandHistory();
+            auto* const sm = tool_context_->getSceneManager();
+
+            if (ch && sm) {
+                auto cmd = std::make_unique<command::SelectionCommand>(
+                    sm, selection_before_stroke_, new_selection);
+                ch->execute(std::move(cmd));
+            }
+        }
+        selection_before_stroke_.reset();
 
         if (tool_context_) {
             auto* const rm = tool_context_->getRenderingManager();

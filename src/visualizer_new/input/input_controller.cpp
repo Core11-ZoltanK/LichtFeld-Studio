@@ -585,6 +585,18 @@ namespace lfs::vis {
             }
         }
 
+        // Undo/Redo shortcuts (Ctrl+Z, Ctrl+R)
+        if (key_ctrl_pressed_ && action == GLFW_PRESS && !ImGui::IsAnyItemActive()) {
+            if (key == GLFW_KEY_Z) {
+                cmd::Undo{}.emit();
+                return;
+            }
+            if (key == GLFW_KEY_R) {
+                cmd::Redo{}.emit();
+                return;
+            }
+        }
+
         // WASD only works when viewport has focus and gizmo isn't active
         if (!shouldCameraHandleInput() || drag_mode_ == DragMode::Gizmo || drag_mode_ == DragMode::Splitter)
             return;

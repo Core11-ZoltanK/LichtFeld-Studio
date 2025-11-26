@@ -74,12 +74,12 @@ namespace lfs::vis {
             return;
         }
 
-        // Create the tool context
         tool_context_ = std::make_unique<ToolContext>(
             rendering_manager_.get(),
             scene_manager_.get(),
             &viewport_,
-            window_manager_->getWindow());
+            window_manager_->getWindow(),
+            &command_history_);
 
         // Connect tool context to input controller
         if (input_controller_) {
@@ -151,6 +151,10 @@ namespace lfs::vis {
                 trainer_manager_->requestSaveCheckpoint();
             }
         });
+
+        // Undo/Redo commands
+        cmd::Undo::when([this](const auto&) { undo(); });
+        cmd::Redo::when([this](const auto&) { redo(); });
 
         // Render settings changes
         ui::RenderSettingsChanged::when([this]([[maybe_unused]] const auto& event) {
@@ -417,7 +421,23 @@ namespace lfs::vis {
         // Clean up tool context
         tool_context_.reset();
 
+        command_history_.clear();
+
         tools_initialized_ = false;
+    }
+
+    void VisualizerImpl::undo() {
+        command_history_.undo();
+        if (rendering_manager_) {
+            rendering_manager_->markDirty();
+        }
+    }
+
+    void VisualizerImpl::redo() {
+        command_history_.redo();
+        if (rendering_manager_) {
+            rendering_manager_->markDirty();
+        }
     }
 
     bool VisualizerImpl::LoadProject() {

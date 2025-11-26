@@ -7,7 +7,7 @@
 #include "tool_base.hpp"
 #include "core_new/tensor.hpp"
 #include <glm/glm.hpp>
-#include <vector>
+#include <memory>
 
 namespace lfs::vis::tools {
 
@@ -44,6 +44,7 @@ namespace lfs::vis::tools {
         glm::vec2 last_mouse_pos_{0.0f};
         const ToolContext* tool_context_ = nullptr;
         lfs::core::Tensor cumulative_selection_;
+        std::shared_ptr<lfs::core::Tensor> selection_before_stroke_;
 
         void beginStroke(double x, double y, BrushAction action, bool clear_existing, const ToolContext& ctx);
         void endStroke();

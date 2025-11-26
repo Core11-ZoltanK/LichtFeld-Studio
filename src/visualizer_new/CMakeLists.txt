@@ -44,6 +44,10 @@ add_library(lfs_visualizer STATIC
         # Tools
         tools/brush_tool.cpp
         tools/align_tool.cpp
+
+        # Command system (undo/redo)
+        command/command_history.cpp
+        command/commands/selection_command.cpp
         gui/panels/menu_bar.cpp
         gui/panels/menu_bar.hpp
         gui/utils/windows_utils.cpp

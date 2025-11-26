@@ -17,6 +17,7 @@
 #include "training/training_manager.hpp"
 #include "visualizer_new/visualizer.hpp"
 #include "window/window_manager.hpp"
+#include "command/command_history.hpp"
 #include <memory>
 #include <string>
 
@@ -95,6 +96,11 @@ namespace lfs::vis {
             return align_tool_.get();
         }
 
+        // Undo/Redo
+        command::CommandHistory& getCommandHistory() { return command_history_; }
+        void undo();
+        void redo();
+
         std::shared_ptr<TrainerManager> trainer_manager_;
 
         // GUI manager
@@ -140,10 +146,13 @@ namespace lfs::vis {
         std::shared_ptr<tools::AlignTool> align_tool_;
         std::unique_ptr<ToolContext> tool_context_;
 
+        // Undo/Redo history
+        command::CommandHistory command_history_;
+
         // State tracking
         bool window_initialized_ = false;
         bool gui_initialized_ = false;
-        bool tools_initialized_ = false; // Added this member!
+        bool tools_initialized_ = false;
         // Project
         std::shared_ptr<lfs::project::Project> project_ = nullptr;
         void updateProjectOnModules();

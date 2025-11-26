@@ -60,6 +60,8 @@ namespace lfs::core {
             EVENT(ToggleSplitView, );
             EVENT(ToggleGTComparison, );
             EVENT(ToggleGimbalLock, bool locked;);
+            EVENT(Undo, );
+            EVENT(Redo, );
         } // namespace cmd
 
         // ============================================================================
