@@ -385,16 +385,25 @@ namespace lfs::vis::gui {
         auto* scene_manager = ctx.viewer->getSceneManager();
         if (scene_manager && scene_manager->hasSelectedNode()) {
             panels::DrawGizmoToolbar(ctx, gizmo_toolbar_state_, viewport_pos_, viewport_size_);
-            node_gizmo_operation_ = gizmo_toolbar_state_.current_operation;
+
+            const auto current_tool = gizmo_toolbar_state_.current_tool;
+            const bool is_transform_tool = (current_tool == panels::ToolMode::Translate ||
+                                            current_tool == panels::ToolMode::Rotate ||
+                                            current_tool == panels::ToolMode::Scale);
+            show_node_gizmo_ = is_transform_tool;
+            if (is_transform_tool) {
+                node_gizmo_operation_ = gizmo_toolbar_state_.current_operation;
+            }
 
             auto* brush_tool = ctx.viewer->getBrushTool();
             auto* align_tool = ctx.viewer->getAlignTool();
-            bool is_brush_mode = (gizmo_toolbar_state_.current_tool == panels::ToolMode::Brush);
-            bool is_align_mode = (gizmo_toolbar_state_.current_tool == panels::ToolMode::Align);
+            const bool is_brush_mode = (current_tool == panels::ToolMode::Brush);
+            const bool is_align_mode = (current_tool == panels::ToolMode::Align);
 
             if (brush_tool) brush_tool->setEnabled(is_brush_mode);
             if (align_tool) align_tool->setEnabled(is_align_mode);
         } else {
+            show_node_gizmo_ = false;
             auto* brush_tool = ctx.viewer->getBrushTool();
             auto* align_tool = ctx.viewer->getAlignTool();
             if (brush_tool) brush_tool->setEnabled(false);
@@ -705,6 +714,12 @@ namespace lfs::vis::gui {
         // Handle window visibility
         cmd::ShowWindow::when([this](const auto& e) {
             showWindow(e.window_name, e.show);
+        });
+
+        // Reset toolbar state when node is deselected
+        ui::NodeDeselected::when([this](const auto&) {
+            gizmo_toolbar_state_.current_tool = panels::ToolMode::Translate;
+            gizmo_toolbar_state_.current_operation = ImGuizmo::TRANSLATE;
         });
 
         // Handle speed change events

@@ -104,7 +104,7 @@ namespace lfs::vis::gui::panels {
             ImVec2 btn_size(button_size, button_size);
 
             auto IconButton = [&](const char* id, unsigned int texture, ToolMode tool,
-                                  ImGuizmo::OPERATION op, const char* fallback, bool can_toggle = false) {
+                                  ImGuizmo::OPERATION op, const char* fallback) {
                 const bool is_selected = (state.current_tool == tool);
                 ImGui::PushStyleColor(ImGuiCol_Button, is_selected ?
                     ImVec4(0.3f, 0.5f, 0.8f, 1.0f) : ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
@@ -118,10 +118,8 @@ namespace lfs::vis::gui::panels {
 
                 ImGui::PopStyleColor(2);
                 if (clicked) {
-                    if (can_toggle && is_selected) {
-                        // Toggle off: return to Translate mode
-                        state.current_tool = ToolMode::Translate;
-                        state.current_operation = ImGuizmo::TRANSLATE;
+                    if (is_selected) {
+                        state.current_tool = ToolMode::None;
                     } else {
                         state.current_tool = tool;
                         state.current_operation = op;
@@ -151,11 +149,11 @@ namespace lfs::vis::gui::panels {
             ImGui::Dummy(ImVec2(2.0f, 0.0f));
             ImGui::SameLine(0.0f, 8.0f);
 
-            IconButton("##brush", state.brush_texture, ToolMode::Brush, ImGuizmo::TRANSLATE, "B", true);
+            IconButton("##brush", state.brush_texture, ToolMode::Brush, ImGuizmo::TRANSLATE, "B");
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("Brush Selection (B)");
             ImGui::SameLine();
 
-            IconButton("##align", state.align_texture, ToolMode::Align, ImGuizmo::TRANSLATE, "A", true);
+            IconButton("##align", state.align_texture, ToolMode::Align, ImGuizmo::TRANSLATE, "A");
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("3-Point Align (A)");
         }
         ImGui::End();

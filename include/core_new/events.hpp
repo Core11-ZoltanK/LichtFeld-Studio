@@ -156,6 +156,7 @@ namespace lfs::core {
                   std::string path;
                   std::string type;
                   std::unordered_map<std::string, std::string> metadata;);
+            EVENT(NodeDeselected, );
             EVENT(CropBoxChanged,
                   glm::vec3 min_bounds;
                   glm::vec3 max_bounds;

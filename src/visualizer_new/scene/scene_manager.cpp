@@ -86,6 +86,11 @@ namespace lfs::vis {
                 selectNode(event.path);
             }
         });
+
+        // Handle node deselection
+        ui::NodeDeselected::when([this](const auto&) {
+            clearSelection();
+        });
     }
 
     void SceneManager::changeContentType(const ContentType& type) {

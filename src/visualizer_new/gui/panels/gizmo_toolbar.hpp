@@ -11,11 +11,12 @@
 namespace lfs::vis::gui::panels {
 
     enum class ToolMode {
+        None,       // No tool active (splat selected but no gizmo)
         Translate,
         Rotate,
         Scale,
         Brush,
-        Align   // 3-point alignment tool
+        Align       // 3-point alignment tool
     };
 
     struct GizmoToolbarState {

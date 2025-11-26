@@ -415,6 +415,16 @@ namespace lfs::vis::gui {
             LOG_DEBUG("F2 pressed - starting rename for PLY '{}'", m_plyNodes[m_selectedPLYIndex].name);
         }
 
+        // Escape key deselects
+        if (ImGui::IsWindowFocused() && ImGui::IsKeyPressed(ImGuiKey_Escape) &&
+            !m_renameState.is_renaming && m_selectedPLYIndex >= 0) {
+            for (auto& n : m_plyNodes) {
+                n.selected = false;
+            }
+            m_selectedPLYIndex = -1;
+            ui::NodeDeselected{}.emit();
+        }
+
         if (!m_plyNodes.empty()) {
             ImGui::Text("Models (%zu):", m_plyNodes.size());
             ImGui::Separator();
@@ -488,26 +498,27 @@ namespace lfs::vis::gui {
                     // Normal tree node display
                     ImGui::TreeNodeEx(node_id.c_str(), flags);
 
-                    // Selection
+                    // Toggle selection on click
                     if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
-                        m_selectedPLYIndex = static_cast<int>(i);
-                        // Update selection
-                        for (auto& n : m_plyNodes) {
-                            n.selected = false;
+                        if (node.selected) {
+                            node.selected = false;
+                            m_selectedPLYIndex = -1;
+                            ui::NodeDeselected{}.emit();
+                        } else {
+                            for (auto& n : m_plyNodes) {
+                                n.selected = false;
+                            }
+                            node.selected = true;
+                            m_selectedPLYIndex = static_cast<int>(i);
+                            ui::NodeSelected{
+                                .path = node.name,
+                                .type = "PLY",
+                                .metadata = {
+                                    {"name", node.name},
+                                    {"gaussians", std::to_string(node.gaussian_count)},
+                                    {"visible", node.visible ? "true" : "false"}}}
+                                .emit();
                         }
-                        node.selected = true;
-
-                        LOG_DEBUG("PLY '{}' selected", node.name);
-
-                        // Emit selection event
-                        ui::NodeSelected{
-                            .path = node.name,
-                            .type = "PLY",
-                            .metadata = {
-                                {"name", node.name},
-                                {"gaussians", std::to_string(node.gaussian_count)},
-                                {"visible", node.visible ? "true" : "false"}}}
-                            .emit();
                     }
 
                     // Right-click context menu - provide explicit popup ID
