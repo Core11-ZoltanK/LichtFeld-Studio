@@ -56,7 +56,8 @@ namespace lfs::rendering::kernels::forward {
         const float brush_x,                // Brush center X in screen coords
         const float brush_y,                // Brush center Y in screen coords
         const float brush_radius_sq,        // Brush radius squared (for efficient distance check)
-        bool* brush_selection_out) {        // Output: Gaussians within brush radius get marked
+        const bool brush_add_mode,          // true = add to selection, false = remove from selection
+        bool* brush_selection_out) {        // Output: Gaussians within brush radius get marked/cleared
         auto primitive_idx = cg::this_grid().thread_rank();
         bool active = true;
         if (primitive_idx >= n_primitives) {
@@ -287,21 +288,21 @@ namespace lfs::rendering::kernels::forward {
             mean3d, cam_position[0],
             primitive_idx, active_sh_bases, total_bases_sh_rest);
 
-        // Check if this Gaussian is within the brush radius and accumulate selection
+        // Brush selection: mark Gaussians within brush radius
         if (brush_active && brush_selection_out != nullptr) {
             const float dx = mean2d.x - brush_x;
             const float dy = mean2d.y - brush_y;
-            const float dist_sq = dx * dx + dy * dy;
-            if (dist_sq <= brush_radius_sq) {
-                brush_selection_out[primitive_idx] = true;
+            if (dx * dx + dy * dy <= brush_radius_sq) {
+                brush_selection_out[primitive_idx] = brush_add_mode;
             }
         }
 
-        // Boost red channel if Gaussian is selected (existing selection mask OR cumulative brush selection)
-        const bool is_selected = (selection_mask != nullptr && selection_mask[primitive_idx]) ||
-                                 (brush_selection_out != nullptr && brush_selection_out[primitive_idx]);
+        // Highlight selected Gaussians (use brush selection during painting, scene mask otherwise)
+        const bool is_selected = (brush_active && brush_selection_out != nullptr)
+            ? brush_selection_out[primitive_idx]
+            : (selection_mask != nullptr && selection_mask[primitive_idx]);
         if (is_selected) {
-            color.x = fminf(color.x * 2.0f + 0.4f, 1.0f);  // Boost red
+            color.x = fminf(color.x * 2.0f + 0.4f, 1.0f);
         }
 
         primitive_color[primitive_idx] = color;

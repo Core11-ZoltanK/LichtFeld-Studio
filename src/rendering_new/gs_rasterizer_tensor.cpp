@@ -23,6 +23,7 @@ namespace lfs::rendering {
         float brush_x,
         float brush_y,
         float brush_radius,
+        bool brush_add_mode,
         Tensor* brush_selection_out) {
 
         // Get camera parameters
@@ -110,6 +111,7 @@ namespace lfs::rendering {
             brush_x,
             brush_y,
             brush_radius,
+            brush_add_mode,
             brush_selection_out);
 
         // Manually blend the background since the forward pass does not support it

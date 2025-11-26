@@ -43,6 +43,7 @@ namespace lfs::rendering {
         float brush_x = 0.0f,
         float brush_y = 0.0f,
         float brush_radius = 0.0f,
+        bool brush_add_mode = true,
         Tensor* brush_selection_out = nullptr);
 
 } // namespace lfs::rendering

@@ -198,7 +198,8 @@ namespace lfs::vis {
 
         // Brush selection state (computed during preprocess for coordinate consistency)
         // selection_tensor is the cumulative selection that the kernel writes into
-        void setBrushState(bool active, float x, float y, float radius, lfs::core::Tensor* selection_tensor = nullptr);
+        // add_mode: true = add to selection, false = remove from selection
+        void setBrushState(bool active, float x, float y, float radius, bool add_mode = true, lfs::core::Tensor* selection_tensor = nullptr);
         void clearBrushState();
 
     private:
@@ -263,6 +264,7 @@ namespace lfs::vis {
         float brush_x_ = 0.0f;
         float brush_y_ = 0.0f;
         float brush_radius_ = 0.0f;
+        bool brush_add_mode_ = true;  // true = add to selection, false = remove from selection
         lfs::core::Tensor* brush_selection_tensor_ = nullptr;  // Cumulative selection tensor (owned by BrushTool)
     };
 

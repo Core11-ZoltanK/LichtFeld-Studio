@@ -13,7 +13,7 @@ namespace lfs::vis::tools {
 
     class BrushTool : public ToolBase {
     public:
-        enum class BrushMode { Select, Deselect, Delete };
+        enum class BrushAction { Add, Remove };
 
         BrushTool();
         ~BrushTool() override = default;
@@ -27,32 +27,27 @@ namespace lfs::vis::tools {
         void renderUI(const lfs::vis::gui::UIContext& ui_ctx, bool* p_open) override;
 
         bool isActive() const { return is_painting_; }
-        bool handleMouseButton(int button, int action, double x, double y, const ToolContext& ctx);
+        bool handleMouseButton(int button, int action, int mods, double x, double y, const ToolContext& ctx);
         bool handleMouseMove(double x, double y, const ToolContext& ctx);
-        bool handleScroll(double x_offset, double y_offset, const ToolContext& ctx);
+        bool handleScroll(double x_offset, double y_offset, int mods, const ToolContext& ctx);
 
         float getBrushRadius() const { return brush_radius_; }
         void setBrushRadius(float radius) { brush_radius_ = std::clamp(radius, 1.0f, 500.0f); }
-        BrushMode getMode() const { return mode_; }
-        void setMode(BrushMode mode) { mode_ = mode; }
 
     protected:
         void onEnabledChanged(bool enabled) override;
 
     private:
-        BrushMode mode_ = BrushMode::Select;
+        BrushAction current_action_ = BrushAction::Add;
         float brush_radius_ = 20.0f;
         bool is_painting_ = false;
-        std::vector<glm::vec2> stroke_points_;
         glm::vec2 last_mouse_pos_{0.0f};
         const ToolContext* tool_context_ = nullptr;
-
-        // Cumulative selection tensor - accumulates selections during a stroke
         lfs::core::Tensor cumulative_selection_;
 
-        void beginStroke(double x, double y, const ToolContext& ctx);
-        void continueStroke(double x, double y);
+        void beginStroke(double x, double y, BrushAction action, bool clear_existing, const ToolContext& ctx);
         void endStroke();
+        void clearSelection(const ToolContext& ctx);
         void updateSelectionAtPoint(double x, double y, const ToolContext& ctx);
     };
 

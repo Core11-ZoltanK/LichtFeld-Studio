@@ -62,6 +62,7 @@ namespace lfs::rendering {
         float brush_x,
         float brush_y,
         float brush_radius,
+        bool brush_add_mode,
         Tensor* brush_selection_out) {
 
         check_tensor_input(config::debug, means, "means");
@@ -173,6 +174,7 @@ namespace lfs::rendering {
             brush_x,
             brush_y,
             brush_radius,
+            brush_add_mode,
             brush_selection_ptr);
 
         arena.end_frame(frame_id, true);  // true = from_rendering

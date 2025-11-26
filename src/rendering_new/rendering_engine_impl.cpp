@@ -165,6 +165,7 @@ namespace lfs::rendering {
             .brush_x = request.brush_x,
             .brush_y = request.brush_y,
             .brush_radius = request.brush_radius,
+            .brush_add_mode = request.brush_add_mode,
             .brush_selection_tensor = request.brush_selection_tensor};
 
         // Convert crop box if present

@@ -125,6 +125,7 @@ void lfs::rendering::forward(
     float brush_x,
     float brush_y,
     float brush_radius,
+    bool brush_add_mode,
     bool* brush_selection_out) {
 
     const dim3 grid(div_round_up(width, config::tile_width), div_round_up(height, config::tile_height), 1);
@@ -199,6 +200,7 @@ void lfs::rendering::forward(
         brush_x,
         brush_y,
         brush_radius * brush_radius,  // Pass squared radius for efficient comparison
+        brush_add_mode,
         brush_selection_out);
     CHECK_CUDA(config::debug, "preprocess")
 

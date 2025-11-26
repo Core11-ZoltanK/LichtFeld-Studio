@@ -248,11 +248,11 @@ namespace lfs::vis {
             return;
         }
 
-        // Block brush/align tools when mouse is over any ImGui window (panels, toolbar)
         const bool over_gui = ImGui::GetIO().WantCaptureMouse;
 
         if (brush_tool_ && brush_tool_->isEnabled() && tool_context_) {
-            if (!over_gui && brush_tool_->handleMouseButton(button, action, x, y, *tool_context_)) {
+            const int mods = getModifierKeys();
+            if (!over_gui && brush_tool_->handleMouseButton(button, action, mods, x, y, *tool_context_)) {
                 if (action == GLFW_PRESS) {
                     drag_mode_ = DragMode::Brush;
                 } else if (action == GLFW_RELEASE && drag_mode_ == DragMode::Brush) {
@@ -473,7 +473,7 @@ namespace lfs::vis {
 
     void InputController::handleScroll([[maybe_unused]] double xoff, double yoff) {
         if (brush_tool_ && brush_tool_->isEnabled() && tool_context_) {
-            if (brush_tool_->handleScroll(xoff, yoff, *tool_context_)) {
+            if (brush_tool_->handleScroll(xoff, yoff, getModifierKeys(), *tool_context_)) {
                 return;
             }
         }
@@ -949,4 +949,18 @@ namespace lfs::vis {
             }
         }
     }
+
+    int InputController::getModifierKeys() const {
+        int mods = 0;
+        if (glfwGetKey(window_, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
+            glfwGetKey(window_, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS) {
+            mods |= GLFW_MOD_CONTROL;
+        }
+        if (glfwGetKey(window_, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ||
+            glfwGetKey(window_, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS) {
+            mods |= GLFW_MOD_SHIFT;
+        }
+        return mods;
+    }
+
 } // namespace lfs::vis

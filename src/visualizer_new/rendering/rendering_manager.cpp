@@ -568,6 +568,7 @@ namespace lfs::vis {
             .brush_x = brush_x_,
             .brush_y = brush_y_,
             .brush_radius = brush_radius_,
+            .brush_add_mode = brush_add_mode_,
             .brush_selection_tensor = brush_selection_tensor_};
 
         // Add crop box if enabled
@@ -1178,11 +1179,12 @@ namespace lfs::vis {
         lfs::rendering::brush_select_tensor(*cached_result_.screen_positions, mouse_x, mouse_y, radius, selection_out);
     }
 
-    void RenderingManager::setBrushState(bool active, float x, float y, float radius, lfs::core::Tensor* selection_tensor) {
+    void RenderingManager::setBrushState(bool active, float x, float y, float radius, bool add_mode, lfs::core::Tensor* selection_tensor) {
         brush_active_ = active;
         brush_x_ = x;
         brush_y_ = y;
         brush_radius_ = radius;
+        brush_add_mode_ = add_mode;
         brush_selection_tensor_ = selection_tensor;
         markDirty();  // Need to re-render with brush selection
     }

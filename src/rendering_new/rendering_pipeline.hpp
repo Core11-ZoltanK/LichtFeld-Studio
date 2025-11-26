@@ -55,6 +55,7 @@ namespace lfs::rendering {
             float brush_x = 0.0f;                   // Brush center X in screen coords
             float brush_y = 0.0f;                   // Brush center Y in screen coords
             float brush_radius = 0.0f;              // Brush radius in pixels
+            bool brush_add_mode = true;             // true = add to selection, false = remove from selection
             lfs::core::Tensor* brush_selection_tensor = nullptr;  // Cumulative selection tensor (kernel accumulates into this)
         };
 

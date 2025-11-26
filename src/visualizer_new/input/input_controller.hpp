@@ -105,6 +105,7 @@ namespace lfs::vis {
         void updateCameraSpeed(bool increase);
         void publishCameraMove();
         bool isNearSplitter(double x) const;
+        int getModifierKeys() const;
 
         // Training pause/resume helpers
         void onCameraMovementStart();

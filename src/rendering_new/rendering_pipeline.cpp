@@ -140,7 +140,7 @@ namespace lfs::rendering {
                                                 selection_mask_ptr,
                                                 request.output_screen_positions ? &screen_positions : nullptr,
                                                 request.brush_active, request.brush_x, request.brush_y, request.brush_radius,
-                                                request.brush_selection_tensor);
+                                                request.brush_add_mode, request.brush_selection_tensor);
                 result.image = std::move(image);
                 result.depth = std::move(depth);
                 if (request.output_screen_positions) {
@@ -172,7 +172,7 @@ namespace lfs::rendering {
                                             selection_mask_ptr,
                                             request.output_screen_positions ? &screen_positions : nullptr,
                                             request.brush_active, request.brush_x, request.brush_y, request.brush_radius,
-                                            request.brush_selection_tensor);
+                                            request.brush_add_mode, request.brush_selection_tensor);
             result.image = std::move(image);
             result.depth = std::move(depth);
             if (request.output_screen_positions) {
