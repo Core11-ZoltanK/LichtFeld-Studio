@@ -14,34 +14,34 @@ endif()
 cmake_minimum_required(VERSION 3.30)
 project(LichtFeld-Studio LANGUAGES CUDA CXX C)
 
-# Get git commit hash (short and full)
+# Get git version info
 execute_process(
-        COMMAND git rev-parse --short HEAD
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-        OUTPUT_VARIABLE GIT_COMMIT_HASH_SHORT
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-        ERROR_QUIET
+    COMMAND git rev-parse --short HEAD
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE GIT_COMMIT_HASH_SHORT
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
 )
-
 execute_process(
-        COMMAND git describe --dirty
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-        OUTPUT_VARIABLE GIT_TAGGED_VERSION
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-        ERROR_QUIET
+    COMMAND git describe --dirty
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE GIT_TAGGED_VERSION
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
 )
-
-# Fallback if not in a git repo
 if(NOT GIT_COMMIT_HASH_SHORT)
     set(GIT_COMMIT_HASH_SHORT "unknown")
 endif()
-
 if(NOT GIT_TAGGED_VERSION)
     set(GIT_TAGGED_VERSION "unknown")
 endif()
 
-message(STATUS "Git commit (short): ${GIT_COMMIT_HASH_SHORT}")
-message(STATUS "Git commit (full): ${GIT_TAGGED_VERSION}")
+# Generate git_version.h at configure time
+file(WRITE "${CMAKE_BINARY_DIR}/include/git_version.h"
+"#pragma once\n\
+#define GIT_COMMIT_HASH_SHORT \"${GIT_COMMIT_HASH_SHORT}\"\n\
+#define GIT_TAGGED_VERSION \"${GIT_TAGGED_VERSION}\"\n"
+)
 
 # Setup
 get_filename_component(PROJ_ROOT_DIR "${CMAKE_CURRENT_SOURCE_DIR}" ABSOLUTE)
@@ -354,12 +354,13 @@ else()
     set(CUDA_GL_INTEROP_ENABLED 0)
 endif()
 
-# Create a configuration header
+# Create configuration header (static options)
 configure_file(
         "${CMAKE_CURRENT_SOURCE_DIR}/include/config.h.in"
         "${CMAKE_CURRENT_BINARY_DIR}/include/config.h"
         @ONLY
 )
+
 
 # Project-wide definitions
 add_definitions(-DPROJECT_ROOT_PATH="${PROJ_ROOT_DIR}")
@@ -602,6 +603,7 @@ elseif(WIN32)
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
     )
 endif()
+
 
 # -----------------------------------------------------------------------------
 # LichtFeld-Studio-legacy (OLD, LibTorch-based)

@@ -10,9 +10,8 @@
 #define PROJECT_VERSION_MINOR @PROJECT_VERSION_MINOR @
 #define PROJECT_VERSION_PATCH @PROJECT_VERSION_PATCH @
 
-// Git commit information
-#define GIT_COMMIT_HASH_SHORT "@GIT_COMMIT_HASH_SHORT@"
-#define GIT_TAGGED_VERSION  "@GIT_TAGGED_VERSION@"
+// Git version (generated at build time)
+#include "git_version.h"
 
 // Build type
 #cmakedefine DEBUG_BUILD
