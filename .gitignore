@@ -12,6 +12,7 @@ data
 *.py
 .venv/
 *.png
+!src/**/assets/**/*.png
 *.sqlite
 test.py
 *.nsys-rep
