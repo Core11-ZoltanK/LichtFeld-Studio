@@ -497,6 +497,12 @@ namespace lfs::vis::gui {
                     }
                     rm->setSelectionMode(mode);
 
+                    // Reset selection state when switching modes
+                    if (gizmo_toolbar_state_.selection_mode != previous_selection_mode_) {
+                        if (selection_tool) selection_tool->onSelectionModeChanged();
+                        previous_selection_mode_ = gizmo_toolbar_state_.selection_mode;
+                    }
+
                     const bool ring_mode_active = (gizmo_toolbar_state_.selection_mode == panels::SelectionSubMode::Rings);
                     if (ring_mode_active && !ring_mode_was_active_) {
                         auto settings = rm->getSettings();

@@ -99,10 +99,17 @@ namespace lfs::rendering {
         float radius,
         Tensor& selection_out);
 
-    // Select Gaussians inside a 2D polygon on GPU
+    // Select Gaussians inside polygon on GPU
     void polygon_select_tensor(
-        const Tensor& screen_positions,  // [N, 2]
-        const Tensor& polygon_vertices,  // [M, 2] CUDA
-        Tensor& selection_out);          // [N] bool
+        const Tensor& screen_positions,
+        const Tensor& polygon_vertices,
+        Tensor& selection_out);
+
+    // Select Gaussians inside polygon with add/remove mode
+    void polygon_select_mode_tensor(
+        const Tensor& screen_positions,
+        const Tensor& polygon_vertices,
+        Tensor& selection_out,
+        bool add_mode);
 
 } // namespace lfs::rendering

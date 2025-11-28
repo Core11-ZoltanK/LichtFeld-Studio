@@ -120,6 +120,23 @@ __global__ void polygon_select_kernel(
         selection[idx] = true;
 }
 
+__global__ void polygon_select_mode_kernel(
+    const float2* __restrict__ positions,
+    const float2* __restrict__ polygon,
+    const int num_verts,
+    bool* __restrict__ selection,
+    const int n,
+    const bool add_mode) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= n) return;
+
+    const float2 pos = positions[idx];
+    if (pos.x < -1000.0f) return;
+
+    if (point_in_polygon(pos.x, pos.y, polygon, num_verts))
+        selection[idx] = add_mode;
+}
+
 void lfs::rendering::polygon_select(
     const float2* positions,
     const float2* polygon,
@@ -131,6 +148,20 @@ void lfs::rendering::polygon_select(
     constexpr int BLOCK_SIZE = 256;
     const int grid = (n_primitives + BLOCK_SIZE - 1) / BLOCK_SIZE;
     polygon_select_kernel<<<grid, BLOCK_SIZE>>>(positions, polygon, num_vertices, selection, n_primitives);
+}
+
+void lfs::rendering::polygon_select_mode(
+    const float2* positions,
+    const float2* polygon,
+    const int num_vertices,
+    bool* selection,
+    const int n_primitives,
+    const bool add_mode) {
+    if (n_primitives <= 0 || num_vertices < 3) return;
+
+    constexpr int BLOCK_SIZE = 256;
+    const int grid = (n_primitives + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    polygon_select_mode_kernel<<<grid, BLOCK_SIZE>>>(positions, polygon, num_vertices, selection, n_primitives, add_mode);
 }
 
 // sorting is done separately for depth and tile as proposed in https://github.com/m-schuetz/Splatshop

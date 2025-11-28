@@ -262,4 +262,21 @@ namespace lfs::rendering {
             static_cast<int>(positions.size(0)));
     }
 
+    void polygon_select_mode_tensor(
+        const Tensor& positions,
+        const Tensor& polygon,
+        Tensor& selection,
+        const bool add_mode) {
+        if (!positions.is_valid() || positions.size(0) == 0) return;
+        if (!polygon.is_valid() || polygon.size(0) < 3) return;
+
+        polygon_select_mode(
+            reinterpret_cast<const float2*>(positions.ptr<float>()),
+            reinterpret_cast<const float2*>(polygon.ptr<float>()),
+            static_cast<int>(polygon.size(0)),
+            selection.ptr<bool>(),
+            static_cast<int>(positions.size(0)),
+            add_mode);
+    }
+
 } // namespace lfs::rendering

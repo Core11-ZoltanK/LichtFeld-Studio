@@ -38,6 +38,7 @@ namespace lfs::vis::tools {
 
         [[nodiscard]] bool hasActivePolygon() const { return !polygon_points_.empty(); }
         void clearPolygon();
+        void onSelectionModeChanged();
 
     protected:
         void onEnabledChanged(bool enabled) override;
@@ -79,7 +80,6 @@ namespace lfs::vis::tools {
         void updatePolygonPreview(const ToolContext& ctx);
         int findPolygonVertexAt(float x, float y) const;
         int findPolygonEdgeAt(float x, float y, float& t_out) const;
-        static bool pointInPolygon(float px, float py, const std::vector<glm::vec2>& polygon);
     };
 
 } // namespace lfs::vis::tools

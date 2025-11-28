@@ -18,13 +18,22 @@ namespace lfs::rendering {
         uint8_t* selection_out,
         int n_primitives);
 
-    // Select Gaussians inside a 2D polygon
+    // Select Gaussians inside polygon (sets true for points inside)
     void polygon_select(
         const float2* positions,
         const float2* polygon,
         int num_vertices,
         bool* selection,
         int n_primitives);
+
+    // Select Gaussians inside polygon with add/remove mode
+    void polygon_select_mode(
+        const float2* positions,
+        const float2* polygon,
+        int num_vertices,
+        bool* selection,
+        int n_primitives,
+        bool add_mode);
 
     void forward(
         std::function<char*(size_t)> per_primitive_buffers_func,

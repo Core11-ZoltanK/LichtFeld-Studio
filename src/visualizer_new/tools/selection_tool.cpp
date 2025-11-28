@@ -215,11 +215,11 @@ namespace lfs::vis::tools {
                     resetPolygon();
                 }
 
-                // Close polygon if clicking near first vertex
+                // Close polygon
                 if (polygon_points_.size() >= 3 &&
                     glm::distance(glm::vec2(px, py), polygon_points_.front()) < POLYGON_CLOSE_THRESHOLD) {
                     polygon_closed_ = true;
-                    prepareSelectionState(ctx, ctrl);
+                    prepareSelectionState(ctx, true);
                     updatePolygonPreview(ctx);
                     ctx.requestRender();
                     return true;
@@ -618,24 +618,6 @@ namespace lfs::vis::tools {
         rm->markDirty();
     }
 
-    bool SelectionTool::pointInPolygon(const float px, const float py, const std::vector<glm::vec2>& polygon) {
-        if (polygon.size() < 3) return false;
-
-        // Ray casting algorithm
-        bool inside = false;
-        const size_t n = polygon.size();
-        for (size_t i = 0, j = n - 1; i < n; j = i++) {
-            const float xi = polygon[i].x, yi = polygon[i].y;
-            const float xj = polygon[j].x, yj = polygon[j].y;
-
-            if (((yi > py) != (yj > py)) &&
-                (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) {
-                inside = !inside;
-            }
-        }
-        return inside;
-    }
-
     void SelectionTool::selectInLasso(const ToolContext& ctx) {
         auto* const rm = ctx.getRenderingManager();
         auto* const sm = ctx.getSceneManager();
@@ -654,48 +636,28 @@ namespace lfs::vis::tools {
 
         const float scale_x = static_cast<float>(render_w) / bounds.width;
         const float scale_y = static_cast<float>(render_h) / bounds.height;
+        const size_t num_verts = lasso_points_.size();
 
-        // Convert lasso points to image coords
-        std::vector<glm::vec2> img_lasso;
-        img_lasso.reserve(lasso_points_.size());
-        for (const auto& pt : lasso_points_) {
-            img_lasso.emplace_back((pt.x - bounds.x) * scale_x, (pt.y - bounds.y) * scale_y);
+        auto poly_cpu = lfs::core::Tensor::empty({num_verts, 2}, lfs::core::Device::CPU, lfs::core::DataType::Float32);
+        auto* const data = poly_cpu.ptr<float>();
+        for (size_t i = 0; i < num_verts; ++i) {
+            data[i * 2] = (lasso_points_[i].x - bounds.x) * scale_x;
+            data[i * 2 + 1] = (lasso_points_[i].y - bounds.y) * scale_y;
         }
+        const auto poly_gpu = poly_cpu.cuda();
 
-        // Get screen positions on CPU
-        auto positions_cpu = screen_positions->cpu();
-        const auto* pos_data = positions_cpu.ptr<float>();
-        const size_t num_gaussians = static_cast<size_t>(positions_cpu.size(0));
-
-        auto sel_cpu = cumulative_selection_.cpu();
-        auto* const sel_data = sel_cpu.ptr<bool>();
+        auto selection = cumulative_selection_.to(lfs::core::DataType::Bool).cuda();
         const bool add_mode = (current_action_ == SelectionAction::Add);
+        lfs::rendering::polygon_select_mode_tensor(*screen_positions, poly_gpu, selection, add_mode);
 
-        for (size_t i = 0; i < num_gaussians; ++i) {
-            const float px = pos_data[i * 2];
-            const float py = pos_data[i * 2 + 1];
+        auto new_selection = std::make_shared<lfs::core::Tensor>(selection.clone());
+        sm->getScene().setSelectionMask(std::make_shared<lfs::core::Tensor>(std::move(selection)));
 
-            if (pointInPolygon(px, py, img_lasso)) {
-                sel_data[i] = add_mode;
-            }
-        }
-
-        cumulative_selection_ = sel_cpu.cuda();
-
-        // Apply selection
-        auto mask = cumulative_selection_.to(lfs::core::DataType::UInt8);
-        auto new_selection = std::make_shared<lfs::core::Tensor>(mask.clone());
-        sm->getScene().setSelectionMask(std::make_shared<lfs::core::Tensor>(std::move(mask)));
-
-        // Create undo command
-        auto* const ch = ctx.getCommandHistory();
-        if (ch && new_selection && new_selection->is_valid()) {
-            auto cmd = std::make_unique<command::SelectionCommand>(
-                sm, selection_before_stroke_, new_selection);
-            ch->execute(std::move(cmd));
+        if (auto* const ch = ctx.getCommandHistory()) {
+            ch->execute(std::make_unique<command::SelectionCommand>(
+                sm, selection_before_stroke_, new_selection));
         }
         selection_before_stroke_.reset();
-
         rm->clearBrushState();
         rm->markDirty();
     }
@@ -705,16 +667,38 @@ namespace lfs::vis::tools {
 
         auto* const rm = ctx.getRenderingManager();
         auto* const sm = ctx.getSceneManager();
-        if (!rm || !sm) return;
+        if (!rm || !sm || !cumulative_selection_.is_valid()) return;
 
-        // Selection already computed by updatePolygonPreview - just record undo
-        const auto selection = sm->getScene().getSelectionMask();
-        if (!selection || !selection->is_valid()) return;
+        const auto positions = rm->getScreenPositions();
+        if (!positions || !positions->is_valid()) return;
+
+        const auto& bounds = ctx.getViewportBounds();
+        const auto& viewport = ctx.getViewport();
+        const auto& cached = rm->getCachedResult();
+        const int render_w = cached.image ? static_cast<int>(cached.image->size(2)) : viewport.windowSize.x;
+        const int render_h = cached.image ? static_cast<int>(cached.image->size(1)) : viewport.windowSize.y;
+        const float scale_x = static_cast<float>(render_w) / bounds.width;
+        const float scale_y = static_cast<float>(render_h) / bounds.height;
+        const size_t num_verts = polygon_points_.size();
+
+        auto poly_cpu = lfs::core::Tensor::empty({num_verts, 2}, lfs::core::Device::CPU, lfs::core::DataType::Float32);
+        auto* const data = poly_cpu.ptr<float>();
+        for (size_t i = 0; i < num_verts; ++i) {
+            data[i * 2] = (polygon_points_[i].x - bounds.x) * scale_x;
+            data[i * 2 + 1] = (polygon_points_[i].y - bounds.y) * scale_y;
+        }
+        const auto poly_gpu = poly_cpu.cuda();
+
+        auto selection = cumulative_selection_.to(lfs::core::DataType::Bool).cuda();
+        const bool add_mode = (current_action_ == SelectionAction::Add);
+        lfs::rendering::polygon_select_mode_tensor(*positions, poly_gpu, selection, add_mode);
+
+        auto new_selection = std::make_shared<lfs::core::Tensor>(selection.clone());
+        sm->getScene().setSelectionMask(std::make_shared<lfs::core::Tensor>(std::move(selection)));
 
         if (auto* const ch = ctx.getCommandHistory()) {
             ch->execute(std::make_unique<command::SelectionCommand>(
-                sm, selection_before_stroke_,
-                std::make_shared<lfs::core::Tensor>(selection->clone())));
+                sm, selection_before_stroke_, new_selection));
         }
         selection_before_stroke_.reset();
         rm->clearBrushState();
@@ -728,10 +712,29 @@ namespace lfs::vis::tools {
     }
 
     void SelectionTool::clearPolygon() {
-        if (!polygon_points_.empty()) {
-            resetPolygon();
-            selection_before_stroke_.reset();
+        if (polygon_points_.empty()) return;
+
+        // Restore selection if preview was showing
+        if (polygon_closed_ && selection_before_stroke_ && tool_context_) {
+            if (auto* const sm = tool_context_->getSceneManager()) {
+                sm->getScene().setSelectionMask(
+                    std::make_shared<lfs::core::Tensor>(selection_before_stroke_->clone()));
+                if (auto* const rm = tool_context_->getRenderingManager())
+                    rm->markDirty();
+            }
         }
+        resetPolygon();
+        selection_before_stroke_.reset();
+    }
+
+    void SelectionTool::onSelectionModeChanged() {
+        clearPolygon();
+        is_rect_dragging_ = false;
+        is_lasso_dragging_ = false;
+        lasso_points_.clear();
+        is_painting_ = false;
+        cumulative_selection_ = lfs::core::Tensor();
+        selection_before_stroke_.reset();
     }
 
     void SelectionTool::prepareSelectionState(const ToolContext& ctx, const bool add_to_existing) {
@@ -775,7 +778,6 @@ namespace lfs::vis::tools {
         const size_t n = positions->size(0);
         const size_t num_verts = polygon_points_.size();
 
-        // Build polygon tensor (screen -> image coords)
         auto poly_cpu = lfs::core::Tensor::empty({num_verts, 2}, lfs::core::Device::CPU, lfs::core::DataType::Float32);
         auto* const data = poly_cpu.ptr<float>();
         for (size_t i = 0; i < num_verts; ++i) {
@@ -784,10 +786,8 @@ namespace lfs::vis::tools {
         }
         const auto poly_gpu = poly_cpu.cuda();
 
-        // Initialize selection from base state
-        auto selection = (selection_before_stroke_ && selection_before_stroke_->is_valid() &&
-                          selection_before_stroke_->size(0) == n)
-            ? selection_before_stroke_->to(lfs::core::DataType::Bool).cuda()
+        auto selection = (cumulative_selection_.is_valid() && cumulative_selection_.size(0) == n)
+            ? cumulative_selection_.to(lfs::core::DataType::Bool).cuda()
             : lfs::core::Tensor::zeros({n}, lfs::core::Device::CUDA, lfs::core::DataType::Bool);
 
         lfs::rendering::polygon_select_tensor(*positions, poly_gpu, selection);
@@ -830,7 +830,7 @@ namespace lfs::vis::tools {
         return -1;
     }
 
-    bool SelectionTool::handleKeyPress(const int key, [[maybe_unused]] const int mods, const ToolContext& ctx) {
+    bool SelectionTool::handleKeyPress(const int key, const int mods, const ToolContext& ctx) {
         if (!isEnabled()) return false;
 
         const auto* const rm = ctx.getRenderingManager();
@@ -838,9 +838,13 @@ namespace lfs::vis::tools {
 
         if (sel_mode != lfs::rendering::SelectionMode::Polygon) return false;
 
-        // Enter to confirm polygon selection
+        // Confirm polygon selection
         if (key == GLFW_KEY_ENTER || key == GLFW_KEY_KP_ENTER) {
             if (polygon_closed_ && polygon_points_.size() >= 3) {
+                const bool ctrl = (mods & GLFW_MOD_CONTROL) != 0;
+                const bool shift = (mods & GLFW_MOD_SHIFT) != 0;
+                prepareSelectionState(ctx, ctrl || shift);
+                current_action_ = shift ? SelectionAction::Remove : SelectionAction::Add;
                 selectInPolygon(ctx);
                 resetPolygon();
                 ctx.requestRender();
@@ -848,7 +852,7 @@ namespace lfs::vis::tools {
             }
         }
 
-        // Escape to cancel and restore original selection
+        // Cancel and restore
         if (key == GLFW_KEY_ESCAPE && !polygon_points_.empty()) {
             if (polygon_closed_ && selection_before_stroke_) {
                 if (auto* const sm = ctx.getSceneManager()) {

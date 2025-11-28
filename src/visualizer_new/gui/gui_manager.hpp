@@ -134,8 +134,9 @@ namespace lfs::vis {
             bool cropbox_gizmo_active_ = false;
             std::optional<command::CropBoxState> cropbox_state_before_drag_;
 
-            // Previous tool mode for detecting tool changes
+            // Previous tool/selection mode for detecting changes
             panels::ToolMode previous_tool_ = panels::ToolMode::None;
+            panels::SelectionSubMode previous_selection_mode_ = panels::SelectionSubMode::Centers;
 
             // Save PLY dialog state
             bool show_save_ply_dialog_ = false;
