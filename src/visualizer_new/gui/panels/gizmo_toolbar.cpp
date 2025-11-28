@@ -40,6 +40,7 @@ namespace lfs::vis::gui::panels {
     void InitGizmoToolbar(GizmoToolbarState& state) {
         if (state.initialized) return;
 
+        state.selection_texture = LoadIconTexture("selection.png");
         state.translation_texture = LoadIconTexture("translation.png");
         state.rotation_texture = LoadIconTexture("rotation.png");
         state.scaling_texture = LoadIconTexture("scaling.png");
@@ -54,6 +55,7 @@ namespace lfs::vis::gui::panels {
     void ShutdownGizmoToolbar(GizmoToolbarState& state) {
         if (!state.initialized) return;
 
+        if (state.selection_texture) glDeleteTextures(1, &state.selection_texture);
         if (state.translation_texture) glDeleteTextures(1, &state.translation_texture);
         if (state.rotation_texture) glDeleteTextures(1, &state.rotation_texture);
         if (state.scaling_texture) glDeleteTextures(1, &state.scaling_texture);
@@ -63,6 +65,7 @@ namespace lfs::vis::gui::panels {
         if (state.bounds_texture) glDeleteTextures(1, &state.bounds_texture);
         if (state.reset_texture) glDeleteTextures(1, &state.reset_texture);
 
+        state.selection_texture = 0;
         state.translation_texture = 0;
         state.rotation_texture = 0;
         state.scaling_texture = 0;
@@ -82,7 +85,7 @@ namespace lfs::vis::gui::panels {
 
         const ImGuiViewport* viewport = ImGui::GetMainViewport();
 
-        constexpr float toolbar_width = 260.0f;
+        constexpr float toolbar_width = 295.0f;
         constexpr float toolbar_height = 36.0f;
 
         const float pos_x = viewport->WorkPos.x + viewport_pos.x + (viewport_size.x - toolbar_width) * 0.5f;
@@ -133,6 +136,10 @@ namespace lfs::vis::gui::panels {
                 }
                 return clicked;
             };
+
+            IconButton("##selection", state.selection_texture, ToolMode::Selection, ImGuizmo::TRANSLATE, "S");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Selection");
+            ImGui::SameLine();
 
             IconButton("##translate", state.translation_texture, ToolMode::Translate, ImGuizmo::TRANSLATE, "T");
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("Translate");

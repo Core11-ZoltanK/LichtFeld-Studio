@@ -1,0 +1,251 @@
+/* SPDX-FileCopyrightText: 2025 LichtFeld Studio Authors
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later */
+
+#include "tools/selection_tool.hpp"
+#include "command/command_history.hpp"
+#include "command/commands/selection_command.hpp"
+#include "internal/viewport.hpp"
+#include "rendering/rendering_manager.hpp"
+#include "scene/scene_manager.hpp"
+#include "core_new/splat_data.hpp"
+#include "core_new/tensor.hpp"
+#include <imgui.h>
+
+namespace lfs::vis::tools {
+
+    SelectionTool::SelectionTool() = default;
+
+    bool SelectionTool::initialize(const ToolContext& ctx) {
+        tool_context_ = &ctx;
+        return true;
+    }
+
+    void SelectionTool::shutdown() {
+        tool_context_ = nullptr;
+        is_painting_ = false;
+    }
+
+    void SelectionTool::update([[maybe_unused]] const ToolContext& ctx) {
+        if (isEnabled()) {
+            double mx, my;
+            glfwGetCursorPos(ctx.getWindow(), &mx, &my);
+            last_mouse_pos_ = glm::vec2(static_cast<float>(mx), static_cast<float>(my));
+        }
+    }
+
+    void SelectionTool::renderUI([[maybe_unused]] const lfs::vis::gui::UIContext& ui_ctx,
+                                  [[maybe_unused]] bool* p_open) {
+        if (!isEnabled() || ImGui::GetIO().WantCaptureMouse) return;
+
+        ImDrawList* const draw_list = ImGui::GetForegroundDrawList();
+        const ImVec2 mouse_pos(last_mouse_pos_.x, last_mouse_pos_.y);
+        constexpr ImU32 brush_color = IM_COL32(100, 180, 255, 220);
+
+        draw_list->AddCircle(mouse_pos, brush_radius_, brush_color, 32, 2.0f);
+        draw_list->AddCircleFilled(mouse_pos, 3.0f, brush_color);
+
+        // Show action indicator
+        const char* info_text = is_painting_
+            ? (current_action_ == SelectionAction::Add ? "SEL +" : "SEL -")
+            : "SEL";
+
+        constexpr float font_size = 22.0f;
+        const ImVec2 text_pos(mouse_pos.x + brush_radius_ + 10, mouse_pos.y - font_size / 2);
+
+        constexpr ImU32 shadow_color = IM_COL32(0, 0, 0, 180);
+        draw_list->AddText(ImGui::GetFont(), font_size, ImVec2(text_pos.x + 1, text_pos.y + 1), shadow_color, info_text);
+        draw_list->AddText(ImGui::GetFont(), font_size, text_pos, IM_COL32(255, 255, 255, 255), info_text);
+    }
+
+    bool SelectionTool::handleMouseButton(int button, int action, int mods, double x, double y,
+                                           const ToolContext& ctx) {
+        if (!isEnabled() || button != GLFW_MOUSE_BUTTON_LEFT) return false;
+
+        if (action == GLFW_PRESS) {
+            const bool ctrl = (mods & GLFW_MOD_CONTROL) != 0;
+            const bool shift = (mods & GLFW_MOD_SHIFT) != 0;
+
+            if (ctrl) {
+                beginStroke(x, y, SelectionAction::Add, false, ctx);
+            } else if (shift) {
+                beginStroke(x, y, SelectionAction::Remove, false, ctx);
+            } else {
+                beginStroke(x, y, SelectionAction::Add, true, ctx);
+            }
+            updateSelectionAtPoint(x, y, ctx);
+            return true;
+        }
+
+        if (action == GLFW_RELEASE && is_painting_) {
+            endStroke();
+            return true;
+        }
+        return false;
+    }
+
+    bool SelectionTool::handleMouseMove(double x, double y, const ToolContext& ctx) {
+        if (!isEnabled()) return false;
+
+        last_mouse_pos_ = glm::vec2(static_cast<float>(x), static_cast<float>(y));
+
+        if (is_painting_) {
+            updateSelectionAtPoint(x, y, ctx);
+            ctx.requestRender();
+            return true;
+        }
+
+        updateBrushPreview(x, y, ctx);
+        ctx.requestRender();
+        return false;
+    }
+
+    bool SelectionTool::handleScroll([[maybe_unused]] double x_offset, double y_offset,
+                                      int mods, const ToolContext& ctx) {
+        if (!isEnabled()) return false;
+
+        const bool ctrl = (mods & GLFW_MOD_CONTROL) != 0;
+        const bool shift = (mods & GLFW_MOD_SHIFT) != 0;
+        const bool alt = glfwGetKey(ctx.getWindow(), GLFW_KEY_LEFT_ALT) == GLFW_PRESS ||
+                         glfwGetKey(ctx.getWindow(), GLFW_KEY_RIGHT_ALT) == GLFW_PRESS;
+
+        if (is_painting_ || ctrl || shift || alt) {
+            const float scale = (y_offset > 0) ? 1.1f : 0.9f;
+            brush_radius_ = std::clamp(brush_radius_ * scale, 1.0f, 500.0f);
+
+            updateBrushPreview(last_mouse_pos_.x, last_mouse_pos_.y, ctx);
+            ctx.requestRender();
+            return true;
+        }
+        return false;
+    }
+
+    void SelectionTool::onEnabledChanged(bool enabled) {
+        if (!enabled) {
+            is_painting_ = false;
+        }
+
+        if (tool_context_) {
+            auto* const rm = tool_context_->getRenderingManager();
+            if (rm) {
+                rm->setOutputScreenPositions(enabled);
+                if (enabled) rm->markDirty();
+            }
+        }
+    }
+
+    void SelectionTool::beginStroke([[maybe_unused]] double x, [[maybe_unused]] double y,
+                                     SelectionAction action, bool clear_existing, const ToolContext& ctx) {
+        is_painting_ = true;
+        current_action_ = action;
+
+        auto* const sm = ctx.getSceneManager();
+        if (!sm) return;
+
+        const size_t num_gaussians = sm->getScene().getTotalGaussianCount();
+        if (num_gaussians == 0) return;
+
+        auto existing = sm->getScene().getSelectionMask();
+        if (existing && existing->is_valid()) {
+            selection_before_stroke_ = std::make_shared<lfs::core::Tensor>(existing->clone());
+        } else {
+            selection_before_stroke_.reset();
+        }
+
+        if (clear_existing) {
+            sm->getScene().clearSelection();
+            cumulative_selection_ = lfs::core::Tensor::zeros(
+                {num_gaussians}, lfs::core::Device::CUDA, lfs::core::DataType::Bool);
+        } else {
+            if (existing && existing->is_valid() && existing->size(0) == num_gaussians) {
+                cumulative_selection_ = existing->to(lfs::core::DataType::Bool);
+            } else {
+                cumulative_selection_ = lfs::core::Tensor::zeros(
+                    {num_gaussians}, lfs::core::Device::CUDA, lfs::core::DataType::Bool);
+            }
+        }
+    }
+
+    void SelectionTool::endStroke() {
+        is_painting_ = false;
+
+        std::shared_ptr<lfs::core::Tensor> new_selection;
+
+        if (tool_context_ && cumulative_selection_.is_valid()) {
+            auto* const sm = tool_context_->getSceneManager();
+            if (sm) {
+                auto mask = cumulative_selection_.to(lfs::core::DataType::UInt8);
+                new_selection = std::make_shared<lfs::core::Tensor>(mask.clone());
+                sm->getScene().setSelectionMask(std::make_shared<lfs::core::Tensor>(std::move(mask)));
+            }
+        }
+
+        if (tool_context_ && new_selection && new_selection->is_valid()) {
+            auto* const ch = tool_context_->getCommandHistory();
+            auto* const sm = tool_context_->getSceneManager();
+
+            if (ch && sm) {
+                auto cmd = std::make_unique<command::SelectionCommand>(
+                    sm, selection_before_stroke_, new_selection);
+                ch->execute(std::move(cmd));
+            }
+        }
+        selection_before_stroke_.reset();
+
+        if (tool_context_) {
+            auto* const rm = tool_context_->getRenderingManager();
+            if (rm) {
+                rm->clearBrushState();
+                rm->markDirty();
+            }
+        }
+    }
+
+    void SelectionTool::updateSelectionAtPoint(double x, double y, const ToolContext& ctx) {
+        auto* const rm = ctx.getRenderingManager();
+        if (!rm) return;
+
+        const auto& bounds = ctx.getViewportBounds();
+        const auto& viewport = ctx.getViewport();
+        const auto& cached = rm->getCachedResult();
+
+        const int render_w = cached.image ? static_cast<int>(cached.image->size(2)) : viewport.windowSize.x;
+        const int render_h = cached.image ? static_cast<int>(cached.image->size(1)) : viewport.windowSize.y;
+
+        const float rel_x = static_cast<float>(x) - bounds.x;
+        const float rel_y = static_cast<float>(y) - bounds.y;
+        const float scale_x = static_cast<float>(render_w) / bounds.width;
+        const float scale_y = static_cast<float>(render_h) / bounds.height;
+
+        const float image_x = rel_x * scale_x;
+        const float image_y = rel_y * scale_y;
+        const float scaled_radius = brush_radius_ * scale_x;
+        const bool add_mode = (current_action_ == SelectionAction::Add);
+
+        rm->setBrushState(true, image_x, image_y, scaled_radius, add_mode, &cumulative_selection_);
+    }
+
+    void SelectionTool::updateBrushPreview(double x, double y, const ToolContext& ctx) {
+        auto* const rm = ctx.getRenderingManager();
+        if (!rm) return;
+
+        const auto& bounds = ctx.getViewportBounds();
+        const auto& viewport = ctx.getViewport();
+        const auto& cached = rm->getCachedResult();
+
+        const int render_w = cached.image ? static_cast<int>(cached.image->size(2)) : viewport.windowSize.x;
+        const int render_h = cached.image ? static_cast<int>(cached.image->size(1)) : viewport.windowSize.y;
+
+        const float rel_x = static_cast<float>(x) - bounds.x;
+        const float rel_y = static_cast<float>(y) - bounds.y;
+        const float scale_x = static_cast<float>(render_w) / bounds.width;
+        const float scale_y = static_cast<float>(render_h) / bounds.height;
+
+        const float image_x = rel_x * scale_x;
+        const float image_y = rel_y * scale_y;
+        const float scaled_radius = brush_radius_ * scale_x;
+
+        rm->setBrushState(true, image_x, image_y, scaled_radius, true, nullptr, false, 0.0f);
+    }
+
+} // namespace lfs::vis::tools

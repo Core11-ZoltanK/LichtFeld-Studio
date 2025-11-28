@@ -12,6 +12,7 @@ namespace lfs::vis::gui::panels {
 
     enum class ToolMode {
         None,
+        Selection,
         Translate,
         Rotate,
         Scale,
@@ -33,6 +34,7 @@ namespace lfs::vis::gui::panels {
         CropBoxOperation cropbox_operation = CropBoxOperation::Bounds;
         bool reset_cropbox_requested = false;
         bool initialized = false;
+        unsigned int selection_texture = 0;
         unsigned int translation_texture = 0;
         unsigned int rotation_texture = 0;
         unsigned int scaling_texture = 0;

@@ -19,6 +19,7 @@ namespace lfs::vis {
     namespace tools {
         class BrushTool;
         class AlignTool;
+        class SelectionTool;
     } // namespace tools
     class ToolContext;
     class RenderingManager;
@@ -44,6 +45,11 @@ namespace lfs::vis {
         // Set align tool
         void setAlignTool(std::shared_ptr<tools::AlignTool> tool) {
             align_tool_ = tool;
+        }
+
+        // Set selection tool
+        void setSelectionTool(std::shared_ptr<tools::SelectionTool> tool) {
+            selection_tool_ = tool;
         }
 
         // Set tool context for gizmo
@@ -123,6 +129,7 @@ namespace lfs::vis {
         // Tool support
         std::shared_ptr<tools::BrushTool> brush_tool_;
         std::shared_ptr<tools::AlignTool> align_tool_;
+        std::shared_ptr<tools::SelectionTool> selection_tool_;
         ToolContext* tool_context_ = nullptr;
 
         // Viewport bounds for focus detection

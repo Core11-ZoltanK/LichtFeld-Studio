@@ -24,6 +24,7 @@
 #include "internal/resource_paths.hpp"
 #include "tools/align_tool.hpp"
 #include "tools/brush_tool.hpp"
+#include "tools/selection_tool.hpp"
 #include "visualizer_impl.hpp"
 
 #include <chrono>
@@ -398,12 +399,15 @@ namespace lfs::vis::gui {
 
             auto* brush_tool = ctx.viewer->getBrushTool();
             auto* align_tool = ctx.viewer->getAlignTool();
+            auto* selection_tool = ctx.viewer->getSelectionTool();
             const bool is_brush_mode = (current_tool == panels::ToolMode::Brush);
             const bool is_align_mode = (current_tool == panels::ToolMode::Align);
+            const bool is_selection_mode = (current_tool == panels::ToolMode::Selection);
             const bool is_cropbox_mode = (current_tool == panels::ToolMode::CropBox);
 
             if (brush_tool) brush_tool->setEnabled(is_brush_mode);
             if (align_tool) align_tool->setEnabled(is_align_mode);
+            if (selection_tool) selection_tool->setEnabled(is_selection_mode);
 
             if (is_cropbox_mode) {
                 switch (gizmo_toolbar_state_.cropbox_operation) {

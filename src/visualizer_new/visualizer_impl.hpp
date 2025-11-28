@@ -34,6 +34,7 @@ namespace lfs::vis {
     namespace tools {
         class BrushTool;
         class AlignTool;
+        class SelectionTool;
     } // namespace tools
 
     class VisualizerImpl : public Visualizer {
@@ -96,6 +97,14 @@ namespace lfs::vis {
             return align_tool_.get();
         }
 
+        tools::SelectionTool* getSelectionTool() {
+            return selection_tool_.get();
+        }
+
+        const tools::SelectionTool* getSelectionTool() const {
+            return selection_tool_.get();
+        }
+
         // Undo/Redo
         command::CommandHistory& getCommandHistory() { return command_history_; }
         void undo();
@@ -144,6 +153,7 @@ namespace lfs::vis {
         // Tools
         std::shared_ptr<tools::BrushTool> brush_tool_;
         std::shared_ptr<tools::AlignTool> align_tool_;
+        std::shared_ptr<tools::SelectionTool> selection_tool_;
         std::unique_ptr<ToolContext> tool_context_;
 
         // Undo/Redo history

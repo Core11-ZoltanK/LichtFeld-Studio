@@ -8,6 +8,7 @@
 #include "rendering/rendering_manager.hpp"
 #include "tools/align_tool.hpp"
 #include "tools/brush_tool.hpp"
+#include "tools/selection_tool.hpp"
 #include "tools/tool_base.hpp"
 #include <GLFW/glfw3.h>
 #include <algorithm>
@@ -262,6 +263,18 @@ namespace lfs::vis {
             }
         }
 
+        if (selection_tool_ && selection_tool_->isEnabled() && tool_context_) {
+            const int mods = getModifierKeys();
+            if (!over_gui && selection_tool_->handleMouseButton(button, action, mods, x, y, *tool_context_)) {
+                if (action == GLFW_PRESS) {
+                    drag_mode_ = DragMode::Brush;
+                } else if (action == GLFW_RELEASE && drag_mode_ == DragMode::Brush) {
+                    drag_mode_ = DragMode::None;
+                }
+                return;
+            }
+        }
+
         if (align_tool_ && align_tool_->isEnabled() && tool_context_) {
             if (!over_gui && align_tool_->handleMouseButton(button, action, x, y, *tool_context_)) {
                 return;
@@ -450,6 +463,17 @@ namespace lfs::vis {
             }
         }
 
+        if (selection_tool_ && selection_tool_->isEnabled() && tool_context_) {
+            if (drag_mode_ == DragMode::Brush) {
+                selection_tool_->handleMouseMove(x, y, *tool_context_);
+                last_mouse_pos_ = {x, y};
+                return;
+            } else if (selection_tool_->handleMouseMove(x, y, *tool_context_)) {
+                last_mouse_pos_ = {x, y};
+                return;
+            }
+        }
+
         glm::vec2 pos(x, y);
         last_mouse_pos_ = current_pos;
 
@@ -487,6 +511,12 @@ namespace lfs::vis {
     void InputController::handleScroll([[maybe_unused]] double xoff, double yoff) {
         if (brush_tool_ && brush_tool_->isEnabled() && tool_context_) {
             if (brush_tool_->handleScroll(xoff, yoff, getModifierKeys(), *tool_context_)) {
+                return;
+            }
+        }
+
+        if (selection_tool_ && selection_tool_->isEnabled() && tool_context_) {
+            if (selection_tool_->handleScroll(xoff, yoff, getModifierKeys(), *tool_context_)) {
                 return;
             }
         }

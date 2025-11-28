@@ -8,6 +8,7 @@
 #include "scene/scene_manager.hpp"
 #include "tools/align_tool.hpp"
 #include "tools/brush_tool.hpp"
+#include "tools/selection_tool.hpp"
 #include <stdexcept>
 #ifdef WIN32
 #include <windows.h>
@@ -100,6 +101,14 @@ namespace lfs::vis {
             align_tool_.reset();
         } else if (input_controller_) {
             input_controller_->setAlignTool(align_tool_);
+        }
+
+        selection_tool_ = std::make_shared<tools::SelectionTool>();
+        if (!selection_tool_->initialize(*tool_context_)) {
+            LOG_ERROR("Failed to initialize selection tool");
+            selection_tool_.reset();
+        } else if (input_controller_) {
+            input_controller_->setSelectionTool(selection_tool_);
         }
 
         tools_initialized_ = true;
@@ -307,6 +316,9 @@ namespace lfs::vis {
         if (brush_tool_ && brush_tool_->isEnabled() && tool_context_) {
             brush_tool_->update(*tool_context_);
         }
+        if (selection_tool_ && selection_tool_->isEnabled() && tool_context_) {
+            selection_tool_->update(*tool_context_);
+        }
     }
 
     void VisualizerImpl::render() {
@@ -419,6 +431,10 @@ namespace lfs::vis {
         if (brush_tool_) {
             brush_tool_->shutdown();
             brush_tool_.reset();
+        }
+        if (selection_tool_) {
+            selection_tool_->shutdown();
+            selection_tool_.reset();
         }
 
         // Clean up tool context
