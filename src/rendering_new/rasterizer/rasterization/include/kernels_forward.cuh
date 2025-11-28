@@ -365,12 +365,11 @@ namespace lfs::rendering::kernels::forward {
         if (!brush_saturation_mode) {
             const bool in_cumulative = brush_selection_out != nullptr && brush_selection_out[primitive_idx];
             const bool in_scene_selection = selection_mask != nullptr && selection_mask[primitive_idx];
-            const bool highlight_under_brush = !selection_mode_rings && under_brush &&
-                                               (brush_add_mode || in_scene_selection || in_cumulative);
-            const bool is_hovered = highlight_gaussian_id >= 0 &&
-                                    static_cast<int>(primitive_idx) == highlight_gaussian_id;
+            // Ring mode: highlight hovered Gaussian
+            const bool is_ring_hovered = selection_mode_rings && highlight_gaussian_id >= 0 &&
+                                         static_cast<int>(primitive_idx) == highlight_gaussian_id;
 
-            if (highlight_under_brush || in_cumulative || in_scene_selection || is_hovered) {
+            if (in_cumulative || in_scene_selection || is_ring_hovered) {
                 color = make_float3(1.0f, 0.2f, 0.2f);
             }
         }
@@ -548,7 +547,8 @@ namespace lfs::rendering::kernels::forward {
         const uint height,
         const uint grid_width,
         const bool show_rings,
-        const float ring_width) {
+        const float ring_width,
+        const bool show_center_markers) {
         auto block = cg::this_thread_block();
         const dim3 group_index = block.group_index();
         const dim3 thread_index = block.thread_index();
@@ -614,7 +614,20 @@ namespace lfs::rendering::kernels::forward {
                     continue;
                 }
 
-                color_pixel += transmittance * alpha * collected_color[j];
+                // Center markers for unselected Gaussians
+                float3 final_color = collected_color[j];
+                if (show_center_markers) {
+                    const bool is_selected = (final_color.x > 0.95f && final_color.y < 0.25f && final_color.z < 0.25f);
+                    if (!is_selected) {
+                        const float dist_sq = delta.x * delta.x + delta.y * delta.y;
+                        if (dist_sq <= 4.0f) {
+                            final_color = make_float3(0.0f, 0.4f, 0.0f);
+                            alpha = 0.95f;
+                        }
+                    }
+                }
+
+                color_pixel += transmittance * alpha * final_color;
 
                 // Median depth: pick depth when accumulated alpha crosses 50%
                 // This gives the depth at the "middle" of the opacity distribution

@@ -293,6 +293,8 @@ void lfs::rendering::forward(
         CHECK_CUDA(config::debug, "extract_instance_ranges")
     }
 
+    const bool show_center_markers = brush_active && !selection_mode_rings;
+
     kernels::forward::blend_cu<<<grid, block>>>(
         per_tile_buffers.instance_ranges,
         per_instance_buffers.primitive_indices.Current(),
@@ -307,6 +309,7 @@ void lfs::rendering::forward(
         height,
         grid.x,
         show_rings,
-        ring_width);
+        ring_width,
+        show_center_markers);
     CHECK_CUDA(config::debug, "blend")
 }
