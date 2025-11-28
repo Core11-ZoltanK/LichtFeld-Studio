@@ -121,6 +121,7 @@ set(OPTIONAL_TEST_FILES
     test_relocate_gs_edge_cases.cpp # Comprehensive edge case tests for relocate_gs(): logit, Int32 ops, logical ops, indexing, division
     test_bool_reduction.cpp  # Bool reduction tests for cropping bug investigation
     test_tensor_index_select_bool.cpp  # Tests for index_select with boolean masks
+    test_tensor_uint8_inversion.cpp    # Tests for UInt8 mask inversion
 )
 
 foreach(TEST_FILE ${OPTIONAL_TEST_FILES})

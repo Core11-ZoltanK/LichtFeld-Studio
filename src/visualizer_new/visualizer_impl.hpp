@@ -110,8 +110,10 @@ namespace lfs::vis {
         void undo();
         void redo();
 
-        // Delete selected Gaussians (soft delete)
+        // Selection operations
         void deleteSelectedGaussians();
+        void invertSelection();
+        void deselectAll();
 
         std::shared_ptr<TrainerManager> trainer_manager_;
 

@@ -202,6 +202,9 @@ namespace lfs::core {
                         std::vector<int64_t> temp(result.numel(), static_cast<int64_t>(value));
                         cudaMemcpy(result.data_, temp.data(), result.bytes(), cudaMemcpyHostToDevice);
                     }
+                } else if (result.dtype_ == DataType::UInt8) {
+                    const uint8_t fill_val = static_cast<uint8_t>(std::clamp(value, 0.0f, 255.0f));
+                    cudaMemset(result.data_, fill_val, result.bytes());
                 }
             } else {
                 if (result.dtype_ == DataType::Float32) {
@@ -219,6 +222,9 @@ namespace lfs::core {
                 } else if (result.dtype_ == DataType::Int64) {
                     int64_t* ptr = static_cast<int64_t*>(result.data_);
                     std::fill_n(ptr, result.numel(), static_cast<int64_t>(value));
+                } else if (result.dtype_ == DataType::UInt8) {
+                    uint8_t* ptr = static_cast<uint8_t*>(result.data_);
+                    std::fill_n(ptr, result.numel(), static_cast<uint8_t>(std::clamp(value, 0.0f, 255.0f)));
                 }
             }
             break;

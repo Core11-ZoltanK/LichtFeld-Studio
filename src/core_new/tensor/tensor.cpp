@@ -902,12 +902,18 @@ namespace lfs::core {
         CONVERT_DTYPE_CUDA(int, uint8_t, DataType::Int32, DataType::UInt8)
         CONVERT_DTYPE_CUDA(uint8_t, int, DataType::UInt8, DataType::Int32)
 
-        // Bool <-> UInt8: Same underlying type (unsigned char), just clone
-        if (dtype_ == DataType::Bool && dtype == DataType::UInt8) {
-            return clone();
-        }
-        if (dtype_ == DataType::UInt8 && dtype == DataType::Bool) {
-            return clone();
+        // Bool <-> UInt8: Same underlying storage, just reinterpret dtype
+        if ((dtype_ == DataType::Bool && dtype == DataType::UInt8) ||
+            (dtype_ == DataType::UInt8 && dtype == DataType::Bool)) {
+            auto result = empty(shape_, device_, dtype);
+            if (numel() > 0) {
+                if (device_ == Device::CUDA) {
+                    CHECK_CUDA(cudaMemcpy(const_cast<void*>(result.raw_ptr()), raw_ptr(), bytes(), cudaMemcpyDeviceToDevice));
+                } else {
+                    std::memcpy(const_cast<void*>(result.raw_ptr()), raw_ptr(), bytes());
+                }
+            }
+            return result;
         }
 
         // Bool <-> Int32: Manual conversion (bool != 0 logic)

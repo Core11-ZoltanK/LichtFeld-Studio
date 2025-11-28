@@ -100,8 +100,7 @@ namespace lfs::vis {
         mutable std::vector<glm::mat4> cached_transforms_;
         mutable bool cache_valid_ = false;
 
-        // Selection mask (per-Gaussian, uint8, 1=selected)
-        mutable std::shared_ptr<lfs::core::Tensor> selection_mask_;
+        mutable std::shared_ptr<lfs::core::Tensor> selection_mask_; // UInt8 [N], 1=selected
         mutable bool has_selection_ = false;
 
         void invalidateCache() { cache_valid_ = false; }

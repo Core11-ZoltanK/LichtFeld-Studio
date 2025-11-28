@@ -4,6 +4,7 @@
 
 #include "visualizer_impl.hpp"
 #include "command/commands/crop_command.hpp"
+#include "command/commands/selection_command.hpp"
 #include "core/data_loading_service.hpp"
 #include "core_new/logger.hpp"
 #include "scene/scene_manager.hpp"
@@ -169,8 +170,10 @@ namespace lfs::vis {
         cmd::Undo::when([this](const auto&) { undo(); });
         cmd::Redo::when([this](const auto&) { redo(); });
 
-        // Delete selected Gaussians
+        // Selection operations
         cmd::DeleteSelected::when([this](const auto&) { deleteSelectedGaussians(); });
+        cmd::InvertSelection::when([this](const auto&) { invertSelection(); });
+        cmd::DeselectAll::when([this](const auto&) { deselectAll(); });
 
         // Render settings changes
         ui::RenderSettingsChanged::when([this]([[maybe_unused]] const auto& event) {
@@ -523,6 +526,39 @@ namespace lfs::vis {
                 rendering_manager_->markDirty();
             }
         }
+    }
+
+    void VisualizerImpl::invertSelection() {
+        if (!scene_manager_) return;
+        auto& scene = scene_manager_->getScene();
+        const size_t total = scene.getTotalGaussianCount();
+        if (total == 0) return;
+
+        const auto old_mask = scene.getSelectionMask();
+        const auto ones = lfs::core::Tensor::ones({total}, lfs::core::Device::CUDA, lfs::core::DataType::UInt8);
+        auto new_mask = std::make_shared<lfs::core::Tensor>(
+            (old_mask && old_mask->is_valid()) ? ones - *old_mask : ones);
+
+        scene.setSelectionMask(new_mask);
+        command_history_.execute(std::make_unique<command::SelectionCommand>(
+            scene_manager_.get(),
+            old_mask ? std::make_shared<lfs::core::Tensor>(old_mask->clone()) : nullptr,
+            new_mask));
+        if (rendering_manager_) rendering_manager_->markDirty();
+    }
+
+    void VisualizerImpl::deselectAll() {
+        if (!scene_manager_) return;
+        auto& scene = scene_manager_->getScene();
+        if (!scene.hasSelection()) return;
+
+        const auto old_mask = scene.getSelectionMask();
+        scene.clearSelection();
+        command_history_.execute(std::make_unique<command::SelectionCommand>(
+            scene_manager_.get(),
+            old_mask ? std::make_shared<lfs::core::Tensor>(old_mask->clone()) : nullptr,
+            nullptr));
+        if (rendering_manager_) rendering_manager_->markDirty();
     }
 
     bool VisualizerImpl::LoadProject() {

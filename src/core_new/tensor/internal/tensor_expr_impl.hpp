@@ -141,6 +141,21 @@ namespace lfs::core {
                             out_ptr[i] = op(in_ptr[i]);
                         }
                     }
+                } else if (input_tensor.dtype() == DataType::UInt8) {
+                    // UInt8 input -> Bool output (e.g., comparisons on UInt8 tensor)
+                    if (device == Device::CUDA) {
+                        tensor_ops::launch_unary_op_generic(
+                            input_tensor.template ptr<uint8_t>(),
+                            result.template ptr<unsigned char>(),
+                            result.numel(), op, nullptr);
+                    } else {
+                        const uint8_t* in_ptr = input_tensor.template ptr<uint8_t>();
+                        unsigned char* out_ptr = result.template ptr<unsigned char>();
+                        const size_t n = result.numel();
+                        for (size_t i = 0; i < n; ++i) {
+                            out_ptr[i] = op(in_ptr[i]);
+                        }
+                    }
                 } else if (input_tensor.dtype() == DataType::Int32) {
                     // Int32 input -> Bool output (e.g., comparisons on Int32 tensor)
                     if (device == Device::CUDA) {
@@ -149,10 +164,9 @@ namespace lfs::core {
                             result.template ptr<unsigned char>(),
                             result.numel(), op, nullptr);
                     } else {
-                        // CPU fallback
                         const int* in_ptr = input_tensor.template ptr<int>();
                         unsigned char* out_ptr = result.template ptr<unsigned char>();
-                        size_t n = result.numel();
+                        const size_t n = result.numel();
                         for (size_t i = 0; i < n; ++i) {
                             out_ptr[i] = op(in_ptr[i]);
                         }

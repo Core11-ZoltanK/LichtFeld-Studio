@@ -668,14 +668,22 @@ namespace lfs::vis {
             }
         }
 
-        // Undo/Redo shortcuts (Ctrl+Z, Ctrl+R)
+        // Ctrl shortcuts
         if (key_ctrl_pressed_ && action == GLFW_PRESS && !ImGui::IsAnyItemActive()) {
             if (key == GLFW_KEY_Z) {
                 cmd::Undo{}.emit();
                 return;
             }
-            if (key == GLFW_KEY_R) {
+            if (key == GLFW_KEY_Y) {
                 cmd::Redo{}.emit();
+                return;
+            }
+            if (key == GLFW_KEY_I) {
+                cmd::InvertSelection{}.emit();
+                return;
+            }
+            if (key == GLFW_KEY_D) {
+                cmd::DeselectAll{}.emit();
                 return;
             }
         }
