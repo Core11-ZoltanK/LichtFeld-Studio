@@ -18,6 +18,7 @@ namespace lfs::vis::command {
         glm::vec3 crop_min;
         glm::vec3 crop_max;
         lfs::geometry::EuclideanTransform crop_transform;
+        bool crop_inverse = false;
     };
 
     class CropBoxCommand : public Command {

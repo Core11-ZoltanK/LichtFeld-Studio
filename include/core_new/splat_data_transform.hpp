@@ -12,8 +12,9 @@ namespace lfs::geometry {
 
 namespace lfs::core {
 
-    // Forward declaration
+    // Forward declarations
     class SplatData;
+    class Tensor;
 
     /**
      * @brief Apply a transformation matrix to SplatData
@@ -24,7 +25,7 @@ namespace lfs::core {
     SplatData& transform(SplatData& splat_data, const glm::mat4& transform_matrix);
 
     /**
-     * @brief Crop SplatData by a bounding box
+     * @brief Crop SplatData by a bounding box (creates new filtered copy)
      * @param splat_data The splat data to crop
      * @param bounding_box The bounding box to crop by
      * @param inverse If true, keep points outside the box instead of inside
@@ -33,6 +34,12 @@ namespace lfs::core {
     SplatData crop_by_cropbox(const SplatData& splat_data,
                               const lfs::geometry::BoundingBox& bounding_box,
                               bool inverse = false);
+
+    // Soft crop: mark gaussians as deleted in-place (for undo/redo support)
+    // Returns the applied deletion mask
+    Tensor soft_crop_by_cropbox(SplatData& splat_data,
+                                const lfs::geometry::BoundingBox& bounding_box,
+                                bool inverse = false);
 
     /**
      * @brief Randomly select a subset of splats

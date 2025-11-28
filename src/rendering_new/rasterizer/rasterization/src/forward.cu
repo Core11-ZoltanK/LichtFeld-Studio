@@ -132,7 +132,8 @@ void lfs::rendering::forward(
     const float* crop_box_transform,
     const float3* crop_box_min,
     const float3* crop_box_max,
-    bool crop_inverse) {
+    bool crop_inverse,
+    const bool* deleted_mask) {
 
     const dim3 grid(div_round_up(width, config::tile_width), div_round_up(height, config::tile_height), 1);
     const dim3 block(config::tile_width, config::tile_height, 1);
@@ -213,7 +214,8 @@ void lfs::rendering::forward(
         crop_box_transform,
         crop_box_min,
         crop_box_max,
-        crop_inverse);
+        crop_inverse,
+        deleted_mask);
     CHECK_CUDA(config::debug, "preprocess")
 
 

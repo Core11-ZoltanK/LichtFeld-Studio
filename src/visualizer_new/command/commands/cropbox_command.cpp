@@ -29,6 +29,7 @@ namespace lfs::vis::command {
         settings.crop_min = state.crop_min;
         settings.crop_max = state.crop_max;
         settings.crop_transform = state.crop_transform;
+        settings.crop_inverse = state.crop_inverse;
         rendering_manager_->updateSettings(settings);
     }
 

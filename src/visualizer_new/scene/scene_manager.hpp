@@ -19,6 +19,10 @@ namespace lfs::vis {
     class TrainerManager;
     class RenderingManager;
 
+    namespace command {
+        class CommandHistory;
+    }
+
     class SceneManager {
     public:
         // Content type - what's loaded, not execution state
@@ -93,6 +97,10 @@ namespace lfs::vis {
         void setRenderingManager(RenderingManager* rm);
         RenderingManager* getRenderingManager() { return rendering_manager_; }
 
+        // Command history link (for undo/redo support)
+        void setCommandHistory(command::CommandHistory* ch) { command_history_ = ch; }
+        command::CommandHistory* getCommandHistory() { return command_history_; }
+
         void changeContentType(const ContentType& type);
 
         // Operations - Generic splat file loading
@@ -164,6 +172,9 @@ namespace lfs::vis {
 
         // Rendering support
         RenderingManager* rendering_manager_ = nullptr;
+
+        // Command history (for undo/redo support)
+        command::CommandHistory* command_history_ = nullptr;
 
         // Cache for parameters
         std::optional<lfs::core::param::TrainingParameters> cached_params_;

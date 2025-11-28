@@ -77,7 +77,8 @@ namespace lfs::rendering {
         const Tensor* crop_box_transform = nullptr,
         const Tensor* crop_box_min = nullptr,
         const Tensor* crop_box_max = nullptr,
-        bool crop_inverse = false);
+        bool crop_inverse = false,
+        const Tensor* deleted_mask = nullptr);  // Soft deletion mask [N] bool, true = skip
 
     /**
      * @brief Select Gaussians within brush radius using GPU

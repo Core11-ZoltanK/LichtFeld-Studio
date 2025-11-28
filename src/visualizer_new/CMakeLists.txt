@@ -48,6 +48,7 @@ add_library(lfs_visualizer STATIC
         # Command system (undo/redo)
         command/command_history.cpp
         command/commands/cropbox_command.cpp
+        command/commands/crop_command.cpp
         command/commands/selection_command.cpp
         command/commands/saturation_command.cpp
         gui/panels/menu_bar.cpp

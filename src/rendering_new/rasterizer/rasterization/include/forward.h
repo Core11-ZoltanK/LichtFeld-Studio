@@ -67,6 +67,8 @@ namespace lfs::rendering {
         const float* crop_box_transform = nullptr,  // 4x4 world-to-box transform (row-major)
         const float3* crop_box_min = nullptr,       // Box min bounds in local space
         const float3* crop_box_max = nullptr,       // Box max bounds in local space
-        bool crop_inverse = false);                 // If true, cull inside instead of outside
+        bool crop_inverse = false,                  // If true, cull inside instead of outside
+        // Soft deletion mask
+        const bool* deleted_mask = nullptr);        // Per-Gaussian deletion mask [N], true = skip
 
 }

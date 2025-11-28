@@ -428,11 +428,35 @@ namespace lfs::vis::gui {
                 gizmo_toolbar_state_.reset_cropbox_requested = false;
                 if (auto* render_manager = ctx.viewer->getRenderingManager()) {
                     auto settings = render_manager->getSettings();
+
+                    // Capture state before reset
+                    const command::CropBoxState old_state{
+                        .crop_min = settings.crop_min,
+                        .crop_max = settings.crop_max,
+                        .crop_transform = settings.crop_transform,
+                        .crop_inverse = settings.crop_inverse
+                    };
+
+                    // Apply reset
                     settings.crop_min = glm::vec3(-1.0f, -1.0f, -1.0f);
                     settings.crop_max = glm::vec3(1.0f, 1.0f, 1.0f);
                     settings.crop_transform = lfs::geometry::EuclideanTransform();
                     settings.use_crop_box = false;
+                    settings.crop_inverse = false;
                     render_manager->updateSettings(settings);
+
+                    // Capture state after reset
+                    const command::CropBoxState new_state{
+                        .crop_min = settings.crop_min,
+                        .crop_max = settings.crop_max,
+                        .crop_transform = settings.crop_transform,
+                        .crop_inverse = settings.crop_inverse
+                    };
+
+                    // Create undo command
+                    auto cmd = std::make_unique<command::CropBoxCommand>(
+                        render_manager, old_state, new_state);
+                    viewer_->getCommandHistory().execute(std::move(cmd));
                 }
             }
         } else {
@@ -863,11 +887,11 @@ namespace lfs::vis::gui {
             crop_box.setworld2BBox(settings.crop_transform.inv());
             cmd::CropPLY{.crop_box = crop_box, .inverse = settings.crop_inverse}.emit();
 
-            // Deselect cropbox tool
-            gizmo_toolbar_state_.current_tool = panels::ToolMode::None;
+            // Refit crop box to remaining visible gaussians
+            cmd::FitCropBoxToScene{.use_percentile = true}.emit();
         });
 
-        // Handle Shift+I to toggle crop inverse mode
+        // Handle Ctrl+T to toggle crop inverse mode
         cmd::ToggleCropInverse::when([this](const auto&) {
             if (gizmo_toolbar_state_.current_tool != panels::ToolMode::CropBox) {
                 return;
@@ -877,8 +901,32 @@ namespace lfs::vis::gui {
                 return;
             }
             auto settings = render_manager->getSettings();
+
+            // Capture state before toggle
+            const command::CropBoxState old_state{
+                .crop_min = settings.crop_min,
+                .crop_max = settings.crop_max,
+                .crop_transform = settings.crop_transform,
+                .crop_inverse = settings.crop_inverse
+            };
+
+            // Toggle crop inverse
             settings.crop_inverse = !settings.crop_inverse;
             render_manager->updateSettings(settings);
+
+            // Capture state after toggle
+            const command::CropBoxState new_state{
+                .crop_min = settings.crop_min,
+                .crop_max = settings.crop_max,
+                .crop_transform = settings.crop_transform,
+                .crop_inverse = settings.crop_inverse
+            };
+
+            // Create undo command
+            auto cmd = std::make_unique<command::CropBoxCommand>(
+                render_manager, old_state, new_state);
+            viewer_->getCommandHistory().execute(std::move(cmd));
+
             LOG_INFO("Crop inverse mode: {}", settings.crop_inverse);
         });
     }
@@ -1027,7 +1075,8 @@ namespace lfs::vis::gui {
             cropbox_state_before_drag_ = command::CropBoxState{
                 .crop_min = settings.crop_min,
                 .crop_max = settings.crop_max,
-                .crop_transform = settings.crop_transform
+                .crop_transform = settings.crop_transform,
+                .crop_inverse = settings.crop_inverse
             };
         }
 
@@ -1087,7 +1136,8 @@ namespace lfs::vis::gui {
                 const command::CropBoxState new_state{
                     .crop_min = settings.crop_min,
                     .crop_max = settings.crop_max,
-                    .crop_transform = settings.crop_transform
+                    .crop_transform = settings.crop_transform,
+                    .crop_inverse = settings.crop_inverse
                 };
 
                 auto cmd = std::make_unique<command::CropBoxCommand>(

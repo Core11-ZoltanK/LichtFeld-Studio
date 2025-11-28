@@ -113,6 +113,9 @@ namespace lfs::vis {
         main_loop_->setShutdownCallback([this]() { shutdown(); });
         main_loop_->setShouldCloseCallback([this]() { return allowclose(); });
 
+        // Connect command history to scene manager for undo/redo support
+        scene_manager_->setCommandHistory(&command_history_);
+
         gui_manager_->setFileSelectedCallback([this](const std::filesystem::path& path, bool is_dataset) {
             lfs::core::events::cmd::LoadFile{.path = path, .is_dataset = is_dataset}.emit();
         });

@@ -69,7 +69,8 @@ namespace lfs::rendering {
         const Tensor* crop_box_transform,
         const Tensor* crop_box_min,
         const Tensor* crop_box_max,
-        bool crop_inverse) {
+        bool crop_inverse,
+        const Tensor* deleted_mask) {
 
         check_tensor_input(config::debug, means, "means");
         check_tensor_input(config::debug, scales_raw, "scales_raw");
@@ -159,6 +160,14 @@ namespace lfs::rendering {
             crop_box_max_ptr = reinterpret_cast<const float3*>(crop_box_max_contig.ptr<float>());
         }
 
+        // Prepare deleted mask pointer
+        const bool* deleted_mask_ptr = nullptr;
+        Tensor deleted_mask_contig;
+        if (deleted_mask != nullptr && deleted_mask->is_valid() && deleted_mask->numel() > 0) {
+            deleted_mask_contig = deleted_mask->is_contiguous() ? *deleted_mask : deleted_mask->contiguous();
+            deleted_mask_ptr = deleted_mask_contig.ptr<bool>();
+        }
+
         forward(
             per_primitive_buffers_func,
             per_tile_buffers_func,
@@ -203,7 +212,8 @@ namespace lfs::rendering {
             crop_box_transform_ptr,
             crop_box_min_ptr,
             crop_box_max_ptr,
-            crop_inverse);
+            crop_inverse,
+            deleted_mask_ptr);
 
         arena.end_frame(frame_id, true);  // true = from_rendering
         arena.set_rendering_active(false);

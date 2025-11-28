@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: GPL-3.0-or-later */
 
 #include "scene/scene_manager.hpp"
+#include "command/command_history.hpp"
+#include "command/commands/crop_command.hpp"
 #include "core_new/logger.hpp"
 #include "core_new/splat_data_export.hpp"
 #include "core_new/splat_data_transform.hpp"
@@ -76,6 +78,10 @@ namespace lfs::vis {
 
         cmd::CropPLY::when([this](const auto& cmd) {
             handleCropActivePly(cmd.crop_box, cmd.inverse);
+        });
+
+        cmd::FitCropBoxToScene::when([this](const auto& cmd) {
+            updateCropBoxToFitScene(cmd.use_percentile);
         });
 
         cmd::RenamePLY::when([this](const auto& cmd) {
@@ -624,41 +630,53 @@ namespace lfs::vis {
             return;
         }
 
-        LOG_INFO("Cropping {} visible splat files (inverse={})", node_names.size(), inverse);
-
         for (const auto& node_name : node_names) {
-            const auto* node = scene_.getNode(node_name);
+            auto* node = scene_.getMutableNode(node_name);
             if (!node || !node->model) {
                 continue;
             }
 
             try {
                 const size_t original_count = node->model->size();
-                auto cropped_splat = lfs::core::crop_by_cropbox(*node->model, crop_box, inverse);
-                const size_t cropped_count = cropped_splat.size();
+                const size_t original_visible = node->model->visible_count();
 
-                if (cropped_count == original_count) {
+                // Capture old deletion mask for undo
+                lfs::core::Tensor old_deleted_mask = node->model->has_deleted_mask()
+                    ? node->model->deleted().clone()
+                    : lfs::core::Tensor::zeros({original_count}, lfs::core::Device::CUDA, lfs::core::DataType::Bool);
+
+                const auto applied_mask = lfs::core::soft_crop_by_cropbox(*node->model, crop_box, inverse);
+                if (!applied_mask.is_valid()) {
                     continue;
                 }
 
-                LOG_INFO("Cropped '{}': {} -> {} gaussians", node_name, original_count, cropped_count);
+                const size_t new_visible = node->model->visible_count();
+                if (new_visible == original_visible) {
+                    continue;
+                }
 
-                scene_.replaceNodeModel(node_name, std::make_unique<lfs::core::SplatData>(std::move(cropped_splat)));
+                LOG_INFO("Cropped '{}': {} -> {} visible", node_name, original_visible, new_visible);
+
+                if (command_history_) {
+                    lfs::core::Tensor new_deleted_mask = node->model->deleted().clone();
+                    auto cmd = std::make_unique<command::CropCommand>(
+                        this, node_name, std::move(old_deleted_mask), std::move(new_deleted_mask));
+                    command_history_->execute(std::move(cmd));
+                }
 
                 state::PLYAdded{
                     .name = node_name,
-                    .node_gaussians = cropped_count,
+                    .node_gaussians = new_visible,
                     .total_gaussians = scene_.getTotalGaussianCount(),
                     .is_visible = true
                 }.emit();
 
             } catch (const std::exception& e) {
-                LOG_ERROR("Failed to crop node '{}': {}", node_name, e.what());
+                LOG_ERROR("Failed to crop '{}': {}", node_name, e.what());
             }
         }
 
         emitSceneChanged();
-        updateCropBoxToFitScene(false);
     }
 
     void SceneManager::updatePlyPath(const std::string& ply_name, const std::filesystem::path& ply_path) {

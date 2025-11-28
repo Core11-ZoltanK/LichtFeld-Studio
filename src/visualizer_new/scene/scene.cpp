@@ -283,6 +283,14 @@ namespace lfs::vis {
         Tensor scaling = Tensor::empty({static_cast<size_t>(stats.total_gaussians), 3}, device);
         Tensor rotation = Tensor::empty({static_cast<size_t>(stats.total_gaussians), 4}, device);
 
+        // Check if any node has a deletion mask
+        const bool has_any_deleted = std::any_of(visible_nodes.begin(), visible_nodes.end(),
+            [](const auto& node_ref) { return node_ref.get().model->has_deleted_mask(); });
+
+        Tensor deleted = has_any_deleted
+            ? Tensor::zeros({static_cast<size_t>(stats.total_gaussians)}, device, lfs::core::DataType::Bool)
+            : Tensor();
+
         // Create transform indices tensor on CPU first (will be moved to CUDA later)
         std::vector<int> transform_indices_data(stats.total_gaussians);
 
@@ -327,6 +335,11 @@ namespace lfs::vis {
                 }
             }
 
+            // Copy deletion mask if present
+            if (has_any_deleted && model->has_deleted_mask()) {
+                deleted.slice(0, offset, offset + size) = model->deleted();
+            }
+
             offset += size;
             node_index++;
         }
@@ -347,8 +360,12 @@ namespace lfs::vis {
             std::move(opacity),
             stats.total_scene_scale / visible_nodes.size());
 
-        LOG_INFO("Scene::rebuildCache NEW combined model ptr={}, size={}",
-                 (void*)cached_combined_.get(), cached_combined_->size());
+        if (has_any_deleted) {
+            cached_combined_->deleted() = std::move(deleted);
+        }
+
+        LOG_DEBUG("rebuildCache: ptr={}, size={}, has_deleted={}",
+                  (void*)cached_combined_.get(), cached_combined_->size(), has_any_deleted);
         cache_valid_ = true;
     }
 

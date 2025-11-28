@@ -140,7 +140,8 @@ namespace lfs::core {
           _scaling(std::move(other._scaling)),
           _rotation(std::move(other._rotation)),
           _opacity(std::move(other._opacity)),
-          _densification_info(std::move(other._densification_info)) {
+          _densification_info(std::move(other._densification_info)),
+          _deleted(std::move(other._deleted)) {
         // Reset the moved-from object
         other._active_sh_degree = 0;
         other._max_sh_degree = 0;
@@ -162,6 +163,7 @@ namespace lfs::core {
             _rotation = std::move(other._rotation);
             _opacity = std::move(other._opacity);
             _densification_info = std::move(other._densification_info);
+            _deleted = std::move(other._deleted);
         }
         return *this;
     }
@@ -278,6 +280,56 @@ namespace lfs::core {
 
     bool SplatData::has_gradients() const {
         return _means_grad.is_valid();
+    }
+
+    // ========== SOFT DELETION ==========
+
+    unsigned long SplatData::visible_count() const {
+        if (!_deleted.is_valid()) {
+            return size();
+        }
+        return size() - static_cast<unsigned long>(_deleted.sum_scalar());
+    }
+
+    Tensor SplatData::soft_delete(const Tensor& mask) {
+        if (!_means.is_valid() || _means.size(0) == 0) {
+            LOG_WARN("soft_delete: invalid or empty SplatData");
+            return Tensor();
+        }
+
+        const size_t n = size();
+        if (mask.size(0) != n) {
+            LOG_ERROR("soft_delete: mask size {} != SplatData size {}", mask.size(0), n);
+            return Tensor();
+        }
+
+        if (!_deleted.is_valid()) {
+            _deleted = Tensor::zeros({n}, _means.device(), DataType::Bool);
+        }
+
+        Tensor old_deleted = _deleted.clone();
+        _deleted = _deleted || mask;
+        return old_deleted;
+    }
+
+    void SplatData::undelete(const Tensor& mask) {
+        if (!_deleted.is_valid()) {
+            return;
+        }
+
+        const size_t n = size();
+        if (mask.size(0) != n) {
+            LOG_ERROR("undelete: mask size {} != SplatData size {}", mask.size(0), n);
+            return;
+        }
+
+        _deleted = _deleted && mask.logical_not();
+    }
+
+    void SplatData::clear_deleted() {
+        if (_deleted.is_valid()) {
+            _deleted.zero_();
+        }
     }
 
     // ========== FREE FUNCTION: FACTORY ==========

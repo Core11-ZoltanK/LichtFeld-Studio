@@ -62,6 +62,8 @@ namespace lfs::rendering {
             const Tensor* crop_box_min = nullptr;        // Box min bounds
             const Tensor* crop_box_max = nullptr;        // Box max bounds
             bool crop_inverse = false;                   // If true, cull inside instead of outside
+            // Soft deletion mask (for undo/redo crop support)
+            const Tensor* deleted_mask = nullptr;        // Per-Gaussian bool mask, true = skip
         };
 
         struct RenderResult {

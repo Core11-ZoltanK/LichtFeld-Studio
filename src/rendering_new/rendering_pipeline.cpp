@@ -143,7 +143,8 @@ namespace lfs::rendering {
                                                 request.brush_add_mode, request.brush_selection_tensor,
                                                 request.brush_saturation_mode, request.brush_saturation_amount,
                                                 request.crop_box_transform, request.crop_box_min, request.crop_box_max,
-                                                request.crop_inverse);
+                                                request.crop_inverse,
+                                                request.deleted_mask);
                 result.image = std::move(image);
                 result.depth = std::move(depth);
                 if (request.output_screen_positions) {
@@ -178,7 +179,8 @@ namespace lfs::rendering {
                                             request.brush_add_mode, request.brush_selection_tensor,
                                             request.brush_saturation_mode, request.brush_saturation_amount,
                                             request.crop_box_transform, request.crop_box_min, request.crop_box_max,
-                                            request.crop_inverse);
+                                            request.crop_inverse,
+                                            request.deleted_mask);
             result.image = std::move(image);
             result.depth = std::move(depth);
             if (request.output_screen_positions) {

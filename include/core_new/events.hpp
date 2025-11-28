@@ -57,6 +57,7 @@ namespace lfs::core {
             EVENT(SetPLYVisibility, std::string name; bool visible;);
             EVENT(CropPLY, lfs::geometry::BoundingBox crop_box; bool inverse;);
             EVENT(ApplyCropBox, );
+            EVENT(FitCropBoxToScene, bool use_percentile;);
             EVENT(ToggleCropInverse, );
             EVENT(CyclePLY, );
             EVENT(ToggleSplitView, );

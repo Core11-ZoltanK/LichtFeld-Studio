@@ -173,7 +173,7 @@ namespace lfs::vis::gui::panels {
 
         // Secondary toolbar for cropbox operations
         if (state.current_tool == ToolMode::CropBox) {
-            constexpr float sub_toolbar_width = 200.0f;
+            constexpr float sub_toolbar_width = 205.0f;
             constexpr float sub_toolbar_height = 36.0f;
 
             const float sub_pos_x = viewport->WorkPos.x + viewport_pos.x + (viewport_size.x - sub_toolbar_width) * 0.5f;
@@ -216,15 +216,7 @@ namespace lfs::vis::gui::panels {
                 CropOpButton("##crop_rotate", state.rotation_texture, CropBoxOperation::Rotate, "R", "Rotate");
                 ImGui::SameLine();
                 CropOpButton("##crop_scale", state.scaling_texture, CropBoxOperation::Scale, "S", "Scale");
-
-                // Separator
-                ImGui::SameLine(0.0f, 8.0f);
-                const ImVec2 p = ImGui::GetCursorScreenPos();
-                ImGui::GetWindowDrawList()->AddLine(
-                    ImVec2(p.x, p.y + 2.0f), ImVec2(p.x, p.y + button_size - 2.0f),
-                    IM_COL32(128, 128, 128, 128), 1.0f);
-                ImGui::Dummy(ImVec2(2.0f, 0.0f));
-                ImGui::SameLine(0.0f, 8.0f);
+                ImGui::SameLine();
 
                 // Reset button
                 ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));

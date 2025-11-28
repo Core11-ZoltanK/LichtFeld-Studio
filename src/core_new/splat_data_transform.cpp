@@ -108,21 +108,14 @@ namespace lfs::core {
         return splat_data;
     }
 
-    SplatData crop_by_cropbox(const SplatData& splat_data,
-                              const lfs::geometry::BoundingBox& bounding_box,
-                              const bool inverse) {
-        LOG_TIMER("crop_by_cropbox");
-
-        if (!splat_data._means.is_valid() || splat_data._means.size(0) == 0) {
-            LOG_WARN("Cannot crop invalid or empty SplatData");
-            return SplatData();
-        }
-
+    // Helper: compute inside-cropbox mask for given means and bounding box
+    static Tensor compute_cropbox_mask(const Tensor& means,
+                                       const lfs::geometry::BoundingBox& bounding_box) {
         const auto bbox_min = bounding_box.getMinBounds();
         const auto bbox_max = bounding_box.getMaxBounds();
         const auto& world2bbox_transform = bounding_box.getworld2BBox();
 
-        const int num_points = splat_data._means.size(0);
+        const int num_points = means.size(0);
 
         glm::mat4 world_to_bbox_matrix = world2bbox_transform.toMat4();
 
@@ -134,33 +127,41 @@ namespace lfs::core {
         auto transform_tensor = Tensor::from_vector(
             transform_data,
             TensorShape({4, 4}),
-            splat_data._means.device());
+            means.device());
 
-        auto ones = Tensor::ones({static_cast<size_t>(num_points), 1}, splat_data._means.device());
-        auto means_homo = splat_data._means.cat(ones, 1);
+        auto ones = Tensor::ones({static_cast<size_t>(num_points), 1}, means.device());
+        auto means_homo = means.cat(ones, 1);
 
         auto transformed_points = transform_tensor.mm(means_homo.t()).t();
-
         auto local_points = transformed_points.slice(1, 0, 3);
 
         std::vector<float> bbox_min_data = {bbox_min.x, bbox_min.y, bbox_min.z};
         std::vector<float> bbox_max_data = {bbox_max.x, bbox_max.y, bbox_max.z};
 
-        auto bbox_min_tensor = Tensor::from_vector(
-            bbox_min_data,
-            TensorShape({3}),
-            splat_data._means.device());
-        auto bbox_max_tensor = Tensor::from_vector(
-            bbox_max_data,
-            TensorShape({3}),
-            splat_data._means.device());
+        auto bbox_min_tensor = Tensor::from_vector(bbox_min_data, TensorShape({3}), means.device());
+        auto bbox_max_tensor = Tensor::from_vector(bbox_max_data, TensorShape({3}), means.device());
 
         auto inside_min = local_points.ge(bbox_min_tensor.unsqueeze(0));
         auto inside_max = local_points.le(bbox_max_tensor.unsqueeze(0));
 
         auto inside_both = inside_min && inside_max;
         std::vector<int> reduce_dims = {1};
-        auto inside_mask = inside_both.all(std::span<const int>(reduce_dims), false);
+        return inside_both.all(std::span<const int>(reduce_dims), false);
+    }
+
+    SplatData crop_by_cropbox(const SplatData& splat_data,
+                              const lfs::geometry::BoundingBox& bounding_box,
+                              const bool inverse) {
+        LOG_TIMER("crop_by_cropbox");
+
+        if (!splat_data._means.is_valid() || splat_data._means.size(0) == 0) {
+            LOG_WARN("Cannot crop invalid or empty SplatData");
+            return SplatData();
+        }
+
+        const int num_points = splat_data._means.size(0);
+
+        auto inside_mask = compute_cropbox_mask(splat_data._means, bounding_box);
 
         // Invert mask if inverse mode
         auto selection_mask = inverse ? inside_mask.logical_not() : inside_mask;
@@ -211,6 +212,27 @@ namespace lfs::core {
 
         LOG_DEBUG("Cropped SplatData: {} -> {} points (inverse={})", num_points, points_selected, inverse);
         return cropped_splat;
+    }
+
+    Tensor soft_crop_by_cropbox(SplatData& splat_data,
+                                const lfs::geometry::BoundingBox& bounding_box,
+                                const bool inverse) {
+        LOG_TIMER("soft_crop_by_cropbox");
+
+        const auto& means = splat_data.means();
+        if (!means.is_valid() || means.size(0) == 0) {
+            return Tensor();
+        }
+
+        const auto inside_mask = compute_cropbox_mask(means, bounding_box);
+        const auto delete_mask = inverse ? inside_mask : inside_mask.logical_not();
+        const int points_to_delete = delete_mask.sum_scalar();
+
+        if (points_to_delete == 0) {
+            return Tensor();
+        }
+
+        return splat_data.soft_delete(delete_mask);
     }
 
     void random_choose(SplatData& splat_data, int num_required_splat, int seed) {
@@ -304,21 +326,30 @@ namespace lfs::core {
             return false;
         }
 
-        const int64_t n = means.size(0);
+        // Filter out deleted gaussians if deletion mask exists
+        Tensor visible_means = means;
+        if (splat_data.has_deleted_mask()) {
+            visible_means = means.masked_select(splat_data.deleted().logical_not());
+        }
+
+        if (visible_means.size(0) == 0) {
+            return false;
+        }
+
+        const int64_t n = visible_means.size(0);
 
         if (use_percentile && n > 100) {
             // Exclude 2% outliers (1% each end)
-            // TODO: use kthvalue/partial_sort instead of full sort
             const int64_t lo = n / 100;
             const int64_t hi = n - 1 - lo;
             for (int i = 0; i < 3; ++i) {
-                const auto sorted = means.slice(1, i, i + 1).squeeze(1).sort(0, false).first;
+                const auto sorted = visible_means.slice(1, i, i + 1).squeeze(1).sort(0, false).first;
                 min_bounds[i] = sorted[lo].item() - padding;
                 max_bounds[i] = sorted[hi].item() + padding;
             }
         } else {
             for (int i = 0; i < 3; ++i) {
-                const auto col = means.slice(1, i, i + 1).squeeze(1);
+                const auto col = visible_means.slice(1, i, i + 1).squeeze(1);
                 min_bounds[i] = col.min().item() - padding;
                 max_bounds[i] = col.max().item() + padding;
             }

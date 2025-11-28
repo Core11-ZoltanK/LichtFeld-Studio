@@ -30,7 +30,8 @@ namespace lfs::rendering {
         const Tensor* crop_box_transform,
         const Tensor* crop_box_min,
         const Tensor* crop_box_max,
-        bool crop_inverse) {
+        bool crop_inverse,
+        const Tensor* deleted_mask) {
 
         // Get camera parameters
         float fx = viewpoint_camera.focal_x();
@@ -88,6 +89,12 @@ namespace lfs::rendering {
         const auto& sh0 = gaussian_model.sh0_raw();
         const auto& shN = gaussian_model.shN_raw();
 
+        // Get deleted mask (use passed parameter or from model)
+        const Tensor* actual_deleted_mask = deleted_mask;
+        if (!actual_deleted_mask && gaussian_model.has_deleted_mask()) {
+            actual_deleted_mask = &gaussian_model.deleted();
+        }
+
         // Call the tensor-based forward wrapper
         auto [image, alpha, depth] = forward_wrapper_tensor(
             means,
@@ -124,7 +131,8 @@ namespace lfs::rendering {
             crop_box_transform,
             crop_box_min,
             crop_box_max,
-            crop_inverse);
+            crop_inverse,
+            actual_deleted_mask);
 
         // Manually blend the background since the forward pass does not support it
         // bg_color is [3], need to make it [3, 1, 1]

@@ -62,12 +62,18 @@ namespace lfs::rendering::kernels::forward {
         const float* crop_box_transform,
         const float3* crop_box_min,
         const float3* crop_box_max,
-        const bool crop_inverse) {
+        const bool crop_inverse,
+        const bool* deleted_mask) {
         auto primitive_idx = cg::this_grid().thread_rank();
         bool active = true;
         if (primitive_idx >= n_primitives) {
             active = false;
             primitive_idx = n_primitives - 1;
+        }
+
+        // Soft deletion mask culling - skip deleted gaussians
+        if (active && deleted_mask != nullptr && deleted_mask[primitive_idx]) {
+            active = false;
         }
 
         if (active)

@@ -105,6 +105,17 @@ namespace lfs::core {
         inline Tensor& opacity_grad() { return _opacity_grad; }
         inline const Tensor& opacity_grad() const { return _opacity_grad; }
 
+        // ========== Soft deletion (for undo/redo crop support) ==========
+        Tensor& deleted() { return _deleted; }
+        [[nodiscard]] const Tensor& deleted() const { return _deleted; }
+        [[nodiscard]] bool has_deleted_mask() const { return _deleted.is_valid(); }
+        [[nodiscard]] unsigned long visible_count() const;
+
+        // Mark gaussians as deleted, returns previous state for undo
+        Tensor soft_delete(const Tensor& mask);
+        void undelete(const Tensor& mask);
+        void clear_deleted();
+
         // ========== Gradient management ==========
         void allocate_gradients();
         void reserve_capacity(size_t capacity);
@@ -139,6 +150,9 @@ namespace lfs::core {
         Tensor _scaling_grad;
         Tensor _rotation_grad;
         Tensor _opacity_grad;
+
+        // Soft deletion mask: bool tensor [N], true = hidden from rendering
+        Tensor _deleted;
 
         // Allow free functions in splat_data_export.cpp and splat_data_transform.cpp
         // to access private members
