@@ -18,6 +18,24 @@ namespace lfs::rendering {
         uint8_t* selection_out,
         int n_primitives);
 
+    // Select Gaussians inside rectangle (sets true for points inside)
+    void rect_select(
+        const float2* positions,
+        float x0, float y0, float x1, float y1,
+        bool* selection,
+        int n_primitives);
+
+    // Select Gaussians inside rectangle with add/remove mode
+    void rect_select_mode(
+        const float2* positions,
+        float x0, float y0, float x1, float y1,
+        bool* selection,
+        int n_primitives,
+        bool add_mode);
+
+    // Set single selection element on GPU
+    void set_selection_element(bool* selection, int index, bool value);
+
     // Select Gaussians inside polygon (sets true for points inside)
     void polygon_select(
         const float2* positions,

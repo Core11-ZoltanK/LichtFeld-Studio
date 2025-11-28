@@ -61,6 +61,9 @@ namespace lfs::vis::tools {
         bool is_lasso_dragging_ = false;
         std::vector<glm::vec2> lasso_points_;
 
+        // Preview selection
+        lfs::core::Tensor preview_selection_;
+
         // Polygon selection state
         std::vector<glm::vec2> polygon_points_;
         bool polygon_closed_ = false;
@@ -76,6 +79,9 @@ namespace lfs::vis::tools {
         void selectInLasso(const ToolContext& ctx);
         void selectInPolygon(const ToolContext& ctx);
         void resetPolygon();
+        void updateRectanglePreview(const ToolContext& ctx);
+        void updateLassoPreview(const ToolContext& ctx);
+        void clearPreview(const ToolContext& ctx);
         void prepareSelectionState(const ToolContext& ctx, bool add_to_existing);
         void updatePolygonPreview(const ToolContext& ctx);
         int findPolygonVertexAt(float x, float y) const;

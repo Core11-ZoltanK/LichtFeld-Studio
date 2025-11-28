@@ -262,6 +262,34 @@ namespace lfs::rendering {
             static_cast<int>(positions.size(0)));
     }
 
+    void rect_select_tensor(
+        const Tensor& positions,
+        const float x0, const float y0, const float x1, const float y1,
+        Tensor& selection) {
+        if (!positions.is_valid() || positions.size(0) == 0) return;
+
+        rect_select(
+            reinterpret_cast<const float2*>(positions.ptr<float>()),
+            x0, y0, x1, y1,
+            selection.ptr<bool>(),
+            static_cast<int>(positions.size(0)));
+    }
+
+    void rect_select_mode_tensor(
+        const Tensor& positions,
+        const float x0, const float y0, const float x1, const float y1,
+        Tensor& selection,
+        const bool add_mode) {
+        if (!positions.is_valid() || positions.size(0) == 0) return;
+
+        rect_select_mode(
+            reinterpret_cast<const float2*>(positions.ptr<float>()),
+            x0, y0, x1, y1,
+            selection.ptr<bool>(),
+            static_cast<int>(positions.size(0)),
+            add_mode);
+    }
+
     void polygon_select_mode_tensor(
         const Tensor& positions,
         const Tensor& polygon,

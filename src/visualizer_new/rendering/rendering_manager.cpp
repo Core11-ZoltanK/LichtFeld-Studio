@@ -575,7 +575,7 @@ namespace lfs::vis {
             .brush_y = brush_y_,
             .brush_radius = brush_radius_,
             .brush_add_mode = brush_add_mode_,
-            .brush_selection_tensor = brush_selection_tensor_,
+            .brush_selection_tensor = preview_selection_ ? preview_selection_ : brush_selection_tensor_,
             .brush_saturation_mode = brush_saturation_mode_,
             .brush_saturation_amount = brush_saturation_amount_,
             .selection_mode_rings = (selection_mode_ == lfs::rendering::SelectionMode::Rings),

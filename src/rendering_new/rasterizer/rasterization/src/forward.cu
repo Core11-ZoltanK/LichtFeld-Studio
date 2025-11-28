@@ -137,6 +137,66 @@ __global__ void polygon_select_mode_kernel(
         selection[idx] = add_mode;
 }
 
+__global__ void rect_select_kernel(
+    const float2* __restrict__ positions,
+    const float x0, const float y0, const float x1, const float y1,
+    bool* __restrict__ selection,
+    const int n) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= n) return;
+
+    const float2 pos = positions[idx];
+    if (pos.x < -1000.0f) return;
+
+    if (pos.x >= x0 && pos.x <= x1 && pos.y >= y0 && pos.y <= y1)
+        selection[idx] = true;
+}
+
+__global__ void rect_select_mode_kernel(
+    const float2* __restrict__ positions,
+    const float x0, const float y0, const float x1, const float y1,
+    bool* __restrict__ selection,
+    const int n,
+    const bool add_mode) {
+    const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= n) return;
+
+    const float2 pos = positions[idx];
+    if (pos.x < -1000.0f) return;
+
+    if (pos.x >= x0 && pos.x <= x1 && pos.y >= y0 && pos.y <= y1)
+        selection[idx] = add_mode;
+}
+
+void lfs::rendering::rect_select(
+    const float2* positions,
+    const float x0, const float y0, const float x1, const float y1,
+    bool* selection,
+    const int n_primitives) {
+    if (n_primitives <= 0) return;
+
+    constexpr int BLOCK_SIZE = 256;
+    const int grid = (n_primitives + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    rect_select_kernel<<<grid, BLOCK_SIZE>>>(positions, x0, y0, x1, y1, selection, n_primitives);
+}
+
+void lfs::rendering::rect_select_mode(
+    const float2* positions,
+    const float x0, const float y0, const float x1, const float y1,
+    bool* selection,
+    const int n_primitives,
+    const bool add_mode) {
+    if (n_primitives <= 0) return;
+
+    constexpr int BLOCK_SIZE = 256;
+    const int grid = (n_primitives + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    rect_select_mode_kernel<<<grid, BLOCK_SIZE>>>(positions, x0, y0, x1, y1, selection, n_primitives, add_mode);
+}
+
+void lfs::rendering::set_selection_element(bool* selection, const int index, const bool value) {
+    cudaMemcpy(selection + index, &value, sizeof(bool), cudaMemcpyHostToDevice);
+}
+
 void lfs::rendering::polygon_select(
     const float2* positions,
     const float2* polygon,

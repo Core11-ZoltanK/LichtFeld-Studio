@@ -363,14 +363,15 @@ namespace lfs::rendering::kernels::forward {
 
         // Selection highlights
         if (!brush_saturation_mode) {
-            const bool in_cumulative = brush_selection_out != nullptr && brush_selection_out[primitive_idx];
-            const bool in_scene_selection = selection_mask != nullptr && selection_mask[primitive_idx];
-            // Ring mode: highlight hovered Gaussian
-            const bool is_ring_hovered = selection_mode_rings && highlight_gaussian_id >= 0 &&
-                                         static_cast<int>(primitive_idx) == highlight_gaussian_id;
+            const bool is_committed = selection_mask != nullptr && selection_mask[primitive_idx];
+            const bool is_preview = brush_selection_out != nullptr && brush_selection_out[primitive_idx];
+            const bool is_hovered = selection_mode_rings && highlight_gaussian_id >= 0 &&
+                                    static_cast<int>(primitive_idx) == highlight_gaussian_id;
 
-            if (in_cumulative || in_scene_selection || is_ring_hovered) {
-                color = make_float3(1.0f, 0.2f, 0.2f);
+            if (is_committed) {
+                color = config::SELECTION_COLOR_COMMITTED;
+            } else if (is_preview || is_hovered) {
+                color = config::SELECTION_COLOR_PREVIEW;
             }
         }
 
@@ -614,14 +615,24 @@ namespace lfs::rendering::kernels::forward {
                     continue;
                 }
 
-                // Center markers for unselected Gaussians
+                // Center markers
                 float3 final_color = collected_color[j];
                 if (show_center_markers) {
-                    const bool is_selected = (final_color.x > 0.95f && final_color.y < 0.25f && final_color.z < 0.25f);
-                    if (!is_selected) {
+                    constexpr float COLOR_TOLERANCE = 0.1f;
+                    constexpr float CENTER_RADIUS_SQ = 4.0f;
+                    const float3& c = final_color;
+                    const float3& sel = config::SELECTION_COLOR_COMMITTED;
+                    const float3& prev = config::SELECTION_COLOR_PREVIEW;
+                    const bool is_committed = (fabsf(c.x - sel.x) < COLOR_TOLERANCE &&
+                                               fabsf(c.y - sel.y) < COLOR_TOLERANCE &&
+                                               fabsf(c.z - sel.z) < COLOR_TOLERANCE);
+                    const bool is_preview = (fabsf(c.x - prev.x) < COLOR_TOLERANCE &&
+                                             fabsf(c.y - prev.y) < COLOR_TOLERANCE &&
+                                             fabsf(c.z - prev.z) < COLOR_TOLERANCE);
+                    if (!is_committed && !is_preview) {
                         const float dist_sq = delta.x * delta.x + delta.y * delta.y;
-                        if (dist_sq <= 4.0f) {
-                            final_color = make_float3(0.0f, 0.4f, 0.0f);
+                        if (dist_sq <= CENTER_RADIUS_SQ) {
+                            final_color = config::SELECTION_COLOR_CENTER_MARKER;
                             alpha = 0.95f;
                         }
                     }

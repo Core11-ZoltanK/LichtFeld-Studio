@@ -99,6 +99,19 @@ namespace lfs::rendering {
         float radius,
         Tensor& selection_out);
 
+    // Select Gaussians inside rectangle on GPU (sets true for points inside)
+    void rect_select_tensor(
+        const Tensor& screen_positions,
+        float x0, float y0, float x1, float y1,
+        Tensor& selection_out);
+
+    // Select Gaussians inside rectangle with add/remove mode
+    void rect_select_mode_tensor(
+        const Tensor& screen_positions,
+        float x0, float y0, float x1, float y1,
+        Tensor& selection_out,
+        bool add_mode);
+
     // Select Gaussians inside polygon on GPU
     void polygon_select_tensor(
         const Tensor& screen_positions,

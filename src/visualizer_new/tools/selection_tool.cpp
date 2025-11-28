@@ -10,6 +10,7 @@
 #include "scene/scene_manager.hpp"
 #include "core_new/splat_data.hpp"
 #include "core_new/tensor.hpp"
+#include "rendering_new/rasterizer/rasterization/include/forward.h"
 #include "rendering_new/rasterizer/rasterization/include/rasterization_api_tensor.h"
 #include <imgui.h>
 
@@ -296,11 +297,13 @@ namespace lfs::vis::tools {
                 return true;
             }
             if (is_rect_dragging_) {
+                clearPreview(ctx);
                 selectInRectangle(ctx);
                 is_rect_dragging_ = false;
                 return true;
             }
             if (is_lasso_dragging_) {
+                clearPreview(ctx);
                 selectInLasso(ctx);
                 is_lasso_dragging_ = false;
                 lasso_points_.clear();
@@ -331,15 +334,16 @@ namespace lfs::vis::tools {
 
         if (is_rect_dragging_) {
             rect_end_ = glm::vec2(static_cast<float>(x), static_cast<float>(y));
+            updateRectanglePreview(ctx);
             ctx.requestRender();
             return true;
         }
 
         if (is_lasso_dragging_) {
             const glm::vec2 new_point(static_cast<float>(x), static_cast<float>(y));
-            // Only add point if moved enough (reduces point count)
             if (lasso_points_.empty() || glm::distance(lasso_points_.back(), new_point) > 3.0f) {
                 lasso_points_.push_back(new_point);
+                updateLassoPreview(ctx);
             }
             ctx.requestRender();
             return true;
@@ -393,6 +397,9 @@ namespace lfs::vis::tools {
             is_lasso_dragging_ = false;
             lasso_points_.clear();
             resetPolygon();
+            preview_selection_ = lfs::core::Tensor();
+            cumulative_selection_ = lfs::core::Tensor();
+            selection_before_stroke_.reset();
         }
 
         if (tool_context_) {
@@ -401,8 +408,14 @@ namespace lfs::vis::tools {
                 rm->setOutputScreenPositions(enabled);
                 if (!enabled) {
                     rm->clearBrushState();
+                    rm->clearPreviewSelection();
                 }
                 rm->markDirty();
+            }
+            if (!enabled) {
+                if (auto* const sm = tool_context_->getSceneManager()) {
+                    sm->getScene().clearSelection();
+                }
             }
         }
     }
@@ -445,34 +458,37 @@ namespace lfs::vis::tools {
 
         std::shared_ptr<lfs::core::Tensor> new_selection;
 
-        if (tool_context_ && cumulative_selection_.is_valid()) {
-            auto* const sm = tool_context_->getSceneManager();
-            if (sm) {
-                auto mask = cumulative_selection_.to(lfs::core::DataType::UInt8);
-                new_selection = std::make_shared<lfs::core::Tensor>(mask.clone());
-                sm->getScene().setSelectionMask(std::make_shared<lfs::core::Tensor>(std::move(mask)));
-            }
-        }
-
-        if (tool_context_ && new_selection && new_selection->is_valid()) {
-            auto* const ch = tool_context_->getCommandHistory();
-            auto* const sm = tool_context_->getSceneManager();
-
-            if (ch && sm) {
-                auto cmd = std::make_unique<command::SelectionCommand>(
-                    sm, selection_before_stroke_, new_selection);
-                ch->execute(std::move(cmd));
-            }
-        }
-        selection_before_stroke_.reset();
-
         if (tool_context_) {
             auto* const rm = tool_context_->getRenderingManager();
             if (rm) {
+                rm->clearPreviewSelection();
                 rm->clearBrushState();
-                rm->markDirty();
             }
+
+            if (cumulative_selection_.is_valid()) {
+                auto* const sm = tool_context_->getSceneManager();
+                if (sm) {
+                    auto mask = cumulative_selection_.to(lfs::core::DataType::UInt8);
+                    new_selection = std::make_shared<lfs::core::Tensor>(mask.clone());
+                    sm->getScene().setSelectionMask(std::make_shared<lfs::core::Tensor>(std::move(mask)));
+                }
+            }
+
+            if (new_selection && new_selection->is_valid()) {
+                auto* const ch = tool_context_->getCommandHistory();
+                auto* const sm = tool_context_->getSceneManager();
+
+                if (ch && sm) {
+                    auto cmd = std::make_unique<command::SelectionCommand>(
+                        sm, selection_before_stroke_, new_selection);
+                    ch->execute(std::move(cmd));
+                }
+            }
+
+            if (auto* const rm2 = tool_context_->getRenderingManager())
+                rm2->markDirty();
         }
+        selection_before_stroke_.reset();
     }
 
     void SelectionTool::updateSelectionAtPoint(const double x, const double y, const ToolContext& ctx) {
@@ -498,26 +514,14 @@ namespace lfs::vis::tools {
         if (rm->getSelectionMode() == lfs::rendering::SelectionMode::Rings) {
             const int hovered_id = rm->getHoveredGaussianId();
             if (hovered_id >= 0 && cumulative_selection_.is_valid()) {
-                auto cpu_sel = cumulative_selection_.cpu();
-                cpu_sel.ptr<bool>()[hovered_id] = add_mode;
-                cumulative_selection_ = cpu_sel.cuda();
-
-                auto* const sm = ctx.getSceneManager();
-                if (sm) {
-                    auto mask = cumulative_selection_.to(lfs::core::DataType::UInt8);
-                    sm->getScene().setSelectionMask(std::make_shared<lfs::core::Tensor>(std::move(mask)));
-                }
+                lfs::rendering::set_selection_element(cumulative_selection_.ptr<bool>(), hovered_id, add_mode);
             }
             rm->setBrushState(true, image_x, image_y, 0.0f, add_mode, nullptr, false, 0.0f);
+            rm->setPreviewSelection(&cumulative_selection_);
         } else {
             const float scaled_radius = brush_radius_ * scale_x;
             rm->setBrushState(true, image_x, image_y, scaled_radius, add_mode, &cumulative_selection_);
-
-            auto* const sm = ctx.getSceneManager();
-            if (sm && cumulative_selection_.is_valid()) {
-                auto mask = cumulative_selection_.to(lfs::core::DataType::UInt8);
-                sm->getScene().setSelectionMask(std::make_shared<lfs::core::Tensor>(std::move(mask)));
-            }
+            rm->setPreviewSelection(&cumulative_selection_);
         }
     }
 
@@ -570,50 +574,26 @@ namespace lfs::vis::tools {
 
         const int render_w = cached.image ? static_cast<int>(cached.image->size(2)) : viewport.windowSize.x;
         const int render_h = cached.image ? static_cast<int>(cached.image->size(1)) : viewport.windowSize.y;
-
         const float scale_x = static_cast<float>(render_w) / bounds.width;
         const float scale_y = static_cast<float>(render_h) / bounds.height;
 
-        // Convert screen rect to image coords
-        const float img_x1 = (std::min(rect_start_.x, rect_end_.x) - bounds.x) * scale_x;
-        const float img_y1 = (std::min(rect_start_.y, rect_end_.y) - bounds.y) * scale_y;
-        const float img_x2 = (std::max(rect_start_.x, rect_end_.x) - bounds.x) * scale_x;
-        const float img_y2 = (std::max(rect_start_.y, rect_end_.y) - bounds.y) * scale_y;
+        const float x0 = (std::min(rect_start_.x, rect_end_.x) - bounds.x) * scale_x;
+        const float y0 = (std::min(rect_start_.y, rect_end_.y) - bounds.y) * scale_y;
+        const float x1 = (std::max(rect_start_.x, rect_end_.x) - bounds.x) * scale_x;
+        const float y1 = (std::max(rect_start_.y, rect_end_.y) - bounds.y) * scale_y;
 
-        // Get screen positions on CPU
-        auto positions_cpu = screen_positions->cpu();
-        const auto* pos_data = positions_cpu.ptr<float>();
-        const size_t num_gaussians = static_cast<size_t>(positions_cpu.size(0));
-
-        auto sel_cpu = cumulative_selection_.cpu();
-        auto* const sel_data = sel_cpu.ptr<bool>();
         const bool add_mode = (current_action_ == SelectionAction::Add);
+        lfs::rendering::rect_select_mode_tensor(*screen_positions, x0, y0, x1, y1, cumulative_selection_, add_mode);
 
-        for (size_t i = 0; i < num_gaussians; ++i) {
-            const float px = pos_data[i * 2];
-            const float py = pos_data[i * 2 + 1];
-
-            if (px >= img_x1 && px <= img_x2 && py >= img_y1 && py <= img_y2) {
-                sel_data[i] = add_mode;
-            }
-        }
-
-        cumulative_selection_ = sel_cpu.cuda();
-
-        // Apply selection
         auto mask = cumulative_selection_.to(lfs::core::DataType::UInt8);
         auto new_selection = std::make_shared<lfs::core::Tensor>(mask.clone());
         sm->getScene().setSelectionMask(std::make_shared<lfs::core::Tensor>(std::move(mask)));
 
-        // Create undo command
-        auto* const ch = ctx.getCommandHistory();
-        if (ch && new_selection && new_selection->is_valid()) {
-            auto cmd = std::make_unique<command::SelectionCommand>(
-                sm, selection_before_stroke_, new_selection);
-            ch->execute(std::move(cmd));
+        if (auto* const ch = ctx.getCommandHistory()) {
+            ch->execute(std::make_unique<command::SelectionCommand>(
+                sm, selection_before_stroke_, new_selection));
         }
         selection_before_stroke_.reset();
-
         rm->clearBrushState();
         rm->markDirty();
     }
@@ -714,15 +694,13 @@ namespace lfs::vis::tools {
     void SelectionTool::clearPolygon() {
         if (polygon_points_.empty()) return;
 
-        // Restore selection if preview was showing
-        if (polygon_closed_ && selection_before_stroke_ && tool_context_) {
-            if (auto* const sm = tool_context_->getSceneManager()) {
-                sm->getScene().setSelectionMask(
-                    std::make_shared<lfs::core::Tensor>(selection_before_stroke_->clone()));
-                if (auto* const rm = tool_context_->getRenderingManager())
-                    rm->markDirty();
+        if (tool_context_) {
+            if (auto* const rm = tool_context_->getRenderingManager()) {
+                rm->clearPreviewSelection();
+                rm->markDirty();
             }
         }
+        preview_selection_ = lfs::core::Tensor();
         resetPolygon();
         selection_before_stroke_.reset();
     }
@@ -734,7 +712,82 @@ namespace lfs::vis::tools {
         lasso_points_.clear();
         is_painting_ = false;
         cumulative_selection_ = lfs::core::Tensor();
+        preview_selection_ = lfs::core::Tensor();
         selection_before_stroke_.reset();
+    }
+
+    void SelectionTool::clearPreview(const ToolContext& ctx) {
+        preview_selection_ = lfs::core::Tensor();
+        if (auto* const rm = ctx.getRenderingManager())
+            rm->clearPreviewSelection();
+    }
+
+    void SelectionTool::updateRectanglePreview(const ToolContext& ctx) {
+        auto* const rm = ctx.getRenderingManager();
+        if (!rm) return;
+
+        const auto screen_positions = rm->getScreenPositions();
+        if (!screen_positions || !screen_positions->is_valid()) return;
+
+        const auto& bounds = ctx.getViewportBounds();
+        const auto& viewport = ctx.getViewport();
+        const auto& cached = rm->getCachedResult();
+        const int render_w = cached.image ? static_cast<int>(cached.image->size(2)) : viewport.windowSize.x;
+        const int render_h = cached.image ? static_cast<int>(cached.image->size(1)) : viewport.windowSize.y;
+        const float scale_x = static_cast<float>(render_w) / bounds.width;
+        const float scale_y = static_cast<float>(render_h) / bounds.height;
+
+        const float x0 = (std::min(rect_start_.x, rect_end_.x) - bounds.x) * scale_x;
+        const float y0 = (std::min(rect_start_.y, rect_end_.y) - bounds.y) * scale_y;
+        const float x1 = (std::max(rect_start_.x, rect_end_.x) - bounds.x) * scale_x;
+        const float y1 = (std::max(rect_start_.y, rect_end_.y) - bounds.y) * scale_y;
+
+        const size_t n = screen_positions->size(0);
+        if (!preview_selection_.is_valid() || preview_selection_.size(0) != n) {
+            preview_selection_ = lfs::core::Tensor::zeros({n}, lfs::core::Device::CUDA, lfs::core::DataType::Bool);
+        } else {
+            preview_selection_.fill_(false);
+        }
+
+        lfs::rendering::rect_select_tensor(*screen_positions, x0, y0, x1, y1, preview_selection_);
+        rm->setPreviewSelection(&preview_selection_);
+    }
+
+    void SelectionTool::updateLassoPreview(const ToolContext& ctx) {
+        if (lasso_points_.size() < 3) return;
+
+        auto* const rm = ctx.getRenderingManager();
+        if (!rm) return;
+
+        const auto screen_positions = rm->getScreenPositions();
+        if (!screen_positions || !screen_positions->is_valid()) return;
+
+        const auto& bounds = ctx.getViewportBounds();
+        const auto& viewport = ctx.getViewport();
+        const auto& cached = rm->getCachedResult();
+        const int render_w = cached.image ? static_cast<int>(cached.image->size(2)) : viewport.windowSize.x;
+        const int render_h = cached.image ? static_cast<int>(cached.image->size(1)) : viewport.windowSize.y;
+        const float scale_x = static_cast<float>(render_w) / bounds.width;
+        const float scale_y = static_cast<float>(render_h) / bounds.height;
+
+        const size_t num_verts = lasso_points_.size();
+        auto poly_cpu = lfs::core::Tensor::empty({num_verts, 2}, lfs::core::Device::CPU, lfs::core::DataType::Float32);
+        auto* const data = poly_cpu.ptr<float>();
+        for (size_t i = 0; i < num_verts; ++i) {
+            data[i * 2] = (lasso_points_[i].x - bounds.x) * scale_x;
+            data[i * 2 + 1] = (lasso_points_[i].y - bounds.y) * scale_y;
+        }
+        const auto poly_gpu = poly_cpu.cuda();
+
+        const size_t n = screen_positions->size(0);
+        if (!preview_selection_.is_valid() || preview_selection_.size(0) != n) {
+            preview_selection_ = lfs::core::Tensor::zeros({n}, lfs::core::Device::CUDA, lfs::core::DataType::Bool);
+        } else {
+            preview_selection_.fill_(false);
+        }
+
+        lfs::rendering::polygon_select_tensor(*screen_positions, poly_gpu, preview_selection_);
+        rm->setPreviewSelection(&preview_selection_);
     }
 
     void SelectionTool::prepareSelectionState(const ToolContext& ctx, const bool add_to_existing) {
@@ -760,9 +813,8 @@ namespace lfs::vis::tools {
     void SelectionTool::updatePolygonPreview(const ToolContext& ctx) {
         if (!polygon_closed_ || polygon_points_.size() < 3) return;
 
-        auto* const sm = ctx.getSceneManager();
         auto* const rm = ctx.getRenderingManager();
-        if (!sm || !rm) return;
+        if (!rm) return;
 
         const auto positions = rm->getScreenPositions();
         if (!positions || !positions->is_valid()) return;
@@ -786,13 +838,14 @@ namespace lfs::vis::tools {
         }
         const auto poly_gpu = poly_cpu.cuda();
 
-        auto selection = (cumulative_selection_.is_valid() && cumulative_selection_.size(0) == n)
-            ? cumulative_selection_.to(lfs::core::DataType::Bool).cuda()
-            : lfs::core::Tensor::zeros({n}, lfs::core::Device::CUDA, lfs::core::DataType::Bool);
+        if (!preview_selection_.is_valid() || preview_selection_.size(0) != n) {
+            preview_selection_ = lfs::core::Tensor::zeros({n}, lfs::core::Device::CUDA, lfs::core::DataType::Bool);
+        } else {
+            preview_selection_.fill_(false);
+        }
 
-        lfs::rendering::polygon_select_tensor(*positions, poly_gpu, selection);
-        sm->getScene().setSelectionMask(std::make_shared<lfs::core::Tensor>(std::move(selection)));
-        rm->markDirty();
+        lfs::rendering::polygon_select_tensor(*positions, poly_gpu, preview_selection_);
+        rm->setPreviewSelection(&preview_selection_);
     }
 
     int SelectionTool::findPolygonVertexAt(const float x, const float y) const {
@@ -843,6 +896,7 @@ namespace lfs::vis::tools {
             if (polygon_closed_ && polygon_points_.size() >= 3) {
                 const bool ctrl = (mods & GLFW_MOD_CONTROL) != 0;
                 const bool shift = (mods & GLFW_MOD_SHIFT) != 0;
+                clearPreview(ctx);
                 prepareSelectionState(ctx, ctrl || shift);
                 current_action_ = shift ? SelectionAction::Remove : SelectionAction::Add;
                 selectInPolygon(ctx);
@@ -854,14 +908,7 @@ namespace lfs::vis::tools {
 
         // Cancel and restore
         if (key == GLFW_KEY_ESCAPE && !polygon_points_.empty()) {
-            if (polygon_closed_ && selection_before_stroke_) {
-                if (auto* const sm = ctx.getSceneManager()) {
-                    sm->getScene().setSelectionMask(
-                        std::make_shared<lfs::core::Tensor>(selection_before_stroke_->clone()));
-                    if (auto* const rm_local = ctx.getRenderingManager())
-                        rm_local->markDirty();
-                }
-            }
+            clearPreview(ctx);
             resetPolygon();
             selection_before_stroke_.reset();
             ctx.requestRender();

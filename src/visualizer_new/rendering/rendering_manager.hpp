@@ -202,6 +202,10 @@ namespace lfs::vis {
                            bool saturation_mode = false, float saturation_amount = 0.0f);
         void clearBrushState();
 
+        // Preview selection
+        void setPreviewSelection(lfs::core::Tensor* preview) { preview_selection_ = preview; markDirty(); }
+        void clearPreviewSelection() { preview_selection_ = nullptr; markDirty(); }
+
         // Selection mode for brush tool
         void setSelectionMode(lfs::rendering::SelectionMode mode) { selection_mode_ = mode; }
         [[nodiscard]] lfs::rendering::SelectionMode getSelectionMode() const { return selection_mode_; }
@@ -273,6 +277,7 @@ namespace lfs::vis {
         float brush_radius_ = 0.0f;
         bool brush_add_mode_ = true;
         lfs::core::Tensor* brush_selection_tensor_ = nullptr;
+        lfs::core::Tensor* preview_selection_ = nullptr;
         bool brush_saturation_mode_ = false;
         float brush_saturation_amount_ = 0.0f;
         lfs::rendering::SelectionMode selection_mode_ = lfs::rendering::SelectionMode::Centers;
