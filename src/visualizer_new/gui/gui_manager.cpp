@@ -503,61 +503,38 @@ namespace lfs::vis::gui {
                         previous_selection_mode_ = gizmo_toolbar_state_.selection_mode;
                     }
 
+                    // Ring mode and center markers are mutually exclusive
                     const bool ring_mode_active = (gizmo_toolbar_state_.selection_mode == panels::SelectionSubMode::Rings);
+                    const bool center_markers_mode_active = !ring_mode_active;
+
                     if (ring_mode_active && !ring_mode_was_active_) {
                         auto settings = rm->getSettings();
                         show_rings_before_ring_mode_ = settings.show_rings;
-                        if (!settings.show_rings) {
-                            settings.show_rings = true;
-                            rm->updateSettings(settings);
-                        }
-                    } else if (!ring_mode_active && ring_mode_was_active_) {
-                        auto settings = rm->getSettings();
-                        if (settings.show_rings != show_rings_before_ring_mode_) {
-                            settings.show_rings = show_rings_before_ring_mode_;
-                            rm->updateSettings(settings);
-                        }
-                    }
-                    ring_mode_was_active_ = ring_mode_active;
-
-                    // Auto-toggle center markers for non-ring selection modes
-                    const bool center_markers_mode_active = !ring_mode_active;
-                    if (center_markers_mode_active && !center_markers_mode_was_active_) {
+                        show_center_markers_before_ = settings.show_center_markers;
+                        settings.show_rings = true;
+                        settings.show_center_markers = false;
+                        rm->updateSettings(settings);
+                    } else if (center_markers_mode_active && !center_markers_mode_was_active_) {
                         auto settings = rm->getSettings();
                         show_center_markers_before_ = settings.show_center_markers;
-                        if (!settings.show_center_markers) {
-                            settings.show_center_markers = true;
-                            rm->updateSettings(settings);
-                        }
-                    } else if (!center_markers_mode_active && center_markers_mode_was_active_) {
-                        auto settings = rm->getSettings();
-                        if (settings.show_center_markers != show_center_markers_before_) {
-                            settings.show_center_markers = show_center_markers_before_;
-                            rm->updateSettings(settings);
-                        }
+                        show_rings_before_ring_mode_ = settings.show_rings;
+                        settings.show_center_markers = true;
+                        settings.show_rings = false;
+                        rm->updateSettings(settings);
                     }
+                    ring_mode_was_active_ = ring_mode_active;
                     center_markers_mode_was_active_ = center_markers_mode_active;
                 }
             } else {
-                // Selection tool not active, restore both modes
-                if (ring_mode_was_active_) {
+                // Selection tool not active, restore previous states
+                if (ring_mode_was_active_ || center_markers_mode_was_active_) {
                     if (auto* rm = ctx.viewer->getRenderingManager()) {
                         auto settings = rm->getSettings();
-                        if (settings.show_rings != show_rings_before_ring_mode_) {
-                            settings.show_rings = show_rings_before_ring_mode_;
-                            rm->updateSettings(settings);
-                        }
+                        settings.show_rings = show_rings_before_ring_mode_;
+                        settings.show_center_markers = show_center_markers_before_;
+                        rm->updateSettings(settings);
                     }
                     ring_mode_was_active_ = false;
-                }
-                if (center_markers_mode_was_active_) {
-                    if (auto* rm = ctx.viewer->getRenderingManager()) {
-                        auto settings = rm->getSettings();
-                        if (settings.show_center_markers != show_center_markers_before_) {
-                            settings.show_center_markers = show_center_markers_before_;
-                            rm->updateSettings(settings);
-                        }
-                    }
                     center_markers_mode_was_active_ = false;
                 }
             }

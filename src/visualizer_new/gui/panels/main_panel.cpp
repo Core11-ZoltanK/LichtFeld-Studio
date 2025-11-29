@@ -90,23 +90,25 @@ namespace lfs::vis::gui::panels {
             }
         }
 
-        // Ring Mode checkbox (only enabled when NOT in point cloud mode)
+        // Ring Mode and Center Markers are mutually exclusive
         ImGui::BeginDisabled(settings.point_cloud_mode);
         if (ImGui::Checkbox("Show Gaussian Rings", &settings.show_rings)) {
+            if (settings.show_rings)
+                settings.show_center_markers = false;
             settings_changed = true;
         }
         ImGui::EndDisabled();
 
-        // Show ring width slider only when ring mode is enabled and not in point cloud mode
         if (settings.show_rings && !settings.point_cloud_mode) {
             if (widgets::SliderWithReset("Ring Width", &settings.ring_width, 0.001f, 0.05f, 0.01f)) {
                 settings_changed = true;
             }
         }
 
-        // Center Markers checkbox (only enabled when NOT in point cloud mode)
         ImGui::BeginDisabled(settings.point_cloud_mode);
         if (ImGui::Checkbox("Show Center Markers", &settings.show_center_markers)) {
+            if (settings.show_center_markers)
+                settings.show_rings = false;
             settings_changed = true;
         }
         ImGui::EndDisabled();
