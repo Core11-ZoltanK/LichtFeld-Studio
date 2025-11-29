@@ -25,7 +25,6 @@ add_library(lfs_visualizer STATIC
         gui/panels/gizmo_toolbar.cpp
         gui/panels/scene_panel.cpp
         gui/panels/tools_panel.cpp
-        gui/panels/world_transform_panel.cpp
         gui/windows/file_browser.cpp
         gui/windows/project_changed_dialog_box.cpp
         gui/windows/image_preview.cpp

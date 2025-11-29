@@ -553,14 +553,6 @@ namespace lfs::vis {
             .size = render_size,
             .fov = settings_.fov};
 
-        // Apply world transform
-        if (!settings_.world_transform.isIdentity()) {
-            glm::mat3 world_rot = settings_.world_transform.getRotationMat();
-            glm::vec3 world_trans = settings_.world_transform.getTranslation();
-            viewport_data.rotation = glm::transpose(world_rot) * viewport_data.rotation;
-            viewport_data.translation = glm::transpose(world_rot) * (viewport_data.translation - world_trans);
-        }
-
         // Get transforms and indices from scene for kernel-based transform
         std::vector<glm::mat4> model_transforms;
         std::shared_ptr<lfs::core::Tensor> transform_indices;
@@ -886,14 +878,6 @@ namespace lfs::vis {
             .size = render_size,
             .fov = settings_.fov};
 
-        // Apply world transform if needed
-        if (!settings_.world_transform.isIdentity()) {
-            glm::mat3 world_rot = settings_.world_transform.getRotationMat();
-            glm::vec3 world_trans = settings_.world_transform.getTranslation();
-            viewport_data.rotation = glm::transpose(world_rot) * viewport_data.rotation;
-            viewport_data.translation = glm::transpose(world_rot) * (viewport_data.translation - world_trans);
-        }
-
         // Create crop box if enabled (for filtering) or if showing (for visualization)
         std::optional<lfs::rendering::BoundingBox> crop_box;
         if (settings_.use_crop_box || settings_.show_crop_box) {
@@ -1144,7 +1128,7 @@ namespace lfs::vis {
                     scene_transform = visible_transforms[0];
                 }
 
-                // Render frustums with world transform
+                // Render frustums with scene transform
                 LOG_TRACE("Rendering {} camera frustums with scale {}, highlighted index: {} (ID: {})",
                           cameras.size(), settings_.camera_frustum_scale, highlight_index, hovered_camera_id_);
 

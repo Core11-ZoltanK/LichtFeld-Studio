@@ -55,9 +55,6 @@ namespace lfs::vis {
         // Camera Rotation
         bool lock_gimbal = false;
 
-        // World transform
-        lfs::geometry::EuclideanTransform world_transform;
-
         // Grid
         bool show_grid = true;
         int grid_plane = 1;
