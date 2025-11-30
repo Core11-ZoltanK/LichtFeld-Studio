@@ -968,12 +968,26 @@ namespace lfs::vis::gui {
         ui::NodeSelected::when([this](const auto&) {
             if (gizmo_toolbar_state_.current_tool == panels::ToolMode::Selection ||
                 gizmo_toolbar_state_.current_tool == panels::ToolMode::Brush) {
+                // Immediately disable tools to clear selection
+                if (auto* selection_tool = viewer_->getSelectionTool()) {
+                    selection_tool->setEnabled(false);
+                }
+                if (auto* brush_tool = viewer_->getBrushTool()) {
+                    brush_tool->setEnabled(false);
+                }
                 gizmo_toolbar_state_.current_tool = panels::ToolMode::Translate;
                 gizmo_toolbar_state_.current_operation = ImGuizmo::TRANSLATE;
             }
         });
 
         ui::NodeDeselected::when([this](const auto&) {
+            // Clear selection when node is deselected
+            if (auto* selection_tool = viewer_->getSelectionTool()) {
+                selection_tool->setEnabled(false);
+            }
+            if (auto* brush_tool = viewer_->getBrushTool()) {
+                brush_tool->setEnabled(false);
+            }
             gizmo_toolbar_state_.current_tool = panels::ToolMode::Translate;
             gizmo_toolbar_state_.current_operation = ImGuizmo::TRANSLATE;
         });

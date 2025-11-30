@@ -444,19 +444,18 @@ namespace lfs::vis::tools {
         }
 
         if (tool_context_) {
-            auto* const rm = tool_context_->getRenderingManager();
-            if (rm) {
+            if (!enabled) {
+                if (auto* const sm = tool_context_->getSceneManager()) {
+                    sm->getScene().clearSelection();
+                }
+            }
+            if (auto* const rm = tool_context_->getRenderingManager()) {
                 rm->setOutputScreenPositions(enabled);
                 if (!enabled) {
                     rm->clearBrushState();
                     rm->clearPreviewSelection();
                 }
                 rm->markDirty();
-            }
-            if (!enabled) {
-                if (auto* const sm = tool_context_->getSceneManager()) {
-                    sm->getScene().clearSelection();
-                }
             }
         }
     }

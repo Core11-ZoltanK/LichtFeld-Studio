@@ -403,8 +403,6 @@ namespace lfs::vis {
             return glm::vec3(0.0f);
         }
 
-        LOG_INFO("getSelectedNodeCentroid: node '{}' centroid=({},{},{})",
-                 node_name, node->centroid.x, node->centroid.y, node->centroid.z);
         return node->centroid;
     }
 
