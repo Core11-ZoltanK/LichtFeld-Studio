@@ -257,8 +257,8 @@ namespace lfs::vis::tools {
                 if (polygon_points_.size() >= 3 &&
                     glm::distance(glm::vec2(px, py), polygon_points_.front()) < POLYGON_CLOSE_THRESHOLD) {
                     polygon_closed_ = true;
-                    // Shift: add to existing; otherwise replace
-                    prepareSelectionState(ctx, shift);
+                    // Shift or Ctrl: preserve existing selection; otherwise replace
+                    prepareSelectionState(ctx, !replace_mode);
                     updatePolygonPreview(ctx);
                     ctx.requestRender();
                     return true;
@@ -763,6 +763,22 @@ namespace lfs::vis::tools {
             rm->clearPreviewSelection();
     }
 
+    void SelectionTool::preparePreviewBuffer(const size_t n) {
+        if (!preview_selection_.is_valid() || preview_selection_.size(0) != n) {
+            preview_selection_ = lfs::core::Tensor::zeros({n}, lfs::core::Device::CUDA, lfs::core::DataType::Bool);
+        }
+
+        auto* const sm = tool_context_ ? tool_context_->getSceneManager() : nullptr;
+        const auto committed = sm ? sm->getScene().getSelectionMask() : nullptr;
+
+        if (committed && committed->is_valid() && committed->size(0) == n) {
+            // UInt8 and Bool are both 1 byte, direct memcpy (0/1 maps to false/true)
+            cudaMemcpy(preview_selection_.raw_ptr(), committed->raw_ptr(), n, cudaMemcpyDeviceToDevice);
+        } else {
+            preview_selection_.fill_(false);
+        }
+    }
+
     void SelectionTool::updateRectanglePreview(const ToolContext& ctx) {
         auto* const rm = ctx.getRenderingManager();
         if (!rm) return;
@@ -783,14 +799,9 @@ namespace lfs::vis::tools {
         const float x1 = (std::max(rect_start_.x, rect_end_.x) - bounds.x) * scale_x;
         const float y1 = (std::max(rect_start_.y, rect_end_.y) - bounds.y) * scale_y;
 
-        const size_t n = screen_positions->size(0);
-        if (!preview_selection_.is_valid() || preview_selection_.size(0) != n) {
-            preview_selection_ = lfs::core::Tensor::zeros({n}, lfs::core::Device::CUDA, lfs::core::DataType::Bool);
-        } else {
-            preview_selection_.fill_(false);
-        }
-
-        lfs::rendering::rect_select_tensor(*screen_positions, x0, y0, x1, y1, preview_selection_);
+        preparePreviewBuffer(screen_positions->size(0));
+        const bool add_mode = (current_action_ == SelectionAction::Add);
+        lfs::rendering::rect_select_mode_tensor(*screen_positions, x0, y0, x1, y1, preview_selection_, add_mode);
         rm->setPreviewSelection(&preview_selection_);
     }
 
@@ -820,14 +831,9 @@ namespace lfs::vis::tools {
         }
         const auto poly_gpu = poly_cpu.cuda();
 
-        const size_t n = screen_positions->size(0);
-        if (!preview_selection_.is_valid() || preview_selection_.size(0) != n) {
-            preview_selection_ = lfs::core::Tensor::zeros({n}, lfs::core::Device::CUDA, lfs::core::DataType::Bool);
-        } else {
-            preview_selection_.fill_(false);
-        }
-
-        lfs::rendering::polygon_select_tensor(*screen_positions, poly_gpu, preview_selection_);
+        preparePreviewBuffer(screen_positions->size(0));
+        const bool add_mode = (current_action_ == SelectionAction::Add);
+        lfs::rendering::polygon_select_mode_tensor(*screen_positions, poly_gpu, preview_selection_, add_mode);
         rm->setPreviewSelection(&preview_selection_);
     }
 
@@ -868,9 +874,7 @@ namespace lfs::vis::tools {
         const float scale_x = static_cast<float>(render_w) / bounds.width;
         const float scale_y = static_cast<float>(render_h) / bounds.height;
 
-        const size_t n = positions->size(0);
         const size_t num_verts = polygon_points_.size();
-
         auto poly_cpu = lfs::core::Tensor::empty({num_verts, 2}, lfs::core::Device::CPU, lfs::core::DataType::Float32);
         auto* const data = poly_cpu.ptr<float>();
         for (size_t i = 0; i < num_verts; ++i) {
@@ -879,13 +883,9 @@ namespace lfs::vis::tools {
         }
         const auto poly_gpu = poly_cpu.cuda();
 
-        if (!preview_selection_.is_valid() || preview_selection_.size(0) != n) {
-            preview_selection_ = lfs::core::Tensor::zeros({n}, lfs::core::Device::CUDA, lfs::core::DataType::Bool);
-        } else {
-            preview_selection_.fill_(false);
-        }
-
-        lfs::rendering::polygon_select_tensor(*positions, poly_gpu, preview_selection_);
+        preparePreviewBuffer(positions->size(0));
+        const bool add_mode = (current_action_ == SelectionAction::Add);
+        lfs::rendering::polygon_select_mode_tensor(*positions, poly_gpu, preview_selection_, add_mode);
         rm->setPreviewSelection(&preview_selection_);
     }
 

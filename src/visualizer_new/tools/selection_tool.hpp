@@ -88,6 +88,7 @@ namespace lfs::vis::tools {
         void clearPreview(const ToolContext& ctx);
         void prepareSelectionState(const ToolContext& ctx, bool add_to_existing);
         void updatePolygonPreview(const ToolContext& ctx);
+        void preparePreviewBuffer(size_t n);
         int findPolygonVertexAt(float x, float y) const;
         int findPolygonEdgeAt(float x, float y, float& t_out) const;
 
