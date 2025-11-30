@@ -41,7 +41,7 @@ namespace lfs::vis {
         bool crop_desaturate = false;
         glm::vec3 crop_min = glm::vec3(-1.0f, -1.0f, -1.0f);
         glm::vec3 crop_max = glm::vec3(1.0f, 1.0f, 1.0f);
-        glm::vec3 crop_color = glm::vec3(0.859f, 0.325f, 0.325f);
+        glm::vec3 crop_color = glm::vec3(1.0f, 1.0f, 0.0f);
         float crop_line_width = 2.0f;
         lfs::geometry::EuclideanTransform crop_transform;
 
