@@ -102,6 +102,12 @@ namespace lfs::loader {
             FileSystem
         };
 
+        enum class NvImageCodecMode {
+            Undetermined,
+            Available,
+            UnAvailable
+        };
+
         static std::string to_string(const CacheMode& mode) {
             switch (mode) {
             case CacheMode::Undetermined: return "Undetermined";
@@ -150,6 +156,8 @@ namespace lfs::loader {
         void print_cache_status() const;
         void determine_cache_mode(const std::filesystem::path& path, const LoadParams& params);
         bool is_jpeg_format(const std::filesystem::path& path) const;
+        // determine if NVJPEG hardware decoding/encoding is available
+        void determine_nv_image_codec();
 
         // FS cache params
         std::filesystem::path cache_folder_;
@@ -172,5 +180,7 @@ namespace lfs::loader {
 
         CacheMode cache_mode_ = CacheMode::Undetermined;
         int num_expected_images_ = 0;
+        NvImageCodecMode nv_image_codec_available_ = NvImageCodecMode::Undetermined;
+        std::mutex nvcodec_mutex_;
     };
 } // namespace lfs::loader

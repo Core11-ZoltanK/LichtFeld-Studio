@@ -572,8 +572,10 @@ namespace lfs::loader {
     lfs::core::Tensor CacheLoader::load_cached_image(const std::filesystem::path& path, const LoadParams& params) {
         using namespace lfs::core;
 
+        determine_nv_image_codec();
+
         // Check if this is a JPEG file and nvImageCodec is available
-        if (is_jpeg_format(path) && NvCodecImageLoader::is_available()) {
+        if (nv_image_codec_available_==NvImageCodecMode::Available && is_jpeg_format(path)) {
             LOG_DEBUG("Routing JPEG to hardware decoder: {}", path.filename().string());
             return load_jpeg_with_hardware_decode(path, params);
         }
@@ -873,6 +875,25 @@ namespace lfs::loader {
                       gpu_tensor.shape()[0], gpu_tensor.shape()[1], gpu_tensor.shape()[2]);
 
             return gpu_tensor;
+        }
+    }
+    void CacheLoader::determine_nv_image_codec() {
+        if (nv_image_codec_available_!=NvImageCodecMode::Undetermined) {
+            return;
+        }
+
+        std::lock_guard<std::mutex> lock(nvcodec_mutex_);
+
+        if (nv_image_codec_available_!=NvImageCodecMode::Undetermined) { // nv_image_codec_available_ where already determined by another thread
+            return;
+        }
+        // determine if nvImageCodec is available - should be called once by single thread
+        if (NvCodecImageLoader::is_available()) {
+            nv_image_codec_available_=NvImageCodecMode::Available;
+            LOG_DEBUG("determine_nv_image_codec: NvImageCodec available");
+        } else {
+            nv_image_codec_available_=NvImageCodecMode::UnAvailable;
+            LOG_DEBUG("determine_nv_image_codec: NvImageCodec unavailable");
         }
     }
 
