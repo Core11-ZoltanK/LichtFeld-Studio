@@ -205,8 +205,11 @@ namespace lfs::vis::tools {
             const bool ctrl = (mods & GLFW_MOD_CONTROL) != 0;
             const bool shift = (mods & GLFW_MOD_SHIFT) != 0;
 
-            // No modifier = allow navigation
-            if (!ctrl && !shift) return false;
+            // Determine selection action:
+            // - No modifier: Replace (clear existing, then add)
+            // - Shift: Add to existing
+            // - Ctrl: Remove from existing
+            const bool replace_mode = !ctrl && !shift;
 
             if (is_polygon_mode) {
                 const float px = static_cast<float>(x);
@@ -254,7 +257,8 @@ namespace lfs::vis::tools {
                 if (polygon_points_.size() >= 3 &&
                     glm::distance(glm::vec2(px, py), polygon_points_.front()) < POLYGON_CLOSE_THRESHOLD) {
                     polygon_closed_ = true;
-                    prepareSelectionState(ctx, true);
+                    // Shift: add to existing; otherwise replace
+                    prepareSelectionState(ctx, shift);
                     updatePolygonPreview(ctx);
                     ctx.requestRender();
                     return true;
@@ -293,7 +297,8 @@ namespace lfs::vis::tools {
                         auto existing = sm->getScene().getSelectionMask();
                         selection_before_stroke_ = (existing && existing->is_valid())
                             ? std::make_shared<lfs::core::Tensor>(existing->clone()) : nullptr;
-                        if (existing && existing->is_valid() && existing->size(0) == num_gaussians) {
+                        // Replace mode: start fresh; Shift/Ctrl: preserve existing
+                        if (!replace_mode && existing && existing->is_valid() && existing->size(0) == num_gaussians) {
                             cumulative_selection_ = existing->to(lfs::core::DataType::Bool);
                         } else {
                             cumulative_selection_ = lfs::core::Tensor::zeros(
@@ -304,9 +309,9 @@ namespace lfs::vis::tools {
                 return true;
             }
 
-            // Brush/Ring mode: Shift=Add, Ctrl=Remove
+            // Brush/Ring mode: no modifier=Replace, Shift=Add, Ctrl=Remove
             const SelectionAction action_type = ctrl ? SelectionAction::Remove : SelectionAction::Add;
-            beginStroke(x, y, action_type, false, ctx);
+            beginStroke(x, y, action_type, replace_mode, ctx);
             updateSelectionAtPoint(x, y, ctx);
             return true;
         }
