@@ -12,6 +12,7 @@
 #include "core_new/tensor.hpp"
 #include "rendering_new/rasterizer/rasterization/include/forward.h"
 #include "rendering_new/rasterizer/rasterization/include/rasterization_api_tensor.h"
+#include <GLFW/glfw3.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <imgui.h>
@@ -122,53 +123,54 @@ namespace lfs::vis::tools {
             }
         }
 
-        const char* info_text = nullptr;
-        float text_offset = 15.0f;
-
-        if (sel_mode == lfs::rendering::SelectionMode::Rings) {
-            constexpr float cross_size = 8.0f;
-            draw_list->AddLine(ImVec2(mouse_pos.x - cross_size, mouse_pos.y),
-                               ImVec2(mouse_pos.x + cross_size, mouse_pos.y), brush_color, 2.0f);
-            draw_list->AddLine(ImVec2(mouse_pos.x, mouse_pos.y - cross_size),
-                               ImVec2(mouse_pos.x, mouse_pos.y + cross_size), brush_color, 2.0f);
-            info_text = is_painting_ ? (current_action_ == SelectionAction::Add ? "RING +" : "RING -") : "RING";
-        } else if (sel_mode == lfs::rendering::SelectionMode::Rectangle) {
-            constexpr float cross_size = 8.0f;
-            draw_list->AddLine(ImVec2(mouse_pos.x - cross_size, mouse_pos.y),
-                               ImVec2(mouse_pos.x + cross_size, mouse_pos.y), brush_color, 2.0f);
-            draw_list->AddLine(ImVec2(mouse_pos.x, mouse_pos.y - cross_size),
-                               ImVec2(mouse_pos.x, mouse_pos.y + cross_size), brush_color, 2.0f);
-            info_text = is_rect_dragging_ ? (current_action_ == SelectionAction::Add ? "RECT +" : "RECT -") : "RECT";
-        } else if (sel_mode == lfs::rendering::SelectionMode::Polygon) {
-            constexpr float cross_size = 8.0f;
-            draw_list->AddLine(ImVec2(mouse_pos.x - cross_size, mouse_pos.y),
-                               ImVec2(mouse_pos.x + cross_size, mouse_pos.y), brush_color, 2.0f);
-            draw_list->AddLine(ImVec2(mouse_pos.x, mouse_pos.y - cross_size),
-                               ImVec2(mouse_pos.x, mouse_pos.y + cross_size), brush_color, 2.0f);
-            if (polygon_closed_) {
-                info_text = "POLY [Enter]";
-            } else {
-                info_text = "POLY";
-            }
-        } else if (sel_mode == lfs::rendering::SelectionMode::Lasso) {
-            constexpr float cross_size = 8.0f;
-            draw_list->AddLine(ImVec2(mouse_pos.x - cross_size, mouse_pos.y),
-                               ImVec2(mouse_pos.x + cross_size, mouse_pos.y), brush_color, 2.0f);
-            draw_list->AddLine(ImVec2(mouse_pos.x, mouse_pos.y - cross_size),
-                               ImVec2(mouse_pos.x, mouse_pos.y + cross_size), brush_color, 2.0f);
-            info_text = is_lasso_dragging_ ? (current_action_ == SelectionAction::Add ? "LASSO +" : "LASSO -") : "LASSO";
-        } else {
-            draw_list->AddCircle(mouse_pos, brush_radius_, brush_color, 32, 2.0f);
-            draw_list->AddCircleFilled(mouse_pos, 3.0f, brush_color);
-            info_text = is_painting_ ? (current_action_ == SelectionAction::Add ? "SEL +" : "SEL -") : "SEL";
-            text_offset = brush_radius_ + 10.0f;
+        // Modifier suffix: Shift=add, Ctrl=remove (only when modifier held alone)
+        const char* mod_suffix = "";
+        if (tool_context_) {
+            GLFWwindow* const win = tool_context_->getWindow();
+            const bool shift = glfwGetKey(win, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS ||
+                               glfwGetKey(win, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS;
+            const bool ctrl = glfwGetKey(win, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS ||
+                              glfwGetKey(win, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS;
+            const bool alt = glfwGetKey(win, GLFW_KEY_LEFT_ALT) == GLFW_PRESS ||
+                             glfwGetKey(win, GLFW_KEY_RIGHT_ALT) == GLFW_PRESS;
+            if (shift && !ctrl && !alt) mod_suffix = " +";
+            else if (ctrl && !shift && !alt) mod_suffix = " -";
         }
 
-        constexpr float font_size = 22.0f;
-        const ImVec2 text_pos(mouse_pos.x + text_offset, mouse_pos.y - font_size / 2);
-        constexpr ImU32 shadow_color = IM_COL32(0, 0, 0, 180);
-        draw_list->AddText(ImGui::GetFont(), font_size, ImVec2(text_pos.x + 1, text_pos.y + 1), shadow_color, info_text);
-        draw_list->AddText(ImGui::GetFont(), font_size, text_pos, IM_COL32(255, 255, 255, 255), info_text);
+        // Build label
+        static char label_buf[24];
+        float text_offset = 15.0f;
+        const bool is_brush = (sel_mode == lfs::rendering::SelectionMode::Centers);
+
+        if (is_brush) {
+            draw_list->AddCircle(mouse_pos, brush_radius_, brush_color, 32, 2.0f);
+            draw_list->AddCircleFilled(mouse_pos, 3.0f, brush_color);
+            snprintf(label_buf, sizeof(label_buf), "SEL%s", mod_suffix);
+            text_offset = brush_radius_ + 10.0f;
+        } else {
+            constexpr float CROSS_SIZE = 8.0f;
+            draw_list->AddLine(ImVec2(mouse_pos.x - CROSS_SIZE, mouse_pos.y),
+                               ImVec2(mouse_pos.x + CROSS_SIZE, mouse_pos.y), brush_color, 2.0f);
+            draw_list->AddLine(ImVec2(mouse_pos.x, mouse_pos.y - CROSS_SIZE),
+                               ImVec2(mouse_pos.x, mouse_pos.y + CROSS_SIZE), brush_color, 2.0f);
+
+            const char* mode_name = "";
+            const char* suffix = "";
+            switch (sel_mode) {
+                case lfs::rendering::SelectionMode::Rings:     mode_name = "RING"; break;
+                case lfs::rendering::SelectionMode::Rectangle: mode_name = "RECT"; break;
+                case lfs::rendering::SelectionMode::Polygon:   mode_name = "POLY"; suffix = polygon_closed_ ? " [Enter]" : ""; break;
+                case lfs::rendering::SelectionMode::Lasso:     mode_name = "LASSO"; break;
+                default: break;
+            }
+            snprintf(label_buf, sizeof(label_buf), "%s%s%s", mode_name, mod_suffix, suffix);
+        }
+
+        constexpr float FONT_SIZE = 22.0f;
+        constexpr ImU32 SHADOW_COLOR = IM_COL32(0, 0, 0, 180);
+        const ImVec2 text_pos(mouse_pos.x + text_offset, mouse_pos.y - FONT_SIZE / 2);
+        draw_list->AddText(ImGui::GetFont(), FONT_SIZE, ImVec2(text_pos.x + 1, text_pos.y + 1), SHADOW_COLOR, label_buf);
+        draw_list->AddText(ImGui::GetFont(), FONT_SIZE, text_pos, IM_COL32(255, 255, 255, 255), label_buf);
 
         // Draw depth filter frustum if enabled
         if (depth_filter_enabled_ && tool_context_) {
