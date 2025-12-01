@@ -318,13 +318,20 @@ namespace lfs::rendering {
         const int n,
         const uint8_t group_id,
         const uint32_t* __restrict__ locked_groups,
-        const bool add_mode) {
+        const bool add_mode,
+        const int* __restrict__ node_indices,
+        const int target_node) {
 
         const int idx = blockIdx.x * blockDim.x + threadIdx.x;
         if (idx >= n) return;
 
         const uint8_t existing_group = existing ? existing[idx] : 0;
         const bool selected = cumulative[idx];
+
+        if (node_indices && target_node >= 0 && node_indices[idx] != target_node) {
+            output[idx] = existing_group;
+            return;
+        }
 
         if (add_mode) {
             if (selected) {
@@ -349,7 +356,9 @@ namespace lfs::rendering {
         Tensor& output_mask,
         const uint8_t group_id,
         const uint32_t* locked_groups,
-        const bool add_mode) {
+        const bool add_mode,
+        const Tensor* transform_indices,
+        const int target_node_index) {
 
         if (!cumulative_selection.is_valid() || cumulative_selection.size(0) == 0) return;
 
@@ -360,6 +369,10 @@ namespace lfs::rendering {
         const uint8_t* existing_ptr = (existing_mask.is_valid() && existing_mask.numel() == static_cast<size_t>(n))
             ? existing_mask.ptr<uint8_t>() : nullptr;
 
+        const int* node_indices_ptr = (transform_indices && transform_indices->is_valid() &&
+                                       transform_indices->numel() == static_cast<size_t>(n))
+            ? transform_indices->ptr<int>() : nullptr;
+
         apply_selection_group_kernel<<<grid_size, BLOCK_SIZE>>>(
             cumulative_selection.ptr<bool>(),
             existing_ptr,
@@ -367,7 +380,44 @@ namespace lfs::rendering {
             n,
             group_id,
             locked_groups,
-            add_mode);
+            add_mode,
+            node_indices_ptr,
+            target_node_index);
+    }
+
+    __global__ void filter_selection_by_node_kernel(
+        bool* __restrict__ selection,
+        const int* __restrict__ node_indices,
+        const int n,
+        const int target_node) {
+
+        const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+        if (idx >= n) return;
+
+        if (node_indices[idx] != target_node) {
+            selection[idx] = false;
+        }
+    }
+
+    void filter_selection_by_node(
+        Tensor& selection,
+        const Tensor& transform_indices,
+        const int target_node_index) {
+
+        if (!selection.is_valid() || !transform_indices.is_valid()) return;
+        if (target_node_index < 0) return;
+
+        const int n = static_cast<int>(selection.size(0));
+        if (transform_indices.numel() != static_cast<size_t>(n)) return;
+
+        constexpr int BLOCK_SIZE = 256;
+        const int grid_size = (n + BLOCK_SIZE - 1) / BLOCK_SIZE;
+
+        filter_selection_by_node_kernel<<<grid_size, BLOCK_SIZE>>>(
+            selection.ptr<bool>(),
+            transform_indices.ptr<int>(),
+            n,
+            target_node_index);
     }
 
 } // namespace lfs::rendering

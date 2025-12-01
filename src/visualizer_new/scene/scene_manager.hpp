@@ -115,6 +115,7 @@ namespace lfs::vis {
         void clearSelection();
         std::string getSelectedNodeName() const;
         bool hasSelectedNode() const;
+        int getSelectedNodeIndex() const;  // Index in combined model, -1 if none
 
         // Node transforms
         void setNodeTransform(const std::string& name, const glm::mat4& transform);

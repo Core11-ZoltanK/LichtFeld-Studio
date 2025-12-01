@@ -94,15 +94,14 @@ namespace lfs::vis {
         ui::NodeSelected::when([this](const auto& event) {
             if (event.type == "PLY") {
                 std::lock_guard<std::mutex> lock(state_mutex_);
-                if (selected_node_ != event.path) {
-                    selected_node_ = event.path;
-                }
+                selected_node_ = event.path;
             }
         });
 
         // Handle node deselection
         ui::NodeDeselected::when([this](const auto&) {
-            clearSelection();
+            std::lock_guard<std::mutex> lock(state_mutex_);
+            selected_node_.clear();
         });
     }
 
@@ -336,6 +335,12 @@ namespace lfs::vis {
     bool SceneManager::hasSelectedNode() const {
         std::lock_guard<std::mutex> lock(state_mutex_);
         return !selected_node_.empty() && scene_.getNode(selected_node_) != nullptr;
+    }
+
+    int SceneManager::getSelectedNodeIndex() const {
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        if (selected_node_.empty()) { return -1; }
+        return scene_.getVisibleNodeIndex(selected_node_);
     }
 
     // ========== Node Transforms ==========

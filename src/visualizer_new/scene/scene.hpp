@@ -66,6 +66,9 @@ namespace lfs::vis {
         // Returns nullptr if no transforms needed (single node with identity transform)
         std::shared_ptr<lfs::core::Tensor> getTransformIndices() const;
 
+        // Get node index in combined model (-1 if not found or not visible)
+        [[nodiscard]] int getVisibleNodeIndex(const std::string& name) const;
+
         // Selection mask for highlighting selected Gaussians
         // Returns nullptr if no selection (all zeros = no selection)
         std::shared_ptr<lfs::core::Tensor> getSelectionMask() const;

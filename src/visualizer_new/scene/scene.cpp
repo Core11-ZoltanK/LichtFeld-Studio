@@ -380,6 +380,16 @@ namespace lfs::vis {
         return cached_transform_indices_;
     }
 
+    int Scene::getVisibleNodeIndex(const std::string& name) const {
+        int index = 0;
+        for (const auto& node : nodes_) {
+            if (!node.visible || !node.model) { continue; }
+            if (node.name == name) { return index; }
+            ++index;
+        }
+        return -1;
+    }
+
     std::shared_ptr<lfs::core::Tensor> Scene::getSelectionMask() const {
         if (!has_selection_) {
             return nullptr;

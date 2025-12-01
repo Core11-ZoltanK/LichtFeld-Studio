@@ -136,6 +136,8 @@ namespace lfs::rendering {
      * @param group_id Group ID to assign (1-255)
      * @param locked_groups Bitmask of locked groups (256 bits = 32 bytes)
      * @param add_mode If true, add to group; if false, remove from group
+     * @param transform_indices Per-gaussian node index [N] (int32), nullptr to skip filtering
+     * @param target_node_index Only apply to gaussians with this node index, -1 to apply to all
      */
     void apply_selection_group_tensor(
         const Tensor& cumulative_selection,
@@ -143,6 +145,14 @@ namespace lfs::rendering {
         Tensor& output_mask,
         uint8_t group_id,
         const uint32_t* locked_groups,
-        bool add_mode);
+        bool add_mode,
+        const Tensor* transform_indices = nullptr,
+        int target_node_index = -1);
+
+    // Filter bool selection mask by node index (clears selection for non-matching nodes)
+    void filter_selection_by_node(
+        Tensor& selection,
+        const Tensor& transform_indices,
+        int target_node_index);
 
 } // namespace lfs::rendering
