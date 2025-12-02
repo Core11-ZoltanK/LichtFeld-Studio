@@ -42,12 +42,18 @@ namespace lfs::vis {
             // PLY scene graph data for PLY mode
             struct PLYNode {
                 std::string name;
+                std::string parent_name;  // Empty = root level
+                bool is_group = false;    // GROUP vs SPLAT
                 bool visible = true;
                 bool selected = false;
+                bool locked = false;
                 size_t gaussian_count = 0;
             };
             std::vector<PLYNode> m_plyNodes;
             int m_selectedPLYIndex = -1;
+
+            // Drag-drop state
+            std::string m_dragPayload;  // Name of node being dragged
 
             // Rename state
             struct RenameState {
@@ -103,8 +109,12 @@ namespace lfs::vis {
 
             // PLY scene graph rendering
             void renderPLYSceneGraph();
+            void renderModelsFolder();
+            void renderModelNode(size_t index);
+            void renderNodeChildren(const std::string& parent_name);
             void renderImageList();
             void updatePLYNodes();
+            bool handleDragDrop(const std::string& target_name, bool is_folder);
 
             // Rename functionality
             void startRenaming(int nodeIndex);

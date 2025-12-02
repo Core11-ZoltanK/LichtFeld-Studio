@@ -107,7 +107,7 @@ namespace lfs::vis {
         void loadSplatFile(const std::filesystem::path& path);
         void addSplatFile(const std::filesystem::path& path, const std::string& name = "", bool is_visible = true);
 
-        void removePLY(const std::string& name);
+        void removePLY(const std::string& name, bool keep_children = false);
         void setPLYVisibility(const std::string& name, bool visible);
 
         // Node selection for transforms
@@ -115,6 +115,7 @@ namespace lfs::vis {
         void clearSelection();
         std::string getSelectedNodeName() const;
         bool hasSelectedNode() const;
+        bool isSelectedNodeLocked() const;  // Check if selected node is locked
         int getSelectedNodeIndex() const;  // Index in combined model, -1 if none
 
         // Node transforms
@@ -167,6 +168,9 @@ namespace lfs::vis {
         void emitSceneChanged();
         void handleCropActivePly(const lfs::geometry::BoundingBox& crop_box, bool inverse);
         void handleRenamePly(const lfs::core::events::cmd::RenamePLY& event);
+        void handleReparentNode(const std::string& node_name, const std::string& new_parent_name);
+        void handleAddGroup(const std::string& name, const std::string& parent_name);
+        void handleDuplicateNode(const std::string& name);
         void updateCropBoxToFitScene(bool use_percentile);
 
         Scene scene_;

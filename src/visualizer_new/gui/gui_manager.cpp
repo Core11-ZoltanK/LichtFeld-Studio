@@ -1386,6 +1386,10 @@ namespace lfs::vis::gui {
         if (!scene_manager || !scene_manager->hasSelectedNode())
             return;
 
+        // Don't allow transform gizmo on locked nodes
+        if (scene_manager->isSelectedNodeLocked())
+            return;
+
         auto* render_manager = ctx.viewer->getRenderingManager();
         if (!render_manager)
             return;

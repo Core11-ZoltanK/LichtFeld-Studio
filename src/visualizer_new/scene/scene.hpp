@@ -9,10 +9,21 @@
 #include <glm/glm.hpp>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
 namespace lfs::vis {
+
+    // Node identifier (-1 = invalid/root)
+    using NodeId = int32_t;
+    constexpr NodeId NULL_NODE = -1;
+
+    // Node types
+    enum class NodeType : uint8_t {
+        SPLAT,   // Contains gaussian splat data
+        GROUP    // Empty transform node for organization
+    };
 
     // Selection group with ID, name, and color
     struct SelectionGroup {
@@ -26,12 +37,24 @@ namespace lfs::vis {
     class Scene {
     public:
         struct Node {
+            NodeId id = NULL_NODE;
+            NodeId parent_id = NULL_NODE;          // NULL_NODE = root level
+            std::vector<NodeId> children;
+            NodeType type = NodeType::SPLAT;
+
             std::string name;
-            std::unique_ptr<lfs::core::SplatData> model;
-            glm::mat4 transform{1.0f};
+            std::unique_ptr<lfs::core::SplatData> model;  // Only for SPLAT type
+            glm::mat4 local_transform{1.0f};
+            mutable glm::mat4 world_transform{1.0f};
+            mutable bool transform_dirty = true;
             bool visible = true;
+            bool locked = false;
             size_t gaussian_count = 0;
-            glm::vec3 centroid{0.0f};  // Cached centroid, computed once when model is loaded
+            glm::vec3 centroid{0.0f};
+
+            // Legacy accessor (transform is now local_transform)
+            [[nodiscard]] glm::mat4& transform() { return local_transform; }
+            [[nodiscard]] const glm::mat4& transform() const { return local_transform; }
         };
 
         Scene();
@@ -45,16 +68,37 @@ namespace lfs::vis {
         Scene(Scene&&) = default;
         Scene& operator=(Scene&&) = default;
 
-        // Node management
+        // Node management (by name - legacy API)
         void addNode(const std::string& name, std::unique_ptr<lfs::core::SplatData> model);
-        void removeNode(const std::string& name);
+        void removeNode(const std::string& name, bool keep_children = false);
         void replaceNodeModel(const std::string& name, std::unique_ptr<lfs::core::SplatData> model);
         void setNodeVisibility(const std::string& name, bool visible);
+        void setNodeLocked(const std::string& name, bool locked);
+        [[nodiscard]] bool isNodeLocked(const std::string& name) const;
         void setNodeTransform(const std::string& name, const glm::mat4& transform);
         glm::mat4 getNodeTransform(const std::string& name) const;
         bool renameNode(const std::string& old_name, const std::string& new_name);
         void clear();
         std::pair<std::string, std::string> cycleVisibilityWithNames();
+
+        // Scene graph operations
+        NodeId addGroup(const std::string& name, NodeId parent = NULL_NODE);
+        NodeId addSplat(const std::string& name, std::unique_ptr<lfs::core::SplatData> model, NodeId parent = NULL_NODE);
+        void reparent(NodeId node, NodeId new_parent);
+        // Duplicate a node (and all children recursively for groups)
+        // Returns new node name (original name with "_copy" or "_copy_N" suffix)
+        [[nodiscard]] std::string duplicateNode(const std::string& name);
+        [[nodiscard]] const glm::mat4& getWorldTransform(NodeId node) const;
+        [[nodiscard]] std::vector<NodeId> getRootNodes() const;
+        [[nodiscard]] Node* getNodeById(NodeId id);
+        [[nodiscard]] const Node* getNodeById(NodeId id) const;
+
+        // Check if node is effectively visible (considers parent hierarchy)
+        [[nodiscard]] bool isNodeEffectivelyVisible(NodeId id) const;
+
+        // Get bounding box center for a node (for groups: includes all descendants)
+        [[nodiscard]] glm::vec3 getNodeBoundsCenter(NodeId id) const;
+        [[nodiscard]] bool getNodeBounds(NodeId id, glm::vec3& out_min, glm::vec3& out_max) const;
 
         // Get combined model for rendering
         const lfs::core::SplatData* getCombinedModel() const;
@@ -120,6 +164,8 @@ namespace lfs::vis {
 
     private:
         std::vector<Node> nodes_;
+        std::unordered_map<NodeId, size_t> id_to_index_;  // NodeId -> index in nodes_
+        NodeId next_node_id_ = 0;
 
         // Caching for combined model
         mutable std::unique_ptr<lfs::core::SplatData> cached_combined_;
@@ -138,6 +184,10 @@ namespace lfs::vis {
 
         void invalidateCache() { cache_valid_ = false; }
         void rebuildCacheIfNeeded() const;
+
+        // Scene graph helpers
+        void markTransformDirty(NodeId node);
+        void updateWorldTransform(const Node& node) const;
 
         // Helper to find group by ID
         SelectionGroup* findGroup(uint8_t id);

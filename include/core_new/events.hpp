@@ -52,10 +52,14 @@ namespace lfs::core {
             EVENT(ExecuteConsole, std::string command;);
             EVENT(GoToCamView, int cam_id;);
             EVENT(AddPLY, std::filesystem::path path; std::string name;);
-            EVENT(RemovePLY, std::string name;);
+            EVENT(RemovePLY, std::string name; bool keep_children = false;);
             EVENT(RenamePLY, std::string old_name; std::string new_name;);
             EVENT(SetPLYVisibility, std::string name; bool visible;);
             EVENT(SavePLYAs, std::string name;);  // Open save dialog for specific PLY node
+            EVENT(ReparentNode, std::string node_name; std::string new_parent_name;);  // Empty parent = root
+            EVENT(AddGroup, std::string name; std::string parent_name;);  // Create empty group node
+            EVENT(DuplicateNode, std::string name;);  // Duplicate node (and children if group)
+            EVENT(SetNodeLocked, std::string name; bool locked;);  // Lock/unlock node for editing
             EVENT(CropPLY, lfs::geometry::BoundingBox crop_box; bool inverse;);
             EVENT(ApplyCropBox, );
             EVENT(FitCropBoxToScene, bool use_percentile;);
@@ -107,8 +111,9 @@ namespace lfs::core {
             EVENT(SceneCleared, );
             EVENT(ModelUpdated, int iteration; size_t num_gaussians;);
             EVENT(SceneChanged, );
-            EVENT(PLYAdded, std::string name; size_t node_gaussians; size_t total_gaussians; bool is_visible;);
-            EVENT(PLYRemoved, std::string name;);
+            EVENT(PLYAdded, std::string name; size_t node_gaussians; size_t total_gaussians; bool is_visible; std::string parent_name; bool is_group;);
+            EVENT(PLYRemoved, std::string name; bool children_kept = false; std::string parent_of_removed;);
+            EVENT(NodeReparented, std::string name; std::string old_parent; std::string new_parent;);
 
             // Data loading
             EVENT(DatasetLoadStarted, std::filesystem::path path;);

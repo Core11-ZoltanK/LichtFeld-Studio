@@ -150,7 +150,9 @@ namespace gs {
                 .name = name,
                 .node_gaussians = gaussian_count,
                 .total_gaussians = scene_.getTotalGaussianCount(),
-                .is_visible = true}
+                .is_visible = true,
+                .parent_name = "",
+                .is_group = false}
                 .emit();
 
             emitSceneChanged();
@@ -223,7 +225,9 @@ namespace gs {
                 .name = name,
                 .node_gaussians = gaussian_count,
                 .total_gaussians = scene_.getTotalGaussianCount(),
-                .is_visible = is_visible}
+                .is_visible = is_visible,
+                .parent_name = "",
+                .is_group = false}
                 .emit();
 
             emitSceneChanged();

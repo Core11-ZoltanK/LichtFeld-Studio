@@ -67,6 +67,14 @@ namespace lfs::vis::gui {
             handlePLYRenamed(event);
         });
 
+        state::NodeReparented::when([this](const auto& event) {
+            const auto it = std::find_if(m_plyNodes.begin(), m_plyNodes.end(),
+                [&event](const PLYNode& n) { return n.name == event.name; });
+            if (it != m_plyNodes.end()) {
+                it->parent_name = event.new_parent;
+            }
+        });
+
         ui::NodeSelected::when([this](const auto& event) {
             if (event.type == "PLY") {
                 for (size_t i = 0; i < m_plyNodes.size(); ++i) {
@@ -115,50 +123,44 @@ namespace lfs::vis::gui {
     }
 
     void ScenePanel::handlePLYAdded(const state::PLYAdded& event) {
-        LOG_DEBUG("PLY added to scene panel: '{}' ({} gaussians, {} total)",
-                  event.name, event.node_gaussians, event.total_gaussians);
-
-        // Add or update the PLY node
-        auto it = std::find_if(m_plyNodes.begin(), m_plyNodes.end(),
-                               [&event](const PLYNode& node) { return node.name == event.name; });
+        const auto it = std::find_if(m_plyNodes.begin(), m_plyNodes.end(),
+                               [&event](const PLYNode& n) { return n.name == event.name; });
 
         if (it != m_plyNodes.end()) {
-            // Update existing node with its individual gaussian count
             it->gaussian_count = event.node_gaussians;
-            LOG_TRACE("Updated existing PLY node '{}'", event.name);
+            it->parent_name = event.parent_name;
+            it->is_group = event.is_group;
         } else {
-            // Add new node with its individual gaussian count
-            PLYNode node;
-            node.name = event.name;
-            node.visible = event.is_visible;
-            node.selected = false;
-            node.gaussian_count = event.node_gaussians; // Use node-specific count
-            m_plyNodes.push_back(node);
-            LOG_TRACE("Added new PLY node '{}'", event.name);
+            m_plyNodes.push_back({
+                .name = event.name,
+                .parent_name = event.parent_name,
+                .is_group = event.is_group,
+                .visible = event.is_visible,
+                .selected = false,
+                .locked = false,
+                .gaussian_count = event.node_gaussians
+            });
         }
-
-        // Update current mode based on active tab
         updateModeFromTab();
     }
 
     void ScenePanel::handlePLYRemoved(const state::PLYRemoved& event) {
-        LOG_DEBUG("PLY removed from scene panel: '{}'", event.name);
-
-        // Remove the node from our list
-        auto it = std::find_if(m_plyNodes.begin(), m_plyNodes.end(),
-                               [&event](const PLYNode& node) { return node.name == event.name; });
-
-        if (it != m_plyNodes.end()) {
-            m_plyNodes.erase(it);
-
-            // Reset selection if necessary
-            if (m_selectedPLYIndex >= static_cast<int>(m_plyNodes.size())) {
-                m_selectedPLYIndex = -1;
-                LOG_TRACE("Reset PLY selection index");
+        if (event.children_kept) {
+            for (auto& n : m_plyNodes) {
+                if (n.parent_name == event.name) {
+                    n.parent_name = event.parent_of_removed;
+                }
             }
         }
 
-        // Update current mode based on active tab
+        const auto it = std::find_if(m_plyNodes.begin(), m_plyNodes.end(),
+                               [&event](const PLYNode& n) { return n.name == event.name; });
+        if (it != m_plyNodes.end()) {
+            m_plyNodes.erase(it);
+            if (m_selectedPLYIndex >= static_cast<int>(m_plyNodes.size())) {
+                m_selectedPLYIndex = -1;
+            }
+        }
         updateModeFromTab();
     }
 
@@ -394,187 +396,285 @@ namespace lfs::vis::gui {
     }
 
     void ScenePanel::renderPLYSceneGraph() {
-        ImGui::Text("Scene Graph (PLY Mode)");
+        ImGui::BeginChild("SceneGraph", ImVec2(0, 0), ImGuiChildFlags_None);
 
-        if (!m_plyNodes.empty() && m_plyNodes.size() > 1) {
-            ImGui::TextDisabled("Tip: Press 'T' to cycle through PLYs");
-        }
-
-        ImGui::Separator();
-
-        // Add PLY button
-        if (ImGui::Button("Add PLY", ImVec2(-1, 0))) {
-            // Open file browser for adding PLY
-            cmd::ShowWindow{.window_name = "file_browser", .show = true}.emit();
-            LOG_DEBUG("Opening file browser to add PLY");
-#ifdef WIN32
-            // show native windows file dialog for folder selection
-            OpenPlyFileDialog();
-            // hide the file browser
-            cmd::ShowWindow{.window_name = "file_browser", .show = false}.emit();
-#endif // WIN32
-        }
-
-        ImGui::Separator();
-
-        // Scene graph tree
-        ImGui::BeginChild("SceneGraph", ImVec2(0, 0), true);
-
-        // Check for F2 key press when a PLY is selected and we're not already renaming
-        if (ImGui::IsWindowFocused() && ImGui::IsKeyPressed(ImGuiKey_F2) &&
-            !m_renameState.is_renaming && m_selectedPLYIndex >= 0 &&
-            m_selectedPLYIndex < static_cast<int>(m_plyNodes.size())) {
-            startRenaming(m_selectedPLYIndex);
-            LOG_DEBUG("F2 pressed - starting rename for PLY '{}'", m_plyNodes[m_selectedPLYIndex].name);
-        }
-
-        // Escape key deselects
-        if (ImGui::IsWindowFocused() && ImGui::IsKeyPressed(ImGuiKey_Escape) &&
-            !m_renameState.is_renaming && m_selectedPLYIndex >= 0) {
-            for (auto& n : m_plyNodes) {
-                n.selected = false;
+        // Keyboard shortcuts
+        if (ImGui::IsWindowFocused() && !m_renameState.is_renaming) {
+            if (ImGui::IsKeyPressed(ImGuiKey_F2) && m_selectedPLYIndex >= 0 &&
+                m_selectedPLYIndex < static_cast<int>(m_plyNodes.size())) {
+                startRenaming(m_selectedPLYIndex);
             }
-            m_selectedPLYIndex = -1;
-            ui::NodeDeselected{}.emit();
+            if (ImGui::IsKeyPressed(ImGuiKey_Escape) && m_selectedPLYIndex >= 0) {
+                for (auto& n : m_plyNodes) n.selected = false;
+                m_selectedPLYIndex = -1;
+                ui::NodeDeselected{}.emit();
+            }
         }
 
+        constexpr ImGuiTreeNodeFlags ROOT_FLAGS = ImGuiTreeNodeFlags_DefaultOpen |
+                                                  ImGuiTreeNodeFlags_OpenOnArrow |
+                                                  ImGuiTreeNodeFlags_SpanAvailWidth |
+                                                  ImGuiTreeNodeFlags_Framed;
+
+        if (ImGui::TreeNodeEx("Scene", ROOT_FLAGS)) {
+            renderModelsFolder();
+            ImGui::TreePop();
+        }
+
+        // Summary
         if (!m_plyNodes.empty()) {
-            ImGui::Text("Models (%zu):", m_plyNodes.size());
             ImGui::Separator();
-
-            for (size_t i = 0; i < m_plyNodes.size(); ++i) {
-                auto& node = m_plyNodes[i];
-
-                // Create unique ID
-                std::string node_id = std::format("{}##{}", node.name, i);
-                std::string popup_id = std::format("popup_{}", i); // Unique popup ID
-
-                // Node flags
-                ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_Leaf |
-                                           ImGuiTreeNodeFlags_NoTreePushOnOpen |
-                                           ImGuiTreeNodeFlags_SpanAvailWidth;
-                if (node.selected) {
-                    flags |= ImGuiTreeNodeFlags_Selected;
-                }
-
-                // Visibility checkbox
-                ImGui::PushID(static_cast<int>(i));
-                bool visible = node.visible;
-                if (ImGui::Checkbox("##vis", &visible)) {
-                    node.visible = visible;
-                    cmd::SetPLYVisibility{
-                        .name = node.name,
-                        .visible = visible}
-                        .emit();
-                    LOG_TRACE("PLY '{}' visibility changed to: {}", node.name, visible);
-                }
-                ImGui::PopID();
-
-                ImGui::SameLine();
-
-                // Check if this node is being renamed
-                bool is_renaming = (m_renameState.is_renaming && m_renameState.renaming_index == static_cast<int>(i));
-
-                if (is_renaming) {
-                    // Render input field for renaming
-                    ImGui::PushID(static_cast<int>(i));
-
-                    if (m_renameState.focus_input) {
-                        ImGui::SetKeyboardFocusHere();
-                        m_renameState.focus_input = false;
-                    }
-
-                    ImGuiInputTextFlags input_flags = ImGuiInputTextFlags_AutoSelectAll | ImGuiInputTextFlags_EnterReturnsTrue;
-                    bool entered = ImGui::InputText("##rename", m_renameState.buffer, sizeof(m_renameState.buffer), input_flags);
-
-                    bool is_active = ImGui::IsItemActive();
-                    bool is_focused = ImGui::IsItemFocused();
-                    m_renameState.escape_pressed = ImGui::IsKeyPressed(ImGuiKey_Escape);
-
-                    // Track if the input was ever active (user clicked on it)
-                    if (is_active) {
-                        m_renameState.input_was_active = true;
-                    }
-
-                    // Handle Enter key
-                    if (entered) {
-                        finishRenaming();
-                    }
-                    // Handle focus loss - cancel if escape pressed or
-                    // input was active before and is now neither active nor focused (another app button was pressed)
-                    else if (m_renameState.escape_pressed || (m_renameState.input_was_active && !is_focused)) {
-                        cancelRenaming();
-                    }
-
-                    ImGui::PopID();
-                } else {
-                    // Normal tree node display
-                    ImGui::TreeNodeEx(node_id.c_str(), flags);
-
-                    // Toggle selection on click
-                    if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
-                        if (node.selected) {
-                            node.selected = false;
-                            m_selectedPLYIndex = -1;
-                            ui::NodeDeselected{}.emit();
-                        } else {
-                            for (auto& n : m_plyNodes) {
-                                n.selected = false;
-                            }
-                            node.selected = true;
-                            m_selectedPLYIndex = static_cast<int>(i);
-                            ui::NodeSelected{
-                                .path = node.name,
-                                .type = "PLY",
-                                .metadata = {
-                                    {"name", node.name},
-                                    {"gaussians", std::to_string(node.gaussian_count)},
-                                    {"visible", node.visible ? "true" : "false"}}}
-                                .emit();
-                        }
-                    }
-
-                    // Right-click context menu - provide explicit popup ID
-                    if (ImGui::BeginPopupContextItem(popup_id.c_str())) {
-                        if (ImGui::MenuItem("Save As...")) {
-                            LOG_DEBUG("Save PLY '{}' as...", node.name);
-                            cmd::SavePLYAs{.name = node.name}.emit();
-                        }
-                        if (ImGui::MenuItem("Rename PLY")) {
-                            startRenaming(static_cast<int>(i));
-                            LOG_DEBUG("Starting rename for PLY '{}'", node.name);
-                        }
-                        if (ImGui::MenuItem("Remove PLY")) {
-                            LOG_INFO("Removing PLY '{}' via context menu", node.name);
-                            cmd::RemovePLY{.name = node.name}.emit();
-                        }
-                        ImGui::EndPopup();
-                    }
-                }
-
-                // Show gaussian count (outside of rename check)
-                if (!is_renaming) {
-                    ImGui::SameLine();
-                    ImGui::TextColored(ImVec4(0.2f, 0.2f, 0.2f, 1), "(%zu)", node.gaussian_count);
-                }
-            }
-
-            // Show total gaussian count
-            size_t total_gaussians = 0;
+            size_t total = 0;
             for (const auto& node : m_plyNodes) {
-                if (node.visible) {
-                    total_gaussians += node.gaussian_count;
-                }
+                if (node.visible) total += node.gaussian_count;
             }
-            ImGui::Separator();
-            ImGui::Text("Total visible: %zu gaussians", total_gaussians);
-
-        } else {
-            ImGui::Text("No PLY models loaded.");
-            ImGui::Text("Click 'Add PLY' to load models.");
+            ImGui::TextDisabled("Visible: %zu gaussians", total);
         }
 
         ImGui::EndChild();
+    }
+
+    void ScenePanel::renderModelsFolder() {
+        constexpr ImGuiTreeNodeFlags FOLDER_FLAGS = ImGuiTreeNodeFlags_DefaultOpen |
+                                                    ImGuiTreeNodeFlags_OpenOnArrow |
+                                                    ImGuiTreeNodeFlags_SpanAvailWidth;
+
+        const std::string label = std::format("Models ({})", m_plyNodes.size());
+        if (!ImGui::TreeNodeEx(label.c_str(), FOLDER_FLAGS)) return;
+
+        // Drop target for moving nodes to root
+        handleDragDrop("", true);
+
+        // Context menu for folder
+        if (ImGui::BeginPopupContextItem("##ModelsMenu")) {
+            if (ImGui::MenuItem("Add PLY...")) {
+                cmd::ShowWindow{.window_name = "file_browser", .show = true}.emit();
+#ifdef WIN32
+                OpenPlyFileDialog();
+                cmd::ShowWindow{.window_name = "file_browser", .show = false}.emit();
+#endif
+            }
+            if (ImGui::MenuItem("Add Group")) {
+                cmd::AddGroup{.name = "New Group", .parent_name = ""}.emit();
+            }
+            ImGui::EndPopup();
+        }
+
+        // Only render root-level nodes (parent_name is empty)
+        for (size_t i = 0; i < m_plyNodes.size(); ++i) {
+            if (m_plyNodes[i].parent_name.empty()) {
+                renderModelNode(i);
+            }
+        }
+
+        if (m_plyNodes.empty()) {
+            ImGui::TextDisabled("No models loaded");
+            ImGui::TextDisabled("Right-click to add...");
+        }
+
+        ImGui::TreePop();
+    }
+
+    void ScenePanel::renderModelNode(const size_t index) {
+        auto& node = m_plyNodes[index];
+        const int idx = static_cast<int>(index);
+        ImGui::PushID(idx);
+
+        // Visibility toggle
+        if (ImGui::SmallButton(node.visible ? "[*]" : "[ ]")) {
+            node.visible = !node.visible;
+            cmd::SetPLYVisibility{.name = node.name, .visible = node.visible}.emit();
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip(node.visible ? "Hide" : "Show");
+        }
+        ImGui::SameLine();
+
+        const bool is_renaming = m_renameState.is_renaming && m_renameState.renaming_index == idx;
+
+        if (is_renaming) {
+            if (m_renameState.focus_input) {
+                ImGui::SetKeyboardFocusHere();
+                m_renameState.focus_input = false;
+            }
+
+            constexpr ImGuiInputTextFlags INPUT_FLAGS = ImGuiInputTextFlags_AutoSelectAll |
+                                                        ImGuiInputTextFlags_EnterReturnsTrue;
+            const bool entered = ImGui::InputText("##rename", m_renameState.buffer,
+                                                  sizeof(m_renameState.buffer), INPUT_FLAGS);
+            const bool is_focused = ImGui::IsItemFocused();
+            if (ImGui::IsItemActive()) m_renameState.input_was_active = true;
+
+            if (entered) {
+                finishRenaming();
+            } else if (ImGui::IsKeyPressed(ImGuiKey_Escape) ||
+                       (m_renameState.input_was_active && !is_focused)) {
+                cancelRenaming();
+            }
+        } else {
+            const bool has_children = node.is_group && std::ranges::any_of(m_plyNodes,
+                [&node](const PLYNode& n) { return n.parent_name == node.name; });
+
+            constexpr ImGuiTreeNodeFlags BASE_FLAGS = ImGuiTreeNodeFlags_OpenOnArrow;
+            ImGuiTreeNodeFlags flags = BASE_FLAGS;
+            if (node.selected) flags |= ImGuiTreeNodeFlags_Selected;
+            if (!has_children) flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+            if (node.is_group) flags |= ImGuiTreeNodeFlags_DefaultOpen;
+
+            const std::string label = node.is_group
+                ? node.name
+                : std::format("{} ({:L})", node.name, node.gaussian_count);
+
+            const bool is_open = ImGui::TreeNodeEx(label.c_str(), flags);
+
+            // Capture state before adding lock button
+            const bool hovered = ImGui::IsItemHovered();
+            const bool clicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
+            const bool toggled = ImGui::IsItemToggledOpen();
+
+            if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+                ImGui::OpenPopup(("##ctx_" + node.name).c_str());
+            }
+
+            // Lock button
+            ImGui::SameLine();
+            static constexpr ImVec4 TRANSPARENT{0, 0, 0, 0};
+            static constexpr ImVec4 HOVER_COLOR{0.3f, 0.3f, 0.3f, 0.5f};
+            static constexpr ImVec4 LOCKED_TEXT_COLOR{1.0f, 0.4f, 0.4f, 1.0f};
+            ImGui::PushStyleColor(ImGuiCol_Button, TRANSPARENT);
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, HOVER_COLOR);
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, HOVER_COLOR);
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2, 0));
+            if (node.locked) ImGui::PushStyleColor(ImGuiCol_Text, LOCKED_TEXT_COLOR);
+
+            if (ImGui::SmallButton((std::string(node.locked ? "L##" : "U##") + node.name).c_str())) {
+                node.locked = !node.locked;
+                cmd::SetNodeLocked{.name = node.name, .locked = node.locked}.emit();
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip(node.locked ? "Unlock" : "Lock");
+
+            if (node.locked) ImGui::PopStyleColor();
+            ImGui::PopStyleVar();
+            ImGui::PopStyleColor(3);
+
+            // Drag source
+            if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+                ImGui::SetDragDropPayload("SCENE_NODE", node.name.c_str(), node.name.size() + 1);
+                ImGui::Text("Move: %s", node.name.c_str());
+                ImGui::EndDragDropSource();
+            }
+
+            if (node.is_group) handleDragDrop(node.name, true);
+
+            // Selection
+            if (clicked && !toggled) {
+                if (node.selected) {
+                    node.selected = false;
+                    m_selectedPLYIndex = -1;
+                    ui::NodeDeselected{}.emit();
+                } else {
+                    for (auto& n : m_plyNodes) n.selected = false;
+                    node.selected = true;
+                    m_selectedPLYIndex = idx;
+                    ui::NodeSelected{
+                        .path = node.name,
+                        .type = node.is_group ? "Group" : "PLY",
+                        .metadata = {{"name", node.name},
+                                     {"gaussians", std::to_string(node.gaussian_count)},
+                                     {"visible", node.visible ? "true" : "false"}}}.emit();
+                }
+            }
+
+            // Context menu
+            if (ImGui::BeginPopup(("##ctx_" + node.name).c_str())) {
+                if (node.is_group && ImGui::MenuItem("Add Group...")) {
+                    cmd::AddGroup{.name = "New Group", .parent_name = node.name}.emit();
+                }
+                if (node.is_group) ImGui::Separator();
+                if (!node.is_group && ImGui::MenuItem("Save As...")) {
+                    cmd::SavePLYAs{.name = node.name}.emit();
+                }
+                if (ImGui::MenuItem("Rename")) startRenaming(idx);
+                if (ImGui::MenuItem("Duplicate")) cmd::DuplicateNode{.name = node.name}.emit();
+
+                if (ImGui::BeginMenu("Move to")) {
+                    if (!node.parent_name.empty()) {
+                        if (ImGui::MenuItem("Root")) {
+                            cmd::ReparentNode{.node_name = node.name, .new_parent_name = ""}.emit();
+                        }
+                        ImGui::Separator();
+                    }
+                    bool found_group = false;
+                    for (const auto& t : m_plyNodes) {
+                        if (t.is_group && t.name != node.name && t.name != node.parent_name) {
+                            found_group = true;
+                            if (ImGui::MenuItem(t.name.c_str())) {
+                                cmd::ReparentNode{.node_name = node.name, .new_parent_name = t.name}.emit();
+                            }
+                        }
+                    }
+                    if (!found_group && node.parent_name.empty()) {
+                        ImGui::TextDisabled("No groups available");
+                    }
+                    ImGui::EndMenu();
+                }
+
+                if (ImGui::MenuItem(node.locked ? "Unlock" : "Lock")) {
+                    node.locked = !node.locked;
+                    cmd::SetNodeLocked{.name = node.name, .locked = node.locked}.emit();
+                }
+
+                ImGui::Separator();
+                if (has_children) {
+                    if (ImGui::MenuItem("Delete group only")) {
+                        cmd::RemovePLY{.name = node.name, .keep_children = true}.emit();
+                    }
+                    if (ImGui::MenuItem("Delete with children")) {
+                        cmd::RemovePLY{.name = node.name, .keep_children = false}.emit();
+                    }
+                } else {
+                    if (ImGui::MenuItem("Delete")) cmd::RemovePLY{.name = node.name}.emit();
+                }
+                ImGui::EndPopup();
+            }
+
+            if (is_open && has_children) {
+                renderNodeChildren(node.name);
+                ImGui::TreePop();
+            }
+        }
+
+        ImGui::PopID();
+    }
+
+    void ScenePanel::renderNodeChildren(const std::string& parent_name) {
+        for (size_t i = 0; i < m_plyNodes.size(); ++i) {
+            if (m_plyNodes[i].parent_name == parent_name) {
+                renderModelNode(i);
+            }
+        }
+    }
+
+    bool ScenePanel::handleDragDrop(const std::string& target_name, const bool is_folder) {
+        if (!ImGui::BeginDragDropTarget()) return false;
+
+        bool handled = false;
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("SCENE_NODE")) {
+            const char* dragged_name = static_cast<const char*>(payload->Data);
+
+            // Don't allow dropping on self or own children
+            if (dragged_name != target_name) {
+                cmd::ReparentNode{
+                    .node_name = std::string(dragged_name),
+                    .new_parent_name = is_folder ? target_name : ""
+                }.emit();
+                LOG_INFO("Reparented '{}' to '{}'", dragged_name, target_name.empty() ? "root" : target_name);
+                handled = true;
+            }
+        }
+
+        ImGui::EndDragDropTarget();
+        return handled;
     }
 
     void ScenePanel::renderImageList() {
@@ -725,18 +825,16 @@ namespace lfs::vis::gui {
     }
 
     void ScenePanel::handlePLYRenamed(const cmd::RenamePLY& event) {
-        LOG_DEBUG("PLY renamed from '{}' to '{}'", event.old_name, event.new_name);
-
-        // Update the node name in our list
-        auto it = std::find_if(m_plyNodes.begin(), m_plyNodes.end(),
-                               [&event](const PLYNode& node) { return node.name == event.old_name; });
-
+        const auto it = std::find_if(m_plyNodes.begin(), m_plyNodes.end(),
+                               [&event](const PLYNode& n) { return n.name == event.old_name; });
         if (it != m_plyNodes.end()) {
             it->name = event.new_name;
-            LOG_TRACE("Updated PLY node name in scene panel");
+            for (auto& n : m_plyNodes) {
+                if (n.parent_name == event.old_name) {
+                    n.parent_name = event.new_name;
+                }
+            }
         }
-
-        // Cancel any active renaming
         cancelRenaming();
     }
 

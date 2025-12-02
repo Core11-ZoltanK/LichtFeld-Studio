@@ -277,7 +277,7 @@ namespace lfs::vis::tools {
 
         // Apply to all scene nodes
         for (const auto* node : scene.getNodes()) {
-            scene_manager->setNodeTransform(node->name, transform * node->transform);
+            scene_manager->setNodeTransform(node->name, transform * node->local_transform);
         }
 
         ctx.requestRender();

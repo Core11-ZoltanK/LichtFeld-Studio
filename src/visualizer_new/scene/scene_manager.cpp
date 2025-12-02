@@ -40,7 +40,7 @@ namespace lfs::vis {
         });
 
         cmd::RemovePLY::when([this](const auto& cmd) {
-            removePLY(cmd.name);
+            removePLY(cmd.name, cmd.keep_children);
         });
 
         cmd::SetPLYVisibility::when([this](const auto& cmd) {
@@ -92,9 +92,25 @@ namespace lfs::vis {
             handleRenamePly(cmd);
         });
 
-        // Handle node selection from scene panel
+        cmd::ReparentNode::when([this](const auto& cmd) {
+            handleReparentNode(cmd.node_name, cmd.new_parent_name);
+        });
+
+        cmd::AddGroup::when([this](const auto& cmd) {
+            handleAddGroup(cmd.name, cmd.parent_name);
+        });
+
+        cmd::DuplicateNode::when([this](const auto& cmd) {
+            handleDuplicateNode(cmd.name);
+        });
+
+        cmd::SetNodeLocked::when([this](const auto& cmd) {
+            scene_.setNodeLocked(cmd.name, cmd.locked);
+        });
+
+        // Handle node selection from scene panel (both PLYs and Groups)
         ui::NodeSelected::when([this](const auto& event) {
-            if (event.type == "PLY") {
+            if (event.type == "PLY" || event.type == "Group") {
                 std::lock_guard<std::mutex> lock(state_mutex_);
                 selected_node_ = event.path;
             }
@@ -180,7 +196,9 @@ namespace lfs::vis {
                 .name = name,
                 .node_gaussians = gaussian_count,
                 .total_gaussians = scene_.getTotalGaussianCount(),
-                .is_visible = true}
+                .is_visible = true,
+                .parent_name = "",
+                .is_group = false}
                 .emit();
 
             emitSceneChanged();
@@ -256,7 +274,9 @@ namespace lfs::vis {
                 .name = name,
                 .node_gaussians = gaussian_count,
                 .total_gaussians = scene_.getTotalGaussianCount(),
-                .is_visible = is_visible}
+                .is_visible = is_visible,
+                .parent_name = "",
+                .is_group = false}
                 .emit();
 
             emitSceneChanged();
@@ -270,30 +290,31 @@ namespace lfs::vis {
         }
     }
 
-    void SceneManager::removePLY(const std::string& name) {
-        LOG_DEBUG("Removing '{}' from scene", name);
+    void SceneManager::removePLY(const std::string& name, const bool keep_children) {
+        std::string parent_name;
+        if (const auto* node = scene_.getNode(name)) {
+            if (node->parent_id != NULL_NODE) {
+                if (const auto* p = scene_.getNodeById(node->parent_id)) {
+                    parent_name = p->name;
+                }
+            }
+        }
 
-        scene_.removeNode(name);
+        scene_.removeNode(name, keep_children);
         {
-            std::lock_guard<std::mutex> lock(state_mutex_);
+            std::lock_guard lock(state_mutex_);
             splat_paths_.erase(name);
         }
 
-        if (lfs_project_) {
-            lfs_project_->removePly(name);
-        }
+        if (lfs_project_) lfs_project_->removePly(name);
 
-        // If no nodes left, transition to empty
         if (scene_.getNodeCount() == 0) {
-            std::lock_guard<std::mutex> lock(state_mutex_);
+            std::lock_guard lock(state_mutex_);
             content_type_ = ContentType::Empty;
-            LOG_DEBUG("No nodes remaining, transitioning to empty state");
         }
 
-        state::PLYRemoved{.name = name}.emit();
+        state::PLYRemoved{.name = name, .children_kept = keep_children, .parent_of_removed = parent_name}.emit();
         emitSceneChanged();
-
-        LOG_INFO("Removed '{}' from scene", name);
     }
 
     void SceneManager::setPLYVisibility(const std::string& name, bool visible) {
@@ -337,6 +358,12 @@ namespace lfs::vis {
     bool SceneManager::hasSelectedNode() const {
         std::lock_guard<std::mutex> lock(state_mutex_);
         return !selected_node_.empty() && scene_.getNode(selected_node_) != nullptr;
+    }
+
+    bool SceneManager::isSelectedNodeLocked() const {
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        if (selected_node_.empty()) return false;
+        return scene_.isNodeLocked(selected_node_);
     }
 
     int SceneManager::getSelectedNodeIndex() const {
@@ -420,13 +447,10 @@ namespace lfs::vis {
         if (selected_node_.empty()) { return glm::vec3(0.0f); }
 
         const auto* const node = scene_.getNode(selected_node_);
-        if (!node || !node->model) { return glm::vec3(0.0f); }
+        if (!node) { return glm::vec3(0.0f); }
 
-        glm::vec3 min_bounds, max_bounds;
-        if (lfs::core::compute_bounds(*node->model, min_bounds, max_bounds)) {
-            return (min_bounds + max_bounds) * 0.5f;
-        }
-        return node->centroid;
+        // Use unified bounds calculation (works for both splats and groups)
+        return scene_.getNodeBoundsCenter(node->id);
     }
 
     void SceneManager::setSelectedNodeTransform(const glm::mat4& transform) {
@@ -674,10 +698,10 @@ namespace lfs::vis {
                 lfs::geometry::BoundingBox local_crop_box = crop_box;
                 static const glm::mat4 IDENTITY_MATRIX(1.0f);
 
-                if (node->transform != IDENTITY_MATRIX) {
+                if (node->local_transform != IDENTITY_MATRIX) {
                     // Combine: local -> world -> box = world2bbox * node_to_world
                     const auto& world2bbox = crop_box.getworld2BBox();
-                    const lfs::geometry::EuclideanTransform node_to_world(node->transform);
+                    const lfs::geometry::EuclideanTransform node_to_world(node->local_transform);
                     local_crop_box.setworld2BBox(world2bbox * node_to_world);
                 }
 
@@ -704,7 +728,9 @@ namespace lfs::vis {
                     .name = node_name,
                     .node_gaussians = new_visible,
                     .total_gaussians = scene_.getTotalGaussianCount(),
-                    .is_visible = true
+                    .is_visible = true,
+                    .parent_name = "",
+                    .is_group = false
                 }.emit();
 
             } catch (const std::exception& e) {
@@ -778,6 +804,93 @@ namespace lfs::vis {
     }
     void SceneManager::handleRenamePly(const cmd::RenamePLY& event) {
         renamePLY(event.old_name, event.new_name);
+    }
+
+    void SceneManager::handleReparentNode(const std::string& node_name, const std::string& new_parent_name) {
+        auto* node = scene_.getMutableNode(node_name);
+        if (!node) return;
+
+        std::string old_parent_name;
+        if (node->parent_id != NULL_NODE) {
+            if (const auto* p = scene_.getNodeById(node->parent_id)) {
+                old_parent_name = p->name;
+            }
+        }
+
+        NodeId parent_id = NULL_NODE;
+        if (!new_parent_name.empty()) {
+            const auto* parent = scene_.getNode(new_parent_name);
+            if (!parent) return;
+            parent_id = parent->id;
+        }
+
+        scene_.reparent(node->id, parent_id);
+        state::NodeReparented{.name = node_name, .old_parent = old_parent_name, .new_parent = new_parent_name}.emit();
+        emitSceneChanged();
+    }
+
+    void SceneManager::handleAddGroup(const std::string& name, const std::string& parent_name) {
+        NodeId parent_id = NULL_NODE;
+        if (!parent_name.empty()) {
+            const auto* parent = scene_.getNode(parent_name);
+            if (!parent) return;
+            parent_id = parent->id;
+        }
+
+        std::string unique_name = name;
+        for (int i = 1; scene_.getNode(unique_name); ++i) {
+            unique_name = std::format("{} {}", name, i);
+        }
+
+        scene_.addGroup(unique_name, parent_id);
+        state::PLYAdded{
+            .name = unique_name,
+            .node_gaussians = 0,
+            .total_gaussians = scene_.getTotalGaussianCount(),
+            .is_visible = true,
+            .parent_name = parent_name,
+            .is_group = true
+        }.emit();
+    }
+
+    void SceneManager::handleDuplicateNode(const std::string& name) {
+        const auto* src = scene_.getNode(name);
+        if (!src) return;
+
+        std::string parent_name;
+        if (src->parent_id != NULL_NODE) {
+            if (const auto* p = scene_.getNodeById(src->parent_id)) {
+                parent_name = p->name;
+            }
+        }
+
+        const std::string new_name = scene_.duplicateNode(name);
+        if (new_name.empty()) return;
+
+        // Emit PLYAdded for duplicated node tree
+        std::function<void(const std::string&, const std::string&)> emit_added =
+            [&](const std::string& n, const std::string& pn) {
+            const auto* node = scene_.getNode(n);
+            if (!node) return;
+
+            state::PLYAdded{
+                .name = node->name,
+                .node_gaussians = node->gaussian_count,
+                .total_gaussians = scene_.getTotalGaussianCount(),
+                .is_visible = node->visible,
+                .parent_name = pn,
+                .is_group = node->type == NodeType::GROUP
+            }.emit();
+
+            for (const NodeId cid : node->children) {
+                if (const auto* c = scene_.getNodeById(cid)) {
+                    emit_added(c->name, node->name);
+                }
+            }
+        };
+
+        emit_added(new_name, parent_name);
+        emitSceneChanged();
     }
 
     void SceneManager::updateCropBoxToFitScene(const bool use_percentile) {
@@ -891,8 +1004,8 @@ namespace lfs::vis {
                         src.get_scene_scale());
                     cloned->set_active_sh_degree(src.get_active_sh_degree());
 
-                    if (node->transform != IDENTITY) {
-                        lfs::core::transform(*cloned, node->transform);
+                    if (node->local_transform != IDENTITY) {
+                        lfs::core::transform(*cloned, node->local_transform);
                     }
                     clipboard_ = std::move(cloned);
                     LOG_INFO("Copied {} gaussians from node '{}'", clipboard_->size(), selected_node_);
@@ -949,7 +1062,9 @@ namespace lfs::vis {
             .name = name,
             .node_gaussians = count,
             .total_gaussians = scene_.getTotalGaussianCount(),
-            .is_visible = true
+            .is_visible = true,
+            .parent_name = "",
+            .is_group = false
         }.emit();
         emitSceneChanged();
 
