@@ -195,20 +195,6 @@ namespace lfs::vis {
         }
     }
 
-    void Scene::setNodeLocked(const std::string& name, const bool locked) {
-        const auto it = std::find_if(nodes_.begin(), nodes_.end(),
-                               [&name](const std::unique_ptr<Node>& n) { return n->name == name; });
-        if (it != nodes_.end()) {
-            (*it)->locked = locked;
-        }
-    }
-
-    bool Scene::isNodeLocked(const std::string& name) const {
-        const auto it = std::find_if(nodes_.begin(), nodes_.end(),
-                               [&name](const std::unique_ptr<Node>& node) { return node->name == name; });
-        return it != nodes_.end() && (*it)->locked;
-    }
-
     void Scene::setNodeTransform(const std::string& name, const glm::mat4& transform) {
         const auto it = std::find_if(nodes_.begin(), nodes_.end(),
                                [&name](const std::unique_ptr<Node>& node) { return node->name == name; });

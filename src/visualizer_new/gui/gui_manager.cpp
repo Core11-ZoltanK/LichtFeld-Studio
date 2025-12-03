@@ -1438,7 +1438,6 @@ namespace lfs::vis::gui {
 
         auto* scene_manager = ctx.viewer->getSceneManager();
         if (!scene_manager || !scene_manager->hasSelectedNode()) return;
-        if (scene_manager->isSelectedNodeLocked()) return;
 
         // Check visibility of at least one selected node
         const auto& scene = scene_manager->getScene();

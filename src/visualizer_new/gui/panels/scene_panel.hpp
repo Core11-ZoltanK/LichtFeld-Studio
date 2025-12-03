@@ -46,7 +46,6 @@ namespace lfs::vis {
                 bool is_group = false;    // GROUP vs SPLAT
                 bool visible = true;
                 bool selected = false;
-                bool locked = false;
                 size_t gaussian_count = 0;
                 int node_type = 0;  // 0=SPLAT, 1=GROUP, 2=CROPBOX
             };

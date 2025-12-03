@@ -11,7 +11,7 @@
 #include <filesystem>
 #include <format>
 #include <imgui.h>
-#include <stdexcept>
+#include <unordered_set>
 
 namespace lfs::vis::gui {
 
@@ -151,7 +151,6 @@ namespace lfs::vis::gui {
                 .is_group = event.is_group,
                 .visible = event.is_visible,
                 .selected = false,
-                .locked = false,
                 .gaussian_count = event.node_gaussians,
                 .node_type = event.node_type
             });
@@ -166,15 +165,32 @@ namespace lfs::vis::gui {
                     n.parent_name = event.parent_of_removed;
                 }
             }
+        } else {
+            // Collect all descendants to remove
+            std::unordered_set<std::string> to_remove;
+            std::function<void(const std::string&)> collect_descendants = [&](const std::string& parent) {
+                for (const auto& n : m_plyNodes) {
+                    if (n.parent_name == parent) {
+                        to_remove.insert(n.name);
+                        collect_descendants(n.name);
+                    }
+                }
+            };
+            collect_descendants(event.name);
+
+            // Single pass removal of all descendants and the node itself
+            to_remove.insert(event.name);
+            std::erase_if(m_plyNodes, [&to_remove](const PLYNode& n) {
+                return to_remove.contains(n.name);
+            });
         }
 
-        const auto it = std::find_if(m_plyNodes.begin(), m_plyNodes.end(),
-                               [&event](const PLYNode& n) { return n.name == event.name; });
-        if (it != m_plyNodes.end()) {
-            m_plyNodes.erase(it);
-            if (m_selectedPLYIndex >= static_cast<int>(m_plyNodes.size())) {
-                m_selectedPLYIndex = -1;
-            }
+        if (event.children_kept) {
+            std::erase_if(m_plyNodes, [&event](const PLYNode& n) { return n.name == event.name; });
+        }
+
+        if (m_selectedPLYIndex >= static_cast<int>(m_plyNodes.size())) {
+            m_selectedPLYIndex = -1;
         }
         updateModeFromTab();
     }
@@ -454,7 +470,10 @@ namespace lfs::vis::gui {
                                                     ImGuiTreeNodeFlags_OpenOnArrow |
                                                     ImGuiTreeNodeFlags_SpanAvailWidth;
 
-        const std::string label = std::format("Models ({})", m_plyNodes.size());
+        // Count only splat nodes (not groups or cropboxes)
+        const size_t splat_count = std::ranges::count_if(m_plyNodes,
+            [](const PLYNode& n) { return n.node_type == 0 && !n.is_group; });
+        const std::string label = std::format("Models ({})", splat_count);
         if (!ImGui::TreeNodeEx(label.c_str(), FOLDER_FLAGS)) return;
 
         // Drop target for moving nodes to root
@@ -547,8 +566,6 @@ namespace lfs::vis::gui {
             }
 
             const bool is_open = ImGui::TreeNodeEx(label.c_str(), flags);
-
-            // Capture state before adding lock button
             const bool hovered = ImGui::IsItemHovered();
             const bool clicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
             const bool toggled = ImGui::IsItemToggledOpen();
@@ -557,28 +574,6 @@ namespace lfs::vis::gui {
                 ImGui::OpenPopup(("##ctx_" + node.name).c_str());
             }
 
-            // Lock button
-            ImGui::SameLine();
-            static constexpr ImVec4 TRANSPARENT_BG{0, 0, 0, 0};
-            static constexpr ImVec4 HOVER_COLOR{0.3f, 0.3f, 0.3f, 0.5f};
-            static constexpr ImVec4 LOCKED_TEXT_COLOR{1.0f, 0.4f, 0.4f, 1.0f};
-            ImGui::PushStyleColor(ImGuiCol_Button, TRANSPARENT_BG);
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, HOVER_COLOR);
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, HOVER_COLOR);
-            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2, 0));
-            if (node.locked) ImGui::PushStyleColor(ImGuiCol_Text, LOCKED_TEXT_COLOR);
-
-            if (ImGui::SmallButton((std::string(node.locked ? "L##" : "U##") + node.name).c_str())) {
-                node.locked = !node.locked;
-                cmd::SetNodeLocked{.name = node.name, .locked = node.locked}.emit();
-            }
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip(node.locked ? "Unlock" : "Lock");
-
-            if (node.locked) ImGui::PopStyleColor();
-            ImGui::PopStyleVar();
-            ImGui::PopStyleColor(3);
-
-            // Drag source
             if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
                 ImGui::SetDragDropPayload("SCENE_NODE", node.name.c_str(), node.name.size() + 1);
                 ImGui::Text("Move: %s", node.name.c_str());
@@ -662,21 +657,9 @@ namespace lfs::vis::gui {
                     ImGui::EndMenu();
                 }
 
-                if (ImGui::MenuItem(node.locked ? "Unlock" : "Lock")) {
-                    node.locked = !node.locked;
-                    cmd::SetNodeLocked{.name = node.name, .locked = node.locked}.emit();
-                }
-
                 ImGui::Separator();
-                if (has_children) {
-                    if (ImGui::MenuItem("Delete group only")) {
-                        cmd::RemovePLY{.name = node.name, .keep_children = true}.emit();
-                    }
-                    if (ImGui::MenuItem("Delete with children")) {
-                        cmd::RemovePLY{.name = node.name, .keep_children = false}.emit();
-                    }
-                } else {
-                    if (ImGui::MenuItem("Delete")) cmd::RemovePLY{.name = node.name}.emit();
+                if (ImGui::MenuItem("Delete")) {
+                    cmd::RemovePLY{.name = node.name, .keep_children = false}.emit();
                 }
                 ImGui::EndPopup();
             }

@@ -108,10 +108,6 @@ namespace lfs::vis {
             handleMergeGroup(cmd.name);
         });
 
-        cmd::SetNodeLocked::when([this](const auto& cmd) {
-            scene_.setNodeLocked(cmd.name, cmd.locked);
-        });
-
         // Handle node selection from scene panel (both PLYs and Groups)
         ui::NodeSelected::when([this](const auto& event) {
             if (event.type == "PLY" || event.type == "Group") {
@@ -492,16 +488,6 @@ namespace lfs::vis {
         // Check if at least one selected node still exists
         for (const auto& name : selected_nodes_) {
             if (scene_.getNode(name) != nullptr) return true;
-        }
-        return false;
-    }
-
-    bool SceneManager::isSelectedNodeLocked() const {
-        std::lock_guard<std::mutex> lock(state_mutex_);
-        if (selected_nodes_.empty()) return false;
-        // Return true if any selected node is locked
-        for (const auto& name : selected_nodes_) {
-            if (scene_.isNodeLocked(name)) return true;
         }
         return false;
     }
