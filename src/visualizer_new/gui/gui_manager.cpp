@@ -1471,11 +1471,9 @@ namespace lfs::vis::gui {
         const bool use_world_space =
             (gizmo_toolbar_state_.transform_space == panels::TransformSpace::World) || is_multi_selection;
 
-        // During active drag, keep gizmo at fixed pivot position
+        // Compute gizmo position from current selection
         glm::vec3 gizmo_position;
-        if (node_gizmo_active_) {
-            gizmo_position = gizmo_pivot_;
-        } else if (is_multi_selection) {
+        if (is_multi_selection) {
             gizmo_position = scene_manager->getSelectionWorldCenter();
         } else {
             gizmo_position = glm::vec3(scene_manager->getSelectedNodeTransform() *
