@@ -34,6 +34,7 @@ namespace lfs::vis::input {
         const auto config_dir = getConfigDir();
         const auto path = config_dir / (name + ".json");
         if (std::filesystem::exists(path) && loadProfileFromFile(path)) {
+            notifyBindingsChanged();
             return;
         }
 
@@ -42,6 +43,7 @@ namespace lfs::vis::input {
             current_profile_name_ = profile.name;
             bindings_ = std::move(profile.bindings);
             rebuildLookupMaps();
+            notifyBindingsChanged();
         } else {
             LOG_WARN("Unknown profile '{}', using default", name);
             loadProfile("Default");
@@ -291,10 +293,21 @@ namespace lfs::vis::input {
         }, *trigger);
     }
 
+    int InputBindings::getKeyForAction(Action action, ToolMode mode) const {
+        const auto trigger = getTriggerForAction(action, mode);
+        if (!trigger) return -1;
+
+        if (const auto* key_trigger = std::get_if<KeyTrigger>(&*trigger)) {
+            return key_trigger->key;
+        }
+        return -1;
+    }
+
     void InputBindings::setBinding(ToolMode mode, Action action, const InputTrigger& trigger) {
         clearBinding(mode, action);
         bindings_.push_back({mode, trigger, action, getActionName(action)});
         rebuildLookupMaps();
+        notifyBindingsChanged();
     }
 
     void InputBindings::clearBinding(ToolMode mode, Action action) {
@@ -302,6 +315,13 @@ namespace lfs::vis::input {
             return b.mode == mode && b.action == action;
         });
         rebuildLookupMaps();
+        notifyBindingsChanged();
+    }
+
+    void InputBindings::notifyBindingsChanged() {
+        if (on_bindings_changed_) {
+            on_bindings_changed_();
+        }
     }
 
     void InputBindings::rebuildLookupMaps() {
@@ -365,8 +385,7 @@ namespace lfs::vis::input {
             {KeyTrigger{GLFW_KEY_F, MODIFIER_CTRL}, Action::TOGGLE_DEPTH_MODE, "Depth filter"},
             {MouseScrollTrigger{MODIFIER_ALT}, Action::DEPTH_ADJUST_FAR, "Depth far"},
             {MouseScrollTrigger{MODIFIER_ALT | MODIFIER_CTRL}, Action::DEPTH_ADJUST_SIDE, "Depth side"},
-            // Editing
-            {KeyTrigger{GLFW_KEY_DELETE, MODIFIER_NONE}, Action::DELETE_SELECTED, "Delete"},
+            // Editing (Delete is mode-specific, added below)
             {KeyTrigger{GLFW_KEY_Z, MODIFIER_CTRL}, Action::UNDO, "Undo"},
             {KeyTrigger{GLFW_KEY_Y, MODIFIER_CTRL}, Action::REDO, "Redo"},
             {KeyTrigger{GLFW_KEY_I, MODIFIER_CTRL}, Action::INVERT_SELECTION, "Invert"},
@@ -409,6 +428,21 @@ namespace lfs::vis::input {
             profile.bindings.push_back({mode, MouseDragTrigger{MouseButton::LEFT, MODIFIER_NONE}, Action::NODE_RECT_SELECT, "Rectangle select nodes"});
         }
 
+        // Delete key: GLOBAL/transform modes delete node, SELECTION/BRUSH delete Gaussians
+        constexpr ToolMode DELETE_NODE_MODES[] = {
+            ToolMode::GLOBAL, ToolMode::TRANSLATE, ToolMode::ROTATE, ToolMode::SCALE,
+        };
+        for (const auto mode : DELETE_NODE_MODES) {
+            profile.bindings.push_back({mode, KeyTrigger{GLFW_KEY_DELETE, MODIFIER_NONE}, Action::DELETE_NODE, "Delete node"});
+        }
+
+        constexpr ToolMode DELETE_GAUSSIANS_MODES[] = {
+            ToolMode::SELECTION, ToolMode::BRUSH, ToolMode::ALIGN, ToolMode::CROP_BOX,
+        };
+        for (const auto mode : DELETE_GAUSSIANS_MODES) {
+            profile.bindings.push_back({mode, KeyTrigger{GLFW_KEY_DELETE, MODIFIER_NONE}, Action::DELETE_SELECTED, "Delete Gaussians"});
+        }
+
         return profile;
     }
 
@@ -437,7 +471,8 @@ namespace lfs::vis::input {
         case Action::TOGGLE_GT_COMPARISON: return "Toggle GT Comparison";
         case Action::TOGGLE_DEPTH_MODE: return "Toggle Depth Mode";
         case Action::CYCLE_PLY: return "Cycle PLY";
-        case Action::DELETE_SELECTED: return "Delete Selected";
+        case Action::DELETE_SELECTED: return "Delete Selected Gaussians";
+        case Action::DELETE_NODE: return "Delete Node";
         case Action::UNDO: return "Undo";
         case Action::REDO: return "Redo";
         case Action::INVERT_SELECTION: return "Invert Selection";

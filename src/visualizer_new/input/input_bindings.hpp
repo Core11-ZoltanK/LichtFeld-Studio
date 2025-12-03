@@ -6,6 +6,7 @@
 
 #include <GLFW/glfw3.h>
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <optional>
 #include <string>
@@ -52,7 +53,8 @@ namespace lfs::vis::input {
         TOGGLE_DEPTH_MODE,
         CYCLE_PLY,
         // Editing
-        DELETE_SELECTED,
+        DELETE_SELECTED,    // Delete selected Gaussians (selection tool)
+        DELETE_NODE,        // Delete selected PLY node (global mode)
         UNDO,
         REDO,
         INVERT_SELECTION,
@@ -157,8 +159,15 @@ namespace lfs::vis::input {
         std::optional<InputTrigger> getTriggerForAction(Action action, ToolMode mode = ToolMode::GLOBAL) const;
         std::string getTriggerDescription(Action action, ToolMode mode = ToolMode::GLOBAL) const;
 
+        // Get the key code for a continuous action (returns -1 if not a key binding)
+        int getKeyForAction(Action action, ToolMode mode = ToolMode::GLOBAL) const;
+
         void setBinding(ToolMode mode, Action action, const InputTrigger& trigger);
         void clearBinding(ToolMode mode, Action action);
+
+        // Callback for binding changes (e.g., to refresh cached keys)
+        using BindingsChangedCallback = std::function<void()>;
+        void setOnBindingsChanged(BindingsChangedCallback callback) { on_bindings_changed_ = std::move(callback); }
 
         static Profile createDefaultProfile();
 
@@ -178,7 +187,10 @@ namespace lfs::vis::input {
         std::map<ScrollMapKey, Action> scroll_map_;
         std::map<DragMapKey, Action> drag_map_;
 
+        BindingsChangedCallback on_bindings_changed_;
+
         void rebuildLookupMaps();
+        void notifyBindingsChanged();
     };
 
     std::string getActionName(Action action);

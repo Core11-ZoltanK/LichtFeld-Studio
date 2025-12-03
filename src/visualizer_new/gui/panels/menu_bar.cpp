@@ -726,24 +726,23 @@ namespace lfs::vis::gui {
                         renderBindingRow(input::Action::APPLY_CROP_BOX, mode);
                     }
 
-                    // Editing - global and most tools
+                    // Editing - available in all modes
+                    renderSectionHeader("EDITING");
+                    // Delete action depends on mode: GLOBAL/transform = delete node, others = delete Gaussians
                     if (mode == input::ToolMode::GLOBAL ||
-                        mode == input::ToolMode::SELECTION ||
-                        mode == input::ToolMode::CROP_BOX) {
-                        renderSectionHeader("EDITING");
-                        renderBindingRow(input::Action::COPY_SELECTION, mode);
-                        renderBindingRow(input::Action::PASTE_SELECTION, mode);
-                        if (mode == input::ToolMode::GLOBAL) {
-                            renderBindingRow(input::Action::DELETE_SELECTED, mode);
-                            renderBindingRow(input::Action::UNDO, mode);
-                            renderBindingRow(input::Action::REDO, mode);
-                            renderBindingRow(input::Action::INVERT_SELECTION, mode);
-                            renderBindingRow(input::Action::DESELECT_ALL, mode);
-                            renderBindingRow(input::Action::APPLY_CROP_BOX, mode);
-                            renderBindingRow(input::Action::CANCEL_POLYGON, mode);
-                            renderBindingRow(input::Action::CYCLE_BRUSH_MODE, mode);
-                        }
+                        mode == input::ToolMode::TRANSLATE ||
+                        mode == input::ToolMode::ROTATE ||
+                        mode == input::ToolMode::SCALE) {
+                        renderBindingRow(input::Action::DELETE_NODE, mode);
+                    } else {
+                        renderBindingRow(input::Action::DELETE_SELECTED, mode);
                     }
+                    renderBindingRow(input::Action::UNDO, mode);
+                    renderBindingRow(input::Action::REDO, mode);
+                    renderBindingRow(input::Action::COPY_SELECTION, mode);
+                    renderBindingRow(input::Action::PASTE_SELECTION, mode);
+                    renderBindingRow(input::Action::INVERT_SELECTION, mode);
+                    renderBindingRow(input::Action::DESELECT_ALL, mode);
 
                     if (mode == input::ToolMode::GLOBAL) {
                         renderSectionHeader("VIEW");

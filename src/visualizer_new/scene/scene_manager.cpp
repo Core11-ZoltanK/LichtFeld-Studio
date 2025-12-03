@@ -377,6 +377,7 @@ namespace lfs::vis {
         {
             std::lock_guard lock(state_mutex_);
             splat_paths_.erase(name);
+            selected_nodes_.erase(name);  // Remove from selection
         }
 
         if (lfs_project_) lfs_project_->removePly(name);

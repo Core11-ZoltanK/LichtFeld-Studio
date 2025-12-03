@@ -31,7 +31,7 @@ namespace lfs::vis {
 
         internal::WindowFocusLost::when([this](const auto&) {
             drag_mode_ = DragMode::None;
-            std::fill(std::begin(keys_wasd_), std::end(keys_wasd_), false);
+            std::fill(std::begin(keys_movement_), std::end(keys_movement_), false);
             hovered_camera_id_ = -1;
         });
 
@@ -81,10 +81,22 @@ namespace lfs::vis {
         // Initialize frame timer
         last_frame_time_ = std::chrono::high_resolution_clock::now();
 
-        // Create the cursors once at initialization
+        // Create cursors
         resize_cursor_ = glfwCreateStandardCursor(GLFW_HRESIZE_CURSOR);
         hand_cursor_ = glfwCreateStandardCursor(GLFW_HAND_CURSOR);
 
+        // Cache movement key bindings and register for updates
+        refreshMovementKeyCache();
+        bindings_.setOnBindingsChanged([this]() { refreshMovementKeyCache(); });
+    }
+
+    void InputController::refreshMovementKeyCache() {
+        movement_keys_.forward = bindings_.getKeyForAction(input::Action::CAMERA_MOVE_FORWARD);
+        movement_keys_.backward = bindings_.getKeyForAction(input::Action::CAMERA_MOVE_BACKWARD);
+        movement_keys_.left = bindings_.getKeyForAction(input::Action::CAMERA_MOVE_LEFT);
+        movement_keys_.right = bindings_.getKeyForAction(input::Action::CAMERA_MOVE_RIGHT);
+        movement_keys_.up = bindings_.getKeyForAction(input::Action::CAMERA_MOVE_UP);
+        movement_keys_.down = bindings_.getKeyForAction(input::Action::CAMERA_MOVE_DOWN);
     }
 
     // Static callbacks - chain to ImGui then handle ourselves
@@ -161,8 +173,8 @@ namespace lfs::vis {
         if (!focused) {
             if (instance_) {
                 instance_->drag_mode_ = DragMode::None;
-                std::fill(std::begin(instance_->keys_wasd_),
-                          std::end(instance_->keys_wasd_), false);
+                std::fill(std::begin(instance_->keys_movement_),
+                          std::end(instance_->keys_movement_), false);
                 instance_->hovered_camera_id_ = -1; // Reset hovered camera
 
                 if (instance_->current_cursor_ != CursorType::Default) {
@@ -696,6 +708,18 @@ namespace lfs::vis {
                     cmd::DeleteSelected{}.emit();
                     return;
 
+                case input::Action::DELETE_NODE:
+                    // Delete selected PLY node(s)
+                    if (tool_context_) {
+                        if (auto* sm = tool_context_->getSceneManager()) {
+                            const auto selected = sm->getSelectedNodeNames();
+                            for (const auto& name : selected) {
+                                cmd::RemovePLY{.name = name, .keep_children = false}.emit();
+                            }
+                        }
+                    }
+                    return;
+
                 case input::Action::UNDO:
                     cmd::Undo{}.emit();
                     return;
@@ -812,43 +836,24 @@ namespace lfs::vis {
             }
         }
 
-        // WASD only works when viewport has focus and gizmo isn't active
+        // Movement keys only work when viewport has focus and gizmo isn't active
         if (!shouldCameraHandleInput() || drag_mode_ == DragMode::Gizmo || drag_mode_ == DragMode::Splitter)
             return;
 
-        bool pressed = (action != GLFW_RELEASE);
-        bool changed = false;
-
-        switch (key) {
-        case GLFW_KEY_W:
-            keys_wasd_[0] = pressed;
-            changed = true;
-            break;
-        case GLFW_KEY_A:
-            keys_wasd_[1] = pressed;
-            changed = true;
-            break;
-        case GLFW_KEY_S:
-            keys_wasd_[2] = pressed;
-            changed = true;
-            break;
-        case GLFW_KEY_D:
-            keys_wasd_[3] = pressed;
-            changed = true;
-            break;
-        case GLFW_KEY_Q:
-            keys_wasd_[4] = pressed;
-            changed = true;
-            break;
-        case GLFW_KEY_E:
-            keys_wasd_[5] = pressed;
-            changed = true;
-            break;
-        }
-
-        if (changed) {
-            LOG_TRACE("WASD state changed - W:{} A:{} S:{} D:{} Q:{} E:{}",
-                      keys_wasd_[0], keys_wasd_[1], keys_wasd_[2], keys_wasd_[3], keys_wasd_[4], keys_wasd_[5]);
+        // Use cached movement key bindings
+        const bool pressed = (action != GLFW_RELEASE);
+        if (key == movement_keys_.forward) {
+            keys_movement_[0] = pressed;
+        } else if (key == movement_keys_.left) {
+            keys_movement_[1] = pressed;
+        } else if (key == movement_keys_.backward) {
+            keys_movement_[2] = pressed;
+        } else if (key == movement_keys_.right) {
+            keys_movement_[3] = pressed;
+        } else if (key == movement_keys_.down) {
+            keys_movement_[4] = pressed;
+        } else if (key == movement_keys_.up) {
+            keys_movement_[5] = pressed;
         }
     }
 
@@ -880,50 +885,51 @@ namespace lfs::vis {
             drag_button_ = -1;
         }
 
-        // Sync WASD key states with actual keyboard
-        if (keys_wasd_[0] && glfwGetKey(window_, GLFW_KEY_W) != GLFW_PRESS) {
-            keys_wasd_[0] = false;
+        // Sync movement key states with actual keyboard (using cached keys)
+        const auto& mk = movement_keys_;
+        if (keys_movement_[0] && (mk.forward < 0 || glfwGetKey(window_, mk.forward) != GLFW_PRESS)) {
+            keys_movement_[0] = false;
         }
-        if (keys_wasd_[1] && glfwGetKey(window_, GLFW_KEY_A) != GLFW_PRESS) {
-            keys_wasd_[1] = false;
+        if (keys_movement_[1] && (mk.left < 0 || glfwGetKey(window_, mk.left) != GLFW_PRESS)) {
+            keys_movement_[1] = false;
         }
-        if (keys_wasd_[2] && glfwGetKey(window_, GLFW_KEY_S) != GLFW_PRESS) {
-            keys_wasd_[2] = false;
+        if (keys_movement_[2] && (mk.backward < 0 || glfwGetKey(window_, mk.backward) != GLFW_PRESS)) {
+            keys_movement_[2] = false;
         }
-        if (keys_wasd_[3] && glfwGetKey(window_, GLFW_KEY_D) != GLFW_PRESS) {
-            keys_wasd_[3] = false;
+        if (keys_movement_[3] && (mk.right < 0 || glfwGetKey(window_, mk.right) != GLFW_PRESS)) {
+            keys_movement_[3] = false;
         }
-        if (keys_wasd_[4] && glfwGetKey(window_, GLFW_KEY_Q) != GLFW_PRESS) {
-            keys_wasd_[4] = false;
+        if (keys_movement_[4] && (mk.down < 0 || glfwGetKey(window_, mk.down) != GLFW_PRESS)) {
+            keys_movement_[4] = false;
         }
-        if (keys_wasd_[5] && glfwGetKey(window_, GLFW_KEY_E) != GLFW_PRESS) {
-            keys_wasd_[5] = false;
+        if (keys_movement_[5] && (mk.up < 0 || glfwGetKey(window_, mk.up) != GLFW_PRESS)) {
+            keys_movement_[5] = false;
         }
 
-        // Handle continuous WASD movement
+        // Handle continuous movement
         if (shouldCameraHandleInput() && drag_mode_ != DragMode::Gizmo && drag_mode_ != DragMode::Splitter) {
-            if (keys_wasd_[0]) {
+            if (keys_movement_[0]) {
                 viewport_.camera.advance_forward(delta_time);
             }
-            if (keys_wasd_[1]) {
+            if (keys_movement_[1]) {
                 viewport_.camera.advance_left(delta_time);
             }
-            if (keys_wasd_[2]) {
+            if (keys_movement_[2]) {
                 viewport_.camera.advance_backward(delta_time);
             }
-            if (keys_wasd_[3]) {
+            if (keys_movement_[3]) {
                 viewport_.camera.advance_right(delta_time);
             }
-            if (keys_wasd_[4]) {
+            if (keys_movement_[4]) {
                 viewport_.camera.advance_up(delta_time);
             }
-            if (keys_wasd_[5]) {
+            if (keys_movement_[5]) {
                 viewport_.camera.advance_down(delta_time);
             }
         }
 
         // Publish if moving (removed inertia check)
-        bool moving = keys_wasd_[0] || keys_wasd_[1] || keys_wasd_[2] || keys_wasd_[3] || keys_wasd_[4] || keys_wasd_[5];
+        bool moving = keys_movement_[0] || keys_movement_[1] || keys_movement_[2] || keys_movement_[3] || keys_movement_[4] || keys_movement_[5];
         if (moving) {
             onCameraMovementStart();
             publishCameraMove();
