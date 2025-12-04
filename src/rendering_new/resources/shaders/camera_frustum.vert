@@ -2,10 +2,13 @@
 
 // Vertex attributes
 layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec2 aUV;
 
 // Instance attributes
-layout(location = 1) in mat4 aInstanceMatrix;
-layout(location = 5) in vec4 aInstanceColorAlpha;  // Changed to vec4 to include alpha
+layout(location = 2) in mat4 aInstanceMatrix;
+layout(location = 6) in vec4 aInstanceColorAlpha;  // Color with alpha
+layout(location = 7) in uint aTextureID;
+layout(location = 8) in uint aIsValidation;  // 0 = training, 1 = validation
 
 // Uniforms
 uniform mat4 viewProj;
@@ -14,36 +17,31 @@ uniform bool pickingMode = false;
 
 // Outputs to fragment shader
 out vec3 FragPos;
-out vec3 Normal;
 out vec4 vertexColor;
+out vec2 TexCoord;
 flat out int instanceID;
+flat out uint textureID;
+flat out uint isValidation;
 
 void main() {
-    // Pass instance ID (gl_InstanceID is the actual instance index)
     instanceID = gl_InstanceID;
-    
-    // Apply instance transformation
     vec4 worldPos = aInstanceMatrix * vec4(aPos, 1.0);
-    
-    // Simple normal calculation (assuming frustum faces outward)
-    Normal = normalize(mat3(aInstanceMatrix) * aPos);
-    
-    // Pass color with alpha
-    vertexColor = aInstanceColorAlpha;
-    
-    // World position for lighting
+
+    TexCoord = aUV;
+    textureID = aTextureID;
+    isValidation = aIsValidation;
     FragPos = vec3(worldPos);
-    
-    // Final position
     gl_Position = viewProj * worldPos;
-    
-    // In picking mode, encode instance ID as color
+
     if (pickingMode) {
-        // Encode instance ID + 1 (to avoid 0) as RGB
         int id = gl_InstanceID + 1;
-        float r = float((id >> 16) & 0xFF) / 255.0;
-        float g = float((id >> 8) & 0xFF) / 255.0;
-        float b = float(id & 0xFF) / 255.0;
-        vertexColor = vec4(r, g, b, 1.0);
+        vertexColor = vec4(
+            float((id >> 16) & 0xFF) / 255.0,
+            float((id >> 8) & 0xFF) / 255.0,
+            float(id & 0xFF) / 255.0,
+            1.0
+        );
+    } else {
+        vertexColor = aInstanceColorAlpha;
     }
 }

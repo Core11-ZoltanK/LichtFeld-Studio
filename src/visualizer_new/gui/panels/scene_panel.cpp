@@ -56,7 +56,8 @@ namespace lfs::vis::gui {
     bool ScenePanel::hasPLYs(const UIContext* ctx) const {
         if (!ctx || !ctx->viewer) return false;
         const auto* sm = ctx->viewer->getSceneManager();
-        return sm && sm->getScene().hasNodes();
+        if (!sm) return false;
+        return sm->getScene().hasNodes();
     }
 
     void ScenePanel::render(bool* p_open, const UIContext* ctx) {
@@ -110,29 +111,10 @@ namespace lfs::vis::gui {
 
         ImGui::Separator();
 
-        const bool has_images = hasImages();
         const bool has_plys = hasPLYs(ctx);
 
-        if (has_images || has_plys) {
-            if (ImGui::BeginTabBar("SceneTabs", ImGuiTabBarFlags_None)) {
-                if (has_plys) {
-                    if (ImGui::BeginTabItem("PLYs")) {
-                        m_activeTab = TabType::PLYs;
-                        renderPLYSceneGraph(ctx);
-                        ImGui::EndTabItem();
-                    }
-                }
-
-                if (has_images) {
-                    if (ImGui::BeginTabItem("Images")) {
-                        m_activeTab = TabType::Images;
-                        renderImageList();
-                        ImGui::EndTabItem();
-                    }
-                }
-
-                ImGui::EndTabBar();
-            }
+        if (has_plys) {
+            renderPLYSceneGraph(ctx);
         } else {
             ImGui::Text("No data loaded.");
         }
@@ -246,7 +228,14 @@ namespace lfs::vis::gui {
         const bool is_selected = selected_names.contains(node.name);
         const bool is_group = (node.type == NodeType::GROUP);
         const bool is_cropbox = (node.type == NodeType::CROPBOX);
+        const bool is_dataset = (node.type == NodeType::DATASET);
+        const bool is_camera_group = (node.type == NodeType::CAMERA_GROUP);
+        const bool is_camera = (node.type == NodeType::CAMERA);
         const bool has_children = !node.children.empty();
+
+        // Check if parent is a dataset (for "Cameras" group and "Model" splat inside dataset)
+        const auto* parent_node = scene.getNodeById(node.parent_id);
+        const bool parent_is_dataset = parent_node && parent_node->type == NodeType::DATASET;
 
         // Visibility toggle
         if (ImGui::SmallButton(is_visible ? "[*]" : "[ ]")) {
@@ -284,15 +273,22 @@ namespace lfs::vis::gui {
             ImGuiTreeNodeFlags flags = BASE_NODE_FLAGS;
             if (is_selected) flags |= ImGuiTreeNodeFlags_Selected;
             if (!has_children) flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
-            if (is_group) flags |= ImGuiTreeNodeFlags_DefaultOpen;
+            if (is_group || is_dataset) flags |= ImGuiTreeNodeFlags_DefaultOpen;
 
-            // Build label
+            // Build label based on node type
             std::string label;
             if (is_cropbox) {
                 label = std::format("[Crop] {}", node.name);
+            } else if (is_dataset) {
+                label = std::format("[Dataset] {}", node.name);
+            } else if (is_camera_group) {
+                label = node.name;  // Already includes count like "Training (185)"
+            } else if (is_camera) {
+                label = node.name;  // Camera name (image filename)
             } else if (is_group) {
                 label = node.name;
             } else {
+                // SPLAT node
                 label = std::format("{} ({:L})", node.name, node.gaussian_count);
             }
 
@@ -315,21 +311,80 @@ namespace lfs::vis::gui {
             if (is_group) handleDragDrop(node.name, true);
 
             // Selection - emit event, let SceneManager handle state
-            if (clicked && !toggled) {
+            // Camera nodes don't participate in selection - they have their own interactions
+            if (clicked && !toggled && !is_camera) {
                 if (is_selected) {
                     ui::NodeDeselected{}.emit();
                 } else {
+                    // Determine node type string for event
+                    std::string type_str = "PLY";
+                    if (is_group) type_str = "Group";
+                    else if (is_dataset) type_str = "Dataset";
+                    else if (is_camera_group) type_str = "CameraGroup";
+
                     ui::NodeSelected{
                         .path = node.name,
-                        .type = is_group ? "Group" : "PLY",
+                        .type = type_str,
                         .metadata = {{"name", node.name},
                                      {"gaussians", std::to_string(node.gaussian_count)},
                                      {"visible", is_visible ? "true" : "false"}}}.emit();
                 }
             }
 
+            // Double-click on camera opens image preview with arrow key navigation
+            if (is_camera && hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                if (!node.image_path.empty() && m_imagePreview) {
+                    std::vector<std::filesystem::path> camera_paths;
+                    size_t current_idx = 0;
+
+                    for (const auto* n : scene.getNodes()) {
+                        if (n->type == NodeType::CAMERA && !n->image_path.empty()) {
+                            if (n->name == node.name) current_idx = camera_paths.size();
+                            camera_paths.push_back(n->image_path);
+                        }
+                    }
+
+                    if (!camera_paths.empty()) {
+                        m_imagePreview->open(camera_paths, current_idx);
+                        m_showImagePreview = true;
+                    }
+                }
+            }
+
+            // Helper lambda to close context menu and finish node rendering
+            const auto closeContextAndFinish = [&]() {
+                ImGui::EndPopup();
+                if (is_open && has_children) {
+                    renderNodeChildren(node.id, scene, selected_names);
+                    ImGui::TreePop();
+                }
+                ImGui::PopID();
+            };
+
             // Context menu
             if (ImGui::BeginPopup(("##ctx_" + node.name).c_str())) {
+                if (is_camera) {
+                    if (ImGui::MenuItem("Go to Camera View")) {
+                        cmd::GoToCamView{.cam_id = node.camera_uid}.emit();
+                    }
+                    closeContextAndFinish();
+                    return;
+                }
+
+                if (is_camera_group || parent_is_dataset) {
+                    ImGui::TextDisabled("(No actions)");
+                    closeContextAndFinish();
+                    return;
+                }
+
+                if (is_dataset) {
+                    if (ImGui::MenuItem("Delete")) {
+                        cmd::RemovePLY{.name = node.name, .keep_children = false}.emit();
+                    }
+                    closeContextAndFinish();
+                    return;
+                }
+
                 if (is_cropbox) {
                     if (ImGui::MenuItem("Fit to Scene")) {
                         cmd::FitCropBoxToScene{.use_percentile = false}.emit();

@@ -4,6 +4,9 @@
 
 #include "trainer.hpp"
 #include "loader_new/filesystem_utils.hpp"
+#include "visualizer_new/scene/scene.hpp"  // For Scene-based constructor
+#include "strategies/mcmc.hpp"
+#include "strategies/default_strategy.hpp"
 // TODO: Port components to LibTorch-free implementation
 // #include "components/bilateral_grid.hpp"         // Temporarily disabled - requires LibTorch
 // #include "components/sparsity_optimizer.hpp"      // Temporarily disabled - requires LibTorch
@@ -66,9 +69,6 @@ namespace lfs::training {
         // Clear datasets (will be recreated)
         train_dataset_.reset();
         val_dataset_.reset();
-
-        // Clear camera cache
-        m_cam_id_to_cam.clear();
 
         // Reset flags
         pause_requested_ = false;
@@ -268,12 +268,26 @@ namespace lfs::training {
         LOG_DEBUG("Trainer constructed with {} cameras", base_dataset_->get_cameras().size());
     }
 
-    void Trainer::load_cameras_info() {
-        m_cam_id_to_cam.clear();
-        // Setup camera cache
-        for (const auto& cam : base_dataset_->get_cameras()) {
-            m_cam_id_to_cam[cam->uid()] = cam;
+    // New constructor - Scene owns all data
+    Trainer::Trainer(lfs::vis::Scene& scene)
+        : scene_(&scene) {
+        // Check CUDA availability
+        int device_count = 0;
+        cudaError_t error = cudaGetDeviceCount(&device_count);
+        if (error != cudaSuccess || device_count == 0) {
+            throw std::runtime_error("CUDA is not available – aborting.");
         }
+
+        // Initialize callback stream and event
+        cudaStreamCreateWithFlags(&callback_stream_, cudaStreamNonBlocking);
+        cudaEventCreate(&callback_launch_event_);
+
+        // Datasets will be created in initialize() from Scene cameras
+        if (!scene.getTrainCameras()) {
+            throw std::runtime_error("Scene has no train cameras");
+        }
+
+        LOG_DEBUG("Trainer constructed from Scene with {} cameras", scene.getTrainCameras()->get_cameras().size());
     }
 
     std::expected<void, std::string> Trainer::initialize(const lfs::core::param::TrainingParameters& params) {
@@ -298,14 +312,30 @@ namespace lfs::training {
             dataset_config.max_width = params.dataset.max_width;
             dataset_config.test_every = params.dataset.test_every;
 
+            // Get source cameras - from Scene (new mode) or base_dataset_ (legacy mode)
+            std::vector<std::shared_ptr<lfs::core::Camera>> source_cameras;
+            if (scene_) {
+                // Scene mode: get cameras from Scene
+                auto scene_dataset = scene_->getTrainCameras();
+                if (!scene_dataset) {
+                    return std::unexpected("Scene has no train cameras");
+                }
+                source_cameras = scene_dataset->get_cameras();
+            } else if (base_dataset_) {
+                // Legacy mode: use base_dataset_
+                source_cameras = base_dataset_->get_cameras();
+            } else {
+                return std::unexpected("No camera source available");
+            }
+
             // Handle dataset split based on evaluation flag
             if (params.optimization.enable_eval) {
                 // Create train/val split
                 train_dataset_ = std::make_shared<CameraDataset>(
-                    base_dataset_->get_cameras(), dataset_config, CameraDataset::Split::TRAIN,
+                    source_cameras, dataset_config, CameraDataset::Split::TRAIN,
                     provided_splits_ ? std::make_optional(std::get<0>(*provided_splits_)) : std::nullopt);
                 val_dataset_ = std::make_shared<CameraDataset>(
-                    base_dataset_->get_cameras(), dataset_config, CameraDataset::Split::VAL,
+                    source_cameras, dataset_config, CameraDataset::Split::VAL,
                     provided_splits_ ? std::make_optional(std::get<1>(*provided_splits_)) : std::nullopt);
 
                 LOG_INFO("Created train/val split: {} train, {} val images",
@@ -313,31 +343,31 @@ namespace lfs::training {
                          val_dataset_->size());
             } else {
                 // Use all images for training
-                train_dataset_ = base_dataset_;
+                train_dataset_ = std::make_shared<CameraDataset>(
+                    source_cameras, dataset_config, CameraDataset::Split::ALL);
                 val_dataset_ = nullptr;
 
                 LOG_INFO("Using all {} images for training (no evaluation)",
                          train_dataset_->size());
             }
 
-            // change resize factor (change may comes from gui)
-            if (train_dataset_) {
-                train_dataset_->set_resize_factor(params.dataset.resize_factor);
-                train_dataset_->set_max_width(params.dataset.max_width);
-            }
-            if (val_dataset_) {
-                val_dataset_->set_resize_factor(params.dataset.resize_factor);
-                val_dataset_->set_max_width(params.dataset.max_width);
-            }
-
             train_dataset_size_ = train_dataset_->size();
 
-            m_cam_id_to_cam.clear();
-            // Setup camera cache
-            for (const auto& cam : base_dataset_->get_cameras()) {
-                m_cam_id_to_cam[cam->uid()] = cam;
+            // If using Scene mode and no strategy yet, create one
+            if (scene_ && !strategy_) {
+                auto* model = scene_->getTrainingModel();
+                if (!model) {
+                    return std::unexpected("Scene has no training model set");
+                }
+
+                if (params.optimization.strategy == "mcmc") {
+                    strategy_ = std::make_unique<MCMC>(*model);
+                    LOG_DEBUG("Created MCMC strategy from Scene model");
+                } else {
+                    strategy_ = std::make_unique<DefaultStrategy>(*model);
+                    LOG_DEBUG("Created default strategy from Scene model");
+                }
             }
-            LOG_DEBUG("Camera cache initialized with {} cameras", m_cam_id_to_cam.size());
 
             auto& splat = strategy_->get_model();
 
@@ -1130,25 +1160,6 @@ namespace lfs::training {
 
             return std::unexpected(std::format("Training failed: {}", e.what()));
         }
-    }
-
-    std::shared_ptr<const lfs::core::Camera> Trainer::getCamById(int camId) const {
-        const auto it = m_cam_id_to_cam.find(camId);
-        if (it == m_cam_id_to_cam.end()) {
-            LOG_ERROR("getCamById - could not find cam with cam id {}", camId);
-            return nullptr;
-        }
-        return it->second;
-    }
-
-    std::vector<std::shared_ptr<const lfs::core::Camera>> Trainer::getCamList() const {
-        std::vector<std::shared_ptr<const lfs::core::Camera>> cams;
-        cams.reserve(m_cam_id_to_cam.size());
-        for (auto& [key, value] : m_cam_id_to_cam) {
-            cams.push_back(value);
-        }
-
-        return cams;
     }
 
     void Trainer::save_ply(const std::filesystem::path& save_path, int iter_num, bool join_threads) {

@@ -17,6 +17,7 @@ namespace lfs::vis {
 
     // Forward declarations
     class VisualizerImpl;
+    class Scene;
 
     class TrainerManager {
     public:
@@ -48,6 +49,9 @@ namespace lfs::vis {
 
         // Link to viewer for notifications
         void setViewer(VisualizerImpl* viewer) { viewer_ = viewer; }
+
+        // Link to scene for data access (Scene-based trainer mode)
+        void setScene(Scene* scene) { scene_ = scene; }
 
         // Training control
         bool startTraining();
@@ -122,6 +126,7 @@ namespace lfs::vis {
         std::unique_ptr<lfs::training::Trainer> trainer_;
         std::unique_ptr<std::jthread> training_thread_;
         VisualizerImpl* viewer_ = nullptr;
+        Scene* scene_ = nullptr;  // Non-owning pointer to Scene (for Scene-based trainer mode)
 
         // State tracking
         std::atomic<State> state_{State::Idle};

@@ -8,6 +8,9 @@
 #include "core_new/image_io.hpp"
 #include "core_new/logger.hpp"
 #include "internal/resource_paths.hpp"
+#include "scene/scene_manager.hpp"
+#include "training/training_manager.hpp"
+#include "visualizer_impl.hpp"
 #include <imgui.h>
 
 namespace lfs::vis::gui::panels {
@@ -147,10 +150,28 @@ namespace lfs::vis::gui::panels {
         state.initialized = false;
     }
 
-    void DrawGizmoToolbar([[maybe_unused]] const UIContext& ctx, GizmoToolbarState& state,
+    void DrawGizmoToolbar(const UIContext& ctx, GizmoToolbarState& state,
                           const ImVec2& viewport_pos, const ImVec2& viewport_size) {
         if (!state.initialized) {
             InitGizmoToolbar(state);
+        }
+
+        // Check if training is active - if so, hide the toolbar entirely
+        bool is_training = false;
+        if (ctx.viewer) {
+            if (auto* sm = ctx.viewer->getSceneManager()) {
+                if (auto tm = sm->getTrainerManager()) {
+                    is_training = tm->isRunning() || tm->isPaused();
+                }
+            }
+        }
+
+        // During training, force tool mode to None and don't show toolbar
+        if (is_training) {
+            if (state.current_tool != ToolMode::None) {
+                state.current_tool = ToolMode::None;
+            }
+            return;  // Don't draw toolbar during training
         }
 
         const ImGuiViewport* viewport = ImGui::GetMainViewport();

@@ -8,6 +8,8 @@
 #include "core_new/tensor/internal/memory_pool.hpp"
 #include "project_new/project.hpp"
 #include "training_new/training_setup.hpp"
+#include "training_new/trainer.hpp"
+#include "visualizer_new/scene/scene.hpp"  // Scene for unified data storage
 #include "visualizer_new/visualizer.hpp"
 #include <cstring>
 #ifdef WIN32
@@ -22,7 +24,7 @@ namespace lfs::core {
             return -1;
         }
 
-        LOG_INFO("Starting headless training...");
+        LOG_INFO("Starting headless training (using unified Scene)...");
 
         auto project = lfs::project::CreateNewProject(
             params->dataset,
@@ -32,23 +34,28 @@ namespace lfs::core {
             return -1;
         }
 
-        auto setup_result = lfs::training::setupTraining(*params);
-        if (!setup_result) {
-            LOG_ERROR("Training setup failed: {}", setup_result.error());
+        // Create Scene to hold all training data
+        lfs::vis::Scene scene;
+
+        // Load training data into Scene
+        auto load_result = lfs::training::loadTrainingDataIntoScene(*params, scene);
+        if (!load_result) {
+            LOG_ERROR("Failed to load training data: {}", load_result.error());
             return -1;
         }
 
-        setup_result->trainer->setProject(project);
+        // Create Trainer from Scene
+        auto trainer = std::make_unique<lfs::training::Trainer>(scene);
+        trainer->setProject(project);
 
-        // Initialize trainer in headless mode with parameters
-        auto init_result = setup_result->trainer->initialize(*params);
+        // Initialize trainer with parameters (creates strategy internally)
+        auto init_result = trainer->initialize(*params);
         if (!init_result) {
             LOG_ERROR("Failed to initialize trainer: {}", init_result.error());
             return -1;
         }
 
         // Free cached CUDA memory before starting training loop
-        // This releases memory held by cudaMallocAsync pools back to the OS
         LOG_INFO("Releasing cached CUDA memory before training...");
         CudaMemoryPool::instance().trim_cached_memory();
 
@@ -58,7 +65,7 @@ namespace lfs::core {
                  free_mem / (1024.0 * 1024.0 * 1024.0),
                  total_mem / (1024.0 * 1024.0 * 1024.0));
 
-        auto train_result = setup_result->trainer->train();
+        auto train_result = trainer->train();
         if (!train_result) {
             LOG_ERROR("Training error: {}", train_result.error());
             return -1;

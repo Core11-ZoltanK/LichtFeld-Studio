@@ -1112,105 +1112,105 @@ namespace lfs::vis {
             }
         }
 
-        // Camera frustums section
-        if (settings_.show_camera_frustums && engine_) {
-            LOG_TRACE("Camera frustums enabled, checking for scene_manager...");
+        // Camera frustums - controlled entirely by scene graph visibility
+        // (no checkbox needed, visibility is set per-camera node in scene panel)
+        if (engine_ && context.scene_manager) {
+            // Check which cameras are visible in the scene graph
+            auto visible_indices = context.scene_manager->getScene().getVisibleCameraIndices();
 
-            if (!context.scene_manager) {
-                LOG_ERROR("Camera frustums enabled but scene_manager is null in render context!");
-                return;
-            }
+            // Only render frustums if there are visible camera nodes
+            if (!visible_indices.empty()) {
+                // Get cameras from scene manager's trainer
+                auto* trainer_manager = context.scene_manager->getTrainerManager();
+                if (!trainer_manager || !trainer_manager->hasTrainer()) {
+                    // No trainer, can't get camera data
+                    return;
+                }
 
-            // Get cameras from scene manager's trainer
-            std::vector<std::shared_ptr<const lfs::core::Camera>> cameras;
-            auto* trainer_manager = context.scene_manager->getTrainerManager();
+                auto all_cameras = trainer_manager->getCamList();
+                LOG_TRACE("Retrieved {} cameras from trainer manager", all_cameras.size());
 
-            if (!trainer_manager) {
-                LOG_WARN("Camera frustums enabled but trainer_manager is null");
-                return;
-            }
-
-            if (!trainer_manager->hasTrainer()) {
-                LOG_TRACE("Camera frustums enabled but no trainer is loaded");
-                return;
-            }
-
-            cameras = trainer_manager->getCamList();
-            LOG_TRACE("Retrieved {} cameras from trainer manager", cameras.size());
-
-            if (!cameras.empty()) {
-                // Find the actual index for the hovered camera ID
-                int highlight_index = -1;
-                if (hovered_camera_id_ >= 0) {
-                    for (size_t i = 0; i < cameras.size(); ++i) {
-                        if (cameras[i]->uid() == hovered_camera_id_) {
-                            highlight_index = static_cast<int>(i);
-                            break;
-                        }
+                // Filter to only visible cameras
+                std::vector<std::shared_ptr<const lfs::core::Camera>> cameras;
+                cameras.reserve(visible_indices.size());
+                for (size_t i = 0; i < all_cameras.size(); ++i) {
+                    if (visible_indices.contains(static_cast<int>(i))) {
+                        cameras.push_back(all_cameras[i]);
                     }
                 }
+                LOG_TRACE("Filtered to {} visible cameras", cameras.size());
 
-                // Get scene transform from visible nodes (applies alignment transform)
-                glm::mat4 scene_transform(1.0f);
-                auto visible_transforms = context.scene_manager->getScene().getVisibleNodeTransforms();
-                if (!visible_transforms.empty()) {
-                    scene_transform = visible_transforms[0];
-                }
+                if (!cameras.empty()) {
+                    // Find the actual index for the hovered camera ID
+                    int highlight_index = -1;
+                    if (hovered_camera_id_ >= 0) {
+                        for (size_t i = 0; i < cameras.size(); ++i) {
+                            if (cameras[i]->uid() == hovered_camera_id_) {
+                                highlight_index = static_cast<int>(i);
+                                break;
+                            }
+                        }
+                    }
 
-                // Render frustums with scene transform
-                LOG_TRACE("Rendering {} camera frustums with scale {}, highlighted index: {} (ID: {})",
-                          cameras.size(), settings_.camera_frustum_scale, highlight_index, hovered_camera_id_);
+                    // Get scene transform from visible nodes (applies alignment transform)
+                    glm::mat4 scene_transform(1.0f);
+                    auto visible_transforms = context.scene_manager->getScene().getVisibleNodeTransforms();
+                    if (!visible_transforms.empty()) {
+                        scene_transform = visible_transforms[0];
+                    }
 
-                auto frustum_result = engine_->renderCameraFrustumsWithHighlight(
-                    cameras, viewport,
-                    settings_.camera_frustum_scale,
-                    settings_.train_camera_color,
-                    settings_.eval_camera_color,
-                    highlight_index,
-                    scene_transform);
+                    // Render frustums with scene transform
+                    LOG_TRACE("Rendering {} camera frustums with scale {}, highlighted index: {} (ID: {})",
+                              cameras.size(), settings_.camera_frustum_scale, highlight_index, hovered_camera_id_);
 
-                if (!frustum_result) {
-                    LOG_ERROR("Failed to render camera frustums: {}", frustum_result.error());
-                }
-
-                // Perform picking if requested
-                if (pick_requested_ && context.viewport_region) {
-                    pick_requested_ = false;
-
-                    auto pick_result = engine_->pickCameraFrustum(
-                        cameras,
-                        pending_pick_pos_,
-                        glm::vec2(context.viewport_region->x, context.viewport_region->y),
-                        glm::vec2(context.viewport_region->width, context.viewport_region->height),
-                        viewport,
+                    auto frustum_result = engine_->renderCameraFrustumsWithHighlight(
+                        cameras, viewport,
                         settings_.camera_frustum_scale,
+                        settings_.train_camera_color,
+                        settings_.eval_camera_color,
+                        highlight_index,
                         scene_transform);
 
-                    if (pick_result) {
-                        int cam_id = *pick_result;
+                    if (!frustum_result) {
+                        LOG_ERROR("Failed to render camera frustums: {}", frustum_result.error());
+                    }
 
-                        // Only process if camera ID actually changed
-                        if (cam_id != hovered_camera_id_) {
+                    // Perform picking if requested
+                    if (pick_requested_ && context.viewport_region) {
+                        pick_requested_ = false;
+
+                        auto pick_result = engine_->pickCameraFrustum(
+                            cameras,
+                            pending_pick_pos_,
+                            glm::vec2(context.viewport_region->x, context.viewport_region->y),
+                            glm::vec2(context.viewport_region->width, context.viewport_region->height),
+                            viewport,
+                            settings_.camera_frustum_scale,
+                            scene_transform);
+
+                        if (pick_result) {
+                            int cam_id = *pick_result;
+
+                            // Only process if camera ID actually changed
+                            if (cam_id != hovered_camera_id_) {
+                                int old_hover = hovered_camera_id_;
+                                hovered_camera_id_ = cam_id;
+
+                                // Only mark dirty on actual change
+                                markDirty();
+                                LOG_DEBUG("Camera hover changed: {} -> {}", old_hover, cam_id);
+                            }
+                        } else if (hovered_camera_id_ != -1) {
+                            // Lost hover - only update if we had a hover before
                             int old_hover = hovered_camera_id_;
-                            hovered_camera_id_ = cam_id;
-
-                            // Only mark dirty on actual change
+                            hovered_camera_id_ = -1;
                             markDirty();
-                            LOG_DEBUG("Camera hover changed: {} -> {}", old_hover, cam_id);
+                            LOG_DEBUG("Camera hover lost (was ID: {})", old_hover);
                         }
-                    } else if (hovered_camera_id_ != -1) {
-                        // Lost hover - only update if we had a hover before
-                        int old_hover = hovered_camera_id_;
-                        hovered_camera_id_ = -1;
-                        markDirty();
-                        LOG_DEBUG("Camera hover lost (was ID: {})", old_hover);
                     }
                 }
-            } else {
-                LOG_WARN("Camera frustums enabled but no cameras available");
             }
         }
-
     }
 
     float RenderingManager::getDepthAtPixel(int x, int y) const {

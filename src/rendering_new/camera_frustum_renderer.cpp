@@ -3,709 +3,824 @@
  * SPDX-License-Identifier: GPL-3.0-or-later */
 
 #include "camera_frustum_renderer.hpp"
+#include "core_new/image_io.hpp"
 #include "core_new/logger.hpp"
 #include "gl_state_guard.hpp"
+#include "loader_new/nvcodec_image_loader.hpp"
 #include <glm/gtc/matrix_transform.hpp>
 
 namespace lfs::rendering {
 
-    Result<void> CameraFrustumRenderer::init() {
-        LOG_DEBUG("Initializing camera frustum renderer");
+namespace {
+    constexpr float FADE_START_MULTIPLIER = 5.0f;
+    constexpr float FADE_END_MULTIPLIER = 0.2f;
+    constexpr float MIN_VISIBLE_MULTIPLIER = 0.1f;
+    constexpr float MIN_VISIBLE_ALPHA = 0.05f;
+    constexpr float MIN_RENDER_ALPHA = 0.01f;
+    constexpr float WIREFRAME_WIDTH = 1.5f;
+    constexpr int PICKING_SAMPLE_SIZE = 3;
+    constexpr int NVCODEC_DECODER_POOL_SIZE = 4;
+    constexpr int INITIAL_TEXTURE_ARRAY_CAPACITY = 256;
 
-        // Load shader
-        auto shader_result = load_shader("camera_frustum", "camera_frustum.vert", "camera_frustum.frag", false);
-        if (!shader_result) {
-            LOG_ERROR("Failed to load camera frustum shader: {}", shader_result.error().what());
-            return std::unexpected(shader_result.error().what());
-        }
-        shader_ = std::move(*shader_result);
+    const glm::mat4 GL_TO_COLMAP = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f, -1.0f, -1.0f));
+}
 
-        // Create geometry
-        if (auto result = createGeometry(); !result) {
-            return result;
-        }
+CameraFrustumRenderer::~CameraFrustumRenderer() {
+    stopThumbnailLoader();
+}
 
-        // Create instance buffer
-        auto instance_vbo_result = create_vbo();
-        if (!instance_vbo_result) {
-            return std::unexpected(instance_vbo_result.error());
-        }
-        instance_vbo_ = std::move(*instance_vbo_result);
+Result<void> CameraFrustumRenderer::init() {
+    auto shader_result = load_shader("camera_frustum", "camera_frustum.vert", "camera_frustum.frag", false);
+    if (!shader_result) {
+        return std::unexpected(shader_result.error().what());
+    }
+    shader_ = std::move(*shader_result);
 
-        // Create picking FBO
-        if (auto result = createPickingFBO(); !result) {
-            return result;
-        }
-
-        initialized_ = true;
-        LOG_INFO("Camera frustum renderer initialized");
-        return {};
+    if (auto result = createGeometry(); !result) {
+        return result;
     }
 
-    Result<void> CameraFrustumRenderer::createGeometry() {
-        LOG_TIMER_TRACE("CameraFrustumRenderer::createGeometry");
+    auto instance_vbo_result = create_vbo();
+    if (!instance_vbo_result) {
+        return std::unexpected(instance_vbo_result.error());
+    }
+    instance_vbo_ = std::move(*instance_vbo_result);
 
-        // Frustum vertices in camera space (apex at origin, base at z=-1)
-        std::vector<glm::vec3> vertices = {
-            // Base vertices (at z = -1, sized by FOV)
-            {-0.5f, -0.5f, -1.0f}, // 0 bottom-left
-            {0.5f, -0.5f, -1.0f},  // 1 bottom-right
-            {0.5f, 0.5f, -1.0f},   // 2 top-right
-            {-0.5f, 0.5f, -1.0f},  // 3 top-left
-            // Apex (camera position)
-            {0.0f, 0.0f, 0.0f} // 4
-        };
-
-        // Face indices (triangles)
-        std::vector<unsigned int> face_indices = {
-            // Base (facing away)
-            0, 1, 2,
-            0, 2, 3,
-            // Side faces
-            0, 4, 1,
-            1, 4, 2,
-            2, 4, 3,
-            3, 4, 0};
-
-        // Edge indices (lines)
-        std::vector<unsigned int> edge_indices = {
-            0, 1, 1, 2, 2, 3, 3, 0, // Base edges
-            0, 4, 1, 4, 2, 4, 3, 4  // Apex edges
-        };
-
-        num_face_indices_ = face_indices.size();
-        num_edge_indices_ = edge_indices.size();
-
-        // Create VAO and buffers
-        auto vao_result = create_vao();
-        if (!vao_result) {
-            return std::unexpected(vao_result.error());
-        }
-
-        auto vbo_result = create_vbo();
-        if (!vbo_result) {
-            return std::unexpected(vbo_result.error());
-        }
-        vbo_ = std::move(*vbo_result);
-
-        auto face_ebo_result = create_vbo();
-        if (!face_ebo_result) {
-            return std::unexpected(face_ebo_result.error());
-        }
-        face_ebo_ = std::move(*face_ebo_result);
-
-        auto edge_ebo_result = create_vbo();
-        if (!edge_ebo_result) {
-            return std::unexpected(edge_ebo_result.error());
-        }
-        edge_ebo_ = std::move(*edge_ebo_result);
-
-        // Build VAO
-        VAOBuilder builder(std::move(*vao_result));
-
-        // Vertex positions
-        std::span<const float> vertices_data(
-            reinterpret_cast<const float*>(vertices.data()),
-            vertices.size() * 3);
-
-        builder.attachVBO(vbo_, vertices_data, GL_STATIC_DRAW)
-            .setAttribute({.index = 0, .size = 3, .type = GL_FLOAT});
-
-        // Face indices
-        builder.attachEBO(face_ebo_, std::span(face_indices), GL_STATIC_DRAW);
-
-        vao_ = builder.build();
-
-        // Also upload edge indices
-        BufferBinder<GL_ELEMENT_ARRAY_BUFFER> edge_bind(edge_ebo_);
-        upload_buffer(GL_ELEMENT_ARRAY_BUFFER, std::span(edge_indices), GL_STATIC_DRAW);
-
-        LOG_DEBUG("Camera frustum geometry created");
-        return {};
+    if (auto result = createPickingFBO(); !result) {
+        return result;
     }
 
-    Result<void> CameraFrustumRenderer::createPickingFBO() {
-        LOG_DEBUG("Creating picking framebuffer");
+    startThumbnailLoader();
+    initialized_ = true;
+    LOG_INFO("Camera frustum renderer initialized");
+    return {};
+}
 
-        // Create FBO
-        GLuint fbo_id;
-        glGenFramebuffers(1, &fbo_id);
-        if (fbo_id == 0) {
-            return std::unexpected("Failed to create picking FBO");
-        }
-        picking_fbo_ = FBO(fbo_id);
+Result<void> CameraFrustumRenderer::createGeometry() {
+    const std::vector<Vertex> vertices = {
+        {{-0.5f, -0.5f, -1.0f}, {0.0f, 0.0f}},
+        {{0.5f, -0.5f, -1.0f}, {1.0f, 0.0f}},
+        {{0.5f, 0.5f, -1.0f}, {1.0f, 1.0f}},
+        {{-0.5f, 0.5f, -1.0f}, {0.0f, 1.0f}},
+        {{0.0f, 0.0f, 0.0f}, {0.5f, 0.5f}}
+    };
 
-        // Initial size (will resize on first use)
-        picking_fbo_width_ = 256;
-        picking_fbo_height_ = 256;
+    const std::vector<unsigned int> face_indices = {
+        0, 1, 2, 0, 2, 3,           // Base
+        0, 4, 1, 1, 4, 2, 2, 4, 3, 3, 4, 0  // Sides
+    };
 
-        // Create color texture
-        GLuint color_tex;
-        glGenTextures(1, &color_tex);
-        picking_color_texture_ = Texture(color_tex);
+    const std::vector<unsigned int> edge_indices = {
+        0, 1, 1, 2, 2, 3, 3, 0,    // Base
+        0, 4, 1, 4, 2, 4, 3, 4     // Apex
+    };
 
-        glBindTexture(GL_TEXTURE_2D, picking_color_texture_);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, picking_fbo_width_, picking_fbo_height_,
-                     0, GL_RGB, GL_FLOAT, nullptr);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    num_face_indices_ = face_indices.size();
+    num_edge_indices_ = edge_indices.size();
 
-        // Create depth texture
-        GLuint depth_tex;
-        glGenTextures(1, &depth_tex);
-        picking_depth_texture_ = Texture(depth_tex);
+    auto vao_result = create_vao();
+    if (!vao_result) return std::unexpected(vao_result.error());
 
-        glBindTexture(GL_TEXTURE_2D, picking_depth_texture_);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, picking_fbo_width_, picking_fbo_height_,
-                     0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    auto vbo_result = create_vbo();
+    if (!vbo_result) return std::unexpected(vbo_result.error());
+    vbo_ = std::move(*vbo_result);
 
-        // Attach to FBO
-        glBindFramebuffer(GL_FRAMEBUFFER, picking_fbo_);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, picking_color_texture_, 0);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, picking_depth_texture_, 0);
+    auto face_ebo_result = create_vbo();
+    if (!face_ebo_result) return std::unexpected(face_ebo_result.error());
+    face_ebo_ = std::move(*face_ebo_result);
 
-        GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-        if (status != GL_FRAMEBUFFER_COMPLETE) {
-            LOG_ERROR("Picking FBO incomplete: 0x{:x}", status);
-            return std::unexpected("Picking FBO incomplete");
-        }
+    auto edge_ebo_result = create_vbo();
+    if (!edge_ebo_result) return std::unexpected(edge_ebo_result.error());
+    edge_ebo_ = std::move(*edge_ebo_result);
 
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        LOG_DEBUG("Picking FBO created successfully");
-        return {};
+    VAOBuilder builder(std::move(*vao_result));
+
+    const std::span<const float> vertices_data(
+        reinterpret_cast<const float*>(vertices.data()),
+        vertices.size() * sizeof(Vertex) / sizeof(float));
+
+    builder.attachVBO(vbo_, vertices_data, GL_STATIC_DRAW)
+        .setAttribute({.index = 0, .size = 3, .type = GL_FLOAT, .stride = sizeof(Vertex), .offset = nullptr})
+        .setAttribute({.index = 1, .size = 2, .type = GL_FLOAT, .stride = sizeof(Vertex), .offset = reinterpret_cast<const void*>(offsetof(Vertex, uv))});
+
+    builder.attachEBO(face_ebo_, std::span(face_indices), GL_STATIC_DRAW);
+    vao_ = builder.build();
+
+    BufferBinder<GL_ELEMENT_ARRAY_BUFFER> edge_bind(edge_ebo_);
+    upload_buffer(GL_ELEMENT_ARRAY_BUFFER, std::span(edge_indices), GL_STATIC_DRAW);
+
+    return {};
+}
+
+Result<void> CameraFrustumRenderer::createPickingFBO() {
+    GLuint fbo_id;
+    glGenFramebuffers(1, &fbo_id);
+    if (fbo_id == 0) {
+        return std::unexpected("Failed to create picking FBO");
+    }
+    picking_fbo_ = FBO(fbo_id);
+
+    picking_fbo_width_ = 256;
+    picking_fbo_height_ = 256;
+
+    GLuint color_tex;
+    glGenTextures(1, &color_tex);
+    picking_color_texture_ = Texture(color_tex);
+
+    glBindTexture(GL_TEXTURE_2D, picking_color_texture_);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, picking_fbo_width_, picking_fbo_height_, 0, GL_RGB, GL_FLOAT, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+    GLuint depth_tex;
+    glGenTextures(1, &depth_tex);
+    picking_depth_texture_ = Texture(depth_tex);
+
+    glBindTexture(GL_TEXTURE_2D, picking_depth_texture_);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, picking_fbo_width_, picking_fbo_height_, 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, picking_fbo_);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, picking_color_texture_, 0);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, picking_depth_texture_, 0);
+
+    const GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    if (status != GL_FRAMEBUFFER_COMPLETE) {
+        return std::unexpected("Picking FBO incomplete");
+    }
+    return {};
+}
+
+void CameraFrustumRenderer::prepareInstances(
+    const std::vector<std::shared_ptr<const lfs::core::Camera>>& cameras,
+    const float scale,
+    const glm::vec3& train_color,
+    const glm::vec3& eval_color,
+    const bool for_picking,
+    const glm::vec3& view_position,
+    const glm::mat4& scene_transform) {
+
+    const bool needs_regeneration =
+        cached_instances_.size() != cameras.size() ||
+        last_scale_ != scale ||
+        last_train_color_ != train_color ||
+        last_eval_color_ != eval_color ||
+        last_scene_transform_ != scene_transform;
+
+    if (!needs_regeneration && !cached_instances_.empty()) {
+        updateInstanceVisibility(view_position);
+        return;
     }
 
-    void CameraFrustumRenderer::prepareInstances(const std::vector<std::shared_ptr<const lfs::core::Camera>>& cameras,
-                                                 float scale,
-                                                 const glm::vec3& train_color,
-                                                 const glm::vec3& eval_color,
-                                                 bool for_picking,
-                                                 const glm::vec3& view_position,
-                                                 const glm::mat4& scene_transform) {
+    cached_instances_.clear();
+    cached_instances_.reserve(cameras.size());
+    camera_ids_.clear();
+    camera_ids_.reserve(cameras.size());
+    camera_positions_.clear();
+    camera_positions_.reserve(cameras.size());
 
-        // Track if we need to regenerate
-        bool needs_regeneration = false;
+    for (const auto& cam : cameras) {
+        auto R_tensor = cam->R();
+        auto T_tensor = cam->T();
 
-        // Check if we need to regenerate instances
-        if (cached_instances_.size() != cameras.size()) {
-            needs_regeneration = true;
-            LOG_TRACE("Instance count changed: {} -> {}", cached_instances_.size(), cameras.size());
-        } else if (last_scale_ != scale || last_train_color_ != train_color || last_eval_color_ != eval_color) {
-            needs_regeneration = true;
-            LOG_TRACE("Instance parameters changed");
-        } else if (last_scene_transform_ != scene_transform) {
-            needs_regeneration = true;
-            LOG_TRACE("Scene transform changed");
+        if (!R_tensor.is_valid() || !T_tensor.is_valid()) continue;
+
+        if (R_tensor.device() != lfs::core::Device::CPU) R_tensor = R_tensor.cpu();
+        if (T_tensor.device() != lfs::core::Device::CPU) T_tensor = T_tensor.cpu();
+
+        glm::mat4 w2c(1.0f);
+        auto R_acc = R_tensor.accessor<float, 2>();
+        auto T_acc = T_tensor.accessor<float, 1>();
+
+        for (int i = 0; i < 3; ++i) {
+            for (int j = 0; j < 3; ++j) {
+                w2c[j][i] = R_acc(i, j);
+            }
+            w2c[3][i] = T_acc(i);
         }
 
-        // Only regenerate if necessary
-        if (!needs_regeneration && !cached_instances_.empty()) {
-            // Update visibility based on distance even when using cache
-            updateInstanceVisibility(view_position);
-            LOG_TRACE("Using {} cached instances for {}, updating visibility",
-                      cached_instances_.size(), for_picking ? "picking" : "rendering");
-            return;
-        }
+        const glm::mat4 transformed_c2w = scene_transform * glm::inverse(w2c);
+        const glm::vec3 cam_pos = glm::vec3(transformed_c2w[3]);
+        camera_positions_.push_back(cam_pos);
 
-        LOG_DEBUG("Regenerating {} instances for {} (scale: {}, train_color: [{}, {}, {}])",
-                  cameras.size(), for_picking ? "picking" : "rendering", scale,
-                  train_color.r, train_color.g, train_color.b);
+        const float aspect = static_cast<float>(cam->image_width()) / static_cast<float>(cam->image_height());
+        const float fov_y = lfs::core::focal2fov(cam->focal_y(), cam->image_height());
+        const float half_height = std::tan(fov_y * 0.5f);
+        const float half_width = half_height * aspect;
 
-        cached_instances_.clear();
-        cached_instances_.reserve(cameras.size());
-        camera_ids_.clear();
-        camera_ids_.reserve(cameras.size());
-        camera_positions_.clear();
-        camera_positions_.reserve(cameras.size());
+        const glm::mat4 fov_scale = glm::scale(glm::mat4(1.0f), glm::vec3(half_width * 2.0f * scale, half_height * 2.0f * scale, scale));
+        const glm::mat4 model = transformed_c2w * GL_TO_COLMAP * fov_scale;
 
-        // Transform from OpenGL to COLMAP coordinates
-        const glm::mat4 GL_TO_COLMAP = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f, -1.0f, -1.0f));
+        const bool is_validation = cam->image_name().find("test") != std::string::npos;
+        const glm::vec3 color = is_validation ? eval_color : train_color;
 
-        for (const auto& cam : cameras) {
-            // Get camera world-to-camera transform
-            auto R_tensor = cam->R();
-            auto T_tensor = cam->T();
+        float alpha = 1.0f;
+        if (!for_picking) {
+            const float distance = glm::length(cam_pos - view_position);
+            const float fade_start = FADE_START_MULTIPLIER * scale;
+            const float fade_end = FADE_END_MULTIPLIER * scale;
+            const float min_visible = MIN_VISIBLE_MULTIPLIER * scale;
 
-            if (!R_tensor.is_valid() || !T_tensor.is_valid()) {
-                continue;
-            }
-
-            // Convert to CPU if needed
-            if (R_tensor.device() != lfs::core::Device::CPU) {
-                R_tensor = R_tensor.cpu();
-            }
-            if (T_tensor.device() != lfs::core::Device::CPU) {
-                T_tensor = T_tensor.cpu();
-            }
-
-            // Build world-to-camera matrix
-            glm::mat4 w2c(1.0f);
-            auto R_acc = R_tensor.accessor<float, 2>();
-            auto T_acc = T_tensor.accessor<float, 1>();
-
-            for (int i = 0; i < 3; ++i) {
-                for (int j = 0; j < 3; ++j) {
-                    w2c[j][i] = R_acc(i, j); // Column-major
-                }
-                w2c[3][i] = T_acc(i);
-            }
-
-            // Camera-to-world transform
-            glm::mat4 c2w = glm::inverse(w2c);
-
-            // Apply scene transform to the camera-to-world matrix
-            // This transforms the camera frustums to match the transformed scene
-            glm::mat4 transformed_c2w = scene_transform * c2w;
-
-            // Extract camera position (after scene transform)
-            glm::vec3 cam_pos = glm::vec3(transformed_c2w[3]);
-            camera_positions_.push_back(cam_pos);
-
-            // Apply coordinate system conversion and scale
-            glm::mat4 model = transformed_c2w * GL_TO_COLMAP * glm::scale(glm::mat4(1.0f), glm::vec3(scale));
-
-            // Determine color based on camera type
-            bool is_test = cam->image_name().find("test") != std::string::npos;
-            glm::vec3 color = is_test ? eval_color : train_color;
-
-            // Calculate alpha based on distance to view position
-            float distance = glm::length(cam_pos - view_position);
-            float alpha = 1.0f;
-
-            if (for_picking) {
-                // For picking, keep everything at full alpha so it's pickable
-                // The picking shader will handle the actual visibility
-                alpha = 1.0f;
-            } else {
-                // For rendering, use aggressive fading
-                const float FADE_START_DISTANCE = 5.0f * scale;
-                const float FADE_END_DISTANCE = 0.2f * scale;
-                const float MINIMUM_VISIBLE_DISTANCE = 0.1f * scale;
-
-                if (distance < MINIMUM_VISIBLE_DISTANCE) {
-                    alpha = 0.0f; // Completely invisible when very close
-                } else if (distance < FADE_END_DISTANCE) {
-                    alpha = 0.05f; // Very faint
-                } else if (distance < FADE_START_DISTANCE) {
-                    float t = (distance - FADE_END_DISTANCE) / (FADE_START_DISTANCE - FADE_END_DISTANCE);
-                    alpha = 0.05f + 0.95f * (t * t * (3.0f - 2.0f * t));
-                }
-            }
-
-            cached_instances_.push_back({model, color, alpha});
-            camera_ids_.push_back(cam->uid());
-        }
-
-        // Update cache parameters
-        last_scale_ = scale;
-        last_train_color_ = train_color;
-        last_eval_color_ = eval_color;
-        last_view_position_ = view_position;
-        last_scene_transform_ = scene_transform;
-
-        LOG_DEBUG("Prepared {} instances", cached_instances_.size());
-    }
-
-    void CameraFrustumRenderer::updateInstanceVisibility(const glm::vec3& view_position) {
-        if (camera_positions_.size() != cached_instances_.size()) {
-            LOG_WARN("Cannot update visibility: position count {} != instance count {}",
-                     camera_positions_.size(), cached_instances_.size());
-            return;
-        }
-
-        for (size_t i = 0; i < camera_positions_.size(); ++i) {
-            float distance = glm::length(camera_positions_[i] - view_position);
-            float alpha = 1.0f;
-
-            // For rendering, use aggressive fading
-            const float FADE_START_DISTANCE = 5.0f * last_scale_;
-            const float FADE_END_DISTANCE = 0.2f * last_scale_;
-            const float MINIMUM_VISIBLE_DISTANCE = 0.1f * last_scale_;
-
-            if (distance < MINIMUM_VISIBLE_DISTANCE) {
+            if (distance < min_visible) {
                 alpha = 0.0f;
-            } else if (distance < FADE_END_DISTANCE) {
-                alpha = 0.05f; // Very faint but still slightly visible
-            } else if (distance < FADE_START_DISTANCE) {
-                float t = (distance - FADE_END_DISTANCE) / (FADE_START_DISTANCE - FADE_END_DISTANCE);
-                alpha = 0.05f + 0.95f * (t * t * (3.0f - 2.0f * t));
+            } else if (distance < fade_end) {
+                alpha = MIN_VISIBLE_ALPHA;
+            } else if (distance < fade_start) {
+                const float t = (distance - fade_end) / (fade_start - fade_end);
+                alpha = MIN_VISIBLE_ALPHA + (1.0f - MIN_VISIBLE_ALPHA) * (t * t * (3.0f - 2.0f * t));
             }
-
-            cached_instances_[i].alpha = alpha;
         }
 
-        last_view_position_ = view_position;
+        cached_instances_.push_back({model, color, alpha, 0, is_validation ? 1u : 0u, {0, 0}});
+        camera_ids_.push_back(cam->uid());
     }
 
-    Result<void> CameraFrustumRenderer::render(
-        const std::vector<std::shared_ptr<const lfs::core::Camera>>& cameras,
-        const glm::mat4& view,
-        const glm::mat4& projection,
-        float scale,
-        const glm::vec3& train_color,
-        const glm::vec3& eval_color,
-        const glm::mat4& scene_transform) {
+    last_scale_ = scale;
+    last_train_color_ = train_color;
+    last_eval_color_ = eval_color;
+    last_view_position_ = view_position;
+    last_scene_transform_ = scene_transform;
+}
 
-        if (!initialized_ || cameras.empty()) {
-            return {};
+void CameraFrustumRenderer::updateInstanceVisibility(const glm::vec3& view_position) {
+    if (camera_positions_.size() != cached_instances_.size()) return;
+
+    const float fade_start = FADE_START_MULTIPLIER * last_scale_;
+    const float fade_end = FADE_END_MULTIPLIER * last_scale_;
+    const float min_visible = MIN_VISIBLE_MULTIPLIER * last_scale_;
+
+    for (size_t i = 0; i < camera_positions_.size(); ++i) {
+        const float distance = glm::length(camera_positions_[i] - view_position);
+        float alpha = 1.0f;
+
+        if (distance < min_visible) {
+            alpha = 0.0f;
+        } else if (distance < fade_end) {
+            alpha = MIN_VISIBLE_ALPHA;
+        } else if (distance < fade_start) {
+            const float t = (distance - fade_end) / (fade_start - fade_end);
+            alpha = MIN_VISIBLE_ALPHA + (1.0f - MIN_VISIBLE_ALPHA) * (t * t * (3.0f - 2.0f * t));
         }
+        cached_instances_[i].alpha = alpha;
+    }
+    last_view_position_ = view_position;
+}
 
-        LOG_TRACE("Rendering {} camera frustums", cameras.size());
+Result<void> CameraFrustumRenderer::render(
+    const std::vector<std::shared_ptr<const lfs::core::Camera>>& cameras,
+    const glm::mat4& view,
+    const glm::mat4& projection,
+    const float scale,
+    const glm::vec3& train_color,
+    const glm::vec3& eval_color,
+    const glm::mat4& scene_transform) {
 
-        // Extract view position from inverse of view matrix
-        glm::vec3 view_position = glm::vec3(glm::inverse(view)[3]);
+    if (!initialized_ || cameras.empty()) return {};
 
-        // Prepare instance data for rendering (not picking)
-        prepareInstances(cameras, scale, train_color, eval_color, false, view_position, scene_transform);
+    uploadReadyThumbnails();
 
-        if (cached_instances_.empty()) {
-            return {};
-        }
+    const glm::vec3 view_position = glm::vec3(glm::inverse(view)[3]);
+    prepareInstances(cameras, scale, train_color, eval_color, false, view_position, scene_transform);
 
-        // Filter out instances with alpha = 0 for rendering
-        std::vector<InstanceData> visible_instances;
-        std::vector<int> visible_indices;
-        visible_instances.reserve(cached_instances_.size());
-        visible_indices.reserve(cached_instances_.size());
+    if (cached_instances_.empty()) return {};
 
-        for (size_t i = 0; i < cached_instances_.size(); ++i) {
-            if (cached_instances_[i].alpha > 0.01f) { // Skip nearly invisible frustums
-                visible_instances.push_back(cached_instances_[i]);
-                visible_indices.push_back(static_cast<int>(i));
+    std::vector<InstanceData> visible_instances;
+    std::vector<int> visible_indices;
+    std::vector<std::shared_ptr<const lfs::core::Camera>> visible_cameras;
+    visible_instances.reserve(cached_instances_.size());
+    visible_indices.reserve(cached_instances_.size());
+    visible_cameras.reserve(cached_instances_.size());
+
+    for (size_t i = 0; i < cached_instances_.size(); ++i) {
+        if (cached_instances_[i].alpha > MIN_RENDER_ALPHA) {
+            visible_instances.push_back(cached_instances_[i]);
+            visible_indices.push_back(static_cast<int>(i));
+            if (i < cameras.size()) {
+                visible_cameras.push_back(cameras[i]);
             }
         }
-
-        if (visible_instances.empty()) {
-            LOG_TRACE("No visible camera frustums to render");
-            return {};
-        }
-
-        LOG_TRACE("Rendering {} visible frustums out of {} total", visible_instances.size(), cached_instances_.size());
-
-        // Use comprehensive state guard for entire render operation
-        GLStateGuard state_guard;
-
-        // Clear any previous OpenGL errors
-        while (glGetError() != GL_NO_ERROR) {}
-
-        // Bind shader using RAII - this scope encompasses all uniform setting and drawing
-        {
-            ShaderScope shader(shader_);
-
-            if (!shader.isBound()) {
-                LOG_ERROR("Failed to bind camera frustum shader");
-                return std::unexpected("Failed to bind camera frustum shader");
-            }
-
-            // Set uniforms while shader is bound
-            glm::mat4 view_proj = projection * view;
-
-            // Set required uniforms
-            if (auto result = shader->set("viewProj", view_proj); !result) {
-                LOG_ERROR("Failed to set viewProj uniform: {}", result.error());
-            }
-
-            if (auto result = shader->set("viewPos", view_position); !result) {
-                LOG_ERROR("Failed to set viewPos uniform: {}", result.error());
-            }
-
-            // Set picking mode to false for normal rendering
-            if (auto result = shader->set("pickingMode", false); !result) {
-                LOG_TRACE("pickingMode uniform not found");
-            }
-
-            // Find the actual highlighted index in the visible instances
-            int visible_highlight_index = -1;
-            if (highlighted_camera_ >= 0 && highlighted_camera_ < static_cast<int>(visible_indices.size())) {
-                for (size_t i = 0; i < visible_indices.size(); ++i) {
-                    if (visible_indices[i] == highlighted_camera_) {
-                        visible_highlight_index = static_cast<int>(i);
-                        break;
-                    }
-                }
-            }
-
-            // Set highlight index
-            if (auto result = shader->set("highlightIndex", visible_highlight_index); !result) {
-                LOG_TRACE("highlightIndex uniform not found");
-            }
-
-            if (auto result = shader->set("highlightColor", glm::vec3(1.0f, 0.85f, 0.0f)); !result) {
-                LOG_TRACE("highlightColor uniform not found");
-            }
-
-            // Bind VAO using RAII
-            {
-                VAOBinder vao_bind(vao_);
-
-                // Upload visible instance data using RAII buffer binding
-                {
-                    BufferBinder<GL_ARRAY_BUFFER> instance_bind(instance_vbo_);
-                    upload_buffer(GL_ARRAY_BUFFER, std::span(visible_instances), GL_DYNAMIC_DRAW);
-
-                    // Setup instance attributes while buffer is bound
-                    // Instance transform matrix (locations 1-4)
-                    for (int i = 0; i < 4; ++i) {
-                        glEnableVertexAttribArray(1 + i);
-                        glVertexAttribPointer(1 + i, 4, GL_FLOAT, GL_FALSE, sizeof(InstanceData),
-                                              reinterpret_cast<void*>(sizeof(glm::vec4) * i));
-                        glVertexAttribDivisor(1 + i, 1);
-                    }
-
-                    // Instance color and alpha (location 5) - now vec4
-                    glEnableVertexAttribArray(5);
-                    glVertexAttribPointer(5, 4, GL_FLOAT, GL_FALSE, sizeof(InstanceData),
-                                          reinterpret_cast<void*>(offsetof(InstanceData, color)));
-                    glVertexAttribDivisor(5, 1);
-                }
-
-                // Setup render state
-                glEnable(GL_DEPTH_TEST);
-                glDepthFunc(GL_LESS);
-                glDepthMask(GL_TRUE);
-                glEnable(GL_BLEND);
-                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-                // First pass: solid faces with depth
-                if (auto result = shader->set("enableShading", true); !result) {
-                    LOG_ERROR("Failed to set enableShading uniform: {}", result.error());
-                }
-
-                {
-                    BufferBinder<GL_ELEMENT_ARRAY_BUFFER> face_bind(face_ebo_);
-                    glDrawElementsInstanced(GL_TRIANGLES, num_face_indices_, GL_UNSIGNED_INT, 0, visible_instances.size());
-                }
-
-                // Check for errors after first draw
-                GLenum err = glGetError();
-                if (err != GL_NO_ERROR) {
-                    LOG_ERROR("OpenGL error after drawing faces: 0x{:x}", err);
-                }
-
-                // Second pass: wireframe edges
-                glLineWidth(1.0f);
-                if (auto result = shader->set("enableShading", false); !result) {
-                    LOG_ERROR("Failed to set enableShading uniform for wireframe: {}", result.error());
-                }
-
-                {
-                    BufferBinder<GL_ELEMENT_ARRAY_BUFFER> edge_bind(edge_ebo_);
-                    glDrawElementsInstanced(GL_LINES, num_edge_indices_, GL_UNSIGNED_INT, 0, visible_instances.size());
-                }
-
-                // Check for errors after second draw
-                err = glGetError();
-                if (err != GL_NO_ERROR) {
-                    LOG_ERROR("OpenGL error after drawing edges: 0x{:x}", err);
-                }
-
-                // Cleanup instance attributes before VAO unbinds
-                for (int i = 1; i <= 5; ++i) {
-                    glDisableVertexAttribArray(i);
-                    if (i >= 1 && i <= 5) {
-                        glVertexAttribDivisor(i, 0);
-                    }
-                }
-            } // VAOBinder automatically unbinds here
-        }     // ShaderScope automatically unbinds here
-
-        LOG_TRACE("Rendered {} camera frustums", visible_instances.size());
-        return {};
     }
 
-    Result<int> CameraFrustumRenderer::pickCamera(const std::vector<std::shared_ptr<const lfs::core::Camera>>& cameras,
-                                                  const glm::vec2& mouse_pos,
-                                                  const glm::vec2& viewport_pos,
-                                                  const glm::vec2& viewport_size,
-                                                  const glm::mat4& view,
-                                                  const glm::mat4& projection,
-                                                  float scale,
-                                                  const glm::mat4& scene_transform) {
-        if (!initialized_ || cameras.empty()) {
-            return -1;
+    if (visible_instances.empty()) return {};
+
+    GLStateGuard state_guard;
+    while (glGetError() != GL_NO_ERROR) {}
+
+    {
+        ShaderScope shader(shader_);
+        if (!shader.isBound()) {
+            return std::unexpected("Failed to bind camera frustum shader");
         }
 
-        // Use cached instances if available, don't regenerate!
-        if (cached_instances_.empty() || camera_ids_.size() != cameras.size()) {
-            // Only regenerate if we really have to (first pick or camera count changed)
-            LOG_WARN("No cached instances for picking, regenerating");
+        const glm::mat4 view_proj = projection * view;
+        shader->set("viewProj", view_proj);
+        shader->set("viewPos", view_position);
+        shader->set("pickingMode", false);
 
-            // Extract view position for visibility calculation
-            glm::vec3 view_position = glm::vec3(glm::inverse(view)[3]);
-
-            // Use the same colors as last render to avoid visual changes
-            prepareInstances(cameras, scale, last_train_color_, last_eval_color_, false, view_position, scene_transform);
-
-            if (cached_instances_.empty()) {
-                LOG_ERROR("Failed to prepare instances for picking");
-                return -1;
+        int visible_highlight_index = -1;
+        for (size_t i = 0; i < visible_indices.size(); ++i) {
+            if (visible_indices[i] == highlighted_camera_) {
+                visible_highlight_index = static_cast<int>(i);
+                break;
             }
-        } else {
-            LOG_TRACE("Using {} cached instances for picking", cached_instances_.size());
         }
+        shader->set("highlightIndex", visible_highlight_index);
 
-        // Resize picking FBO if needed
-        int vp_width = static_cast<int>(viewport_size.x);
-        int vp_height = static_cast<int>(viewport_size.y);
-
-        if (vp_width != picking_fbo_width_ || vp_height != picking_fbo_height_) {
-            LOG_DEBUG("Resizing picking FBO from {}x{} to {}x{}",
-                      picking_fbo_width_, picking_fbo_height_, vp_width, vp_height);
-            picking_fbo_width_ = vp_width;
-            picking_fbo_height_ = vp_height;
-
-            glBindTexture(GL_TEXTURE_2D, picking_color_texture_);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, picking_fbo_width_, picking_fbo_height_,
-                         0, GL_RGB, GL_FLOAT, nullptr);
-
-            glBindTexture(GL_TEXTURE_2D, picking_depth_texture_);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, picking_fbo_width_, picking_fbo_height_,
-                         0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
-        }
-
-        // Save current FBO and viewport
-        GLint current_fbo;
-        GLint current_viewport[4];
-        glGetIntegerv(GL_FRAMEBUFFER_BINDING, &current_fbo);
-        glGetIntegerv(GL_VIEWPORT, current_viewport);
-
-        // Bind picking FBO
-        glBindFramebuffer(GL_FRAMEBUFFER, picking_fbo_);
-        glViewport(0, 0, picking_fbo_width_, picking_fbo_height_);
-
-        // Clear to black (ID = 0)
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-        // Render with picking shader
         {
-            ShaderScope shader(shader_);
-
-            if (!shader.isBound()) {
-                glBindFramebuffer(GL_FRAMEBUFFER, current_fbo);
-                glViewport(current_viewport[0], current_viewport[1], current_viewport[2], current_viewport[3]);
-                return std::unexpected("Failed to bind picking shader");
-            }
-
-            glm::mat4 view_proj = projection * view;
-            glm::vec3 view_pos = glm::vec3(glm::inverse(view)[3]);
-
-            shader->set("viewProj", view_proj);
-            shader->set("viewPos", view_pos);
-            shader->set("pickingMode", true);   // Enable picking mode
-            shader->set("enableShading", true); // Render solid faces only
-
-            // Set minimum pick distance based on scale - don't pick frustums too close
-            float min_pick_distance = scale * 2.0f; // Adjust this value as needed
-            shader->set("minimumPickDistance", min_pick_distance);
-
             VAOBinder vao_bind(vao_);
 
-            // Upload instance data - USE CACHED INSTANCES
             {
                 BufferBinder<GL_ARRAY_BUFFER> instance_bind(instance_vbo_);
-                upload_buffer(GL_ARRAY_BUFFER, std::span(cached_instances_), GL_DYNAMIC_DRAW);
+                upload_buffer(GL_ARRAY_BUFFER, std::span(visible_instances), GL_DYNAMIC_DRAW);
 
-                // Setup instance attributes
                 for (int i = 0; i < 4; ++i) {
-                    glEnableVertexAttribArray(1 + i);
-                    glVertexAttribPointer(1 + i, 4, GL_FLOAT, GL_FALSE, sizeof(InstanceData),
+                    glEnableVertexAttribArray(2 + i);
+                    glVertexAttribPointer(2 + i, 4, GL_FLOAT, GL_FALSE, sizeof(InstanceData),
                                           reinterpret_cast<void*>(sizeof(glm::vec4) * i));
-                    glVertexAttribDivisor(1 + i, 1);
+                    glVertexAttribDivisor(2 + i, 1);
                 }
 
-                // Instance color and alpha (location 5) - now vec4
-                glEnableVertexAttribArray(5);
-                glVertexAttribPointer(5, 4, GL_FLOAT, GL_FALSE, sizeof(InstanceData),
+                glEnableVertexAttribArray(6);
+                glVertexAttribPointer(6, 4, GL_FLOAT, GL_FALSE, sizeof(InstanceData),
                                       reinterpret_cast<void*>(offsetof(InstanceData, color)));
-                glVertexAttribDivisor(5, 1);
+                glVertexAttribDivisor(6, 1);
+
+                glEnableVertexAttribArray(7);
+                glVertexAttribIPointer(7, 1, GL_UNSIGNED_INT, sizeof(InstanceData),
+                                       reinterpret_cast<void*>(offsetof(InstanceData, texture_id)));
+                glVertexAttribDivisor(7, 1);
+
+                glEnableVertexAttribArray(8);
+                glVertexAttribIPointer(8, 1, GL_UNSIGNED_INT, sizeof(InstanceData),
+                                       reinterpret_cast<void*>(offsetof(InstanceData, is_validation)));
+                glVertexAttribDivisor(8, 1);
             }
 
-            // Enable depth testing
             glEnable(GL_DEPTH_TEST);
             glDepthFunc(GL_LESS);
             glDepthMask(GL_TRUE);
-            glDisable(GL_BLEND);
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-            // Draw solid faces only for picking
-            {
-                BufferBinder<GL_ELEMENT_ARRAY_BUFFER> face_bind(face_ebo_);
-                glDrawElementsInstanced(GL_TRIANGLES, num_face_indices_, GL_UNSIGNED_INT, 0, cached_instances_.size());
-            }
+            shader->set("showImages", show_images_ && thumbnail_array_capacity_ > 0);
+            shader->set("imageOpacity", image_opacity_);
 
-            // Check for errors
-            GLenum err = glGetError();
-            if (err != GL_NO_ERROR) {
-                LOG_ERROR("OpenGL error during picking render: 0x{:x}", err);
-            }
+            // Set texture IDs for all visible instances (layer index + 1, 0 = no texture)
+            if (show_images_) {
+                for (size_t i = 0; i < visible_instances.size() && i < visible_cameras.size(); ++i) {
+                    visible_instances[i].texture_id = getOrLoadThumbnail(*visible_cameras[i]);
+                }
 
-            // Cleanup attributes
-            for (int i = 1; i <= 5; ++i) {
-                glDisableVertexAttribArray(i);
-                if (i >= 1 && i <= 5) {
-                    glVertexAttribDivisor(i, 0);
+                // Re-upload instance data with texture IDs
+                {
+                    BufferBinder<GL_ARRAY_BUFFER> instance_bind(instance_vbo_);
+                    upload_buffer(GL_ARRAY_BUFFER, std::span(visible_instances), GL_DYNAMIC_DRAW);
+                }
+
+                // Bind texture array
+                if (thumbnail_array_capacity_ > 0) {
+                    glActiveTexture(GL_TEXTURE0);
+                    glBindTexture(GL_TEXTURE_2D_ARRAY, thumbnail_array_);
+                    shader->set("cameraTextures", 0);
                 }
             }
+
+            // Single batched draw for all textured frustum faces
+            if (show_images_ && thumbnail_array_capacity_ > 0) {
+                BufferBinder<GL_ELEMENT_ARRAY_BUFFER> face_bind(face_ebo_);
+                glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr, static_cast<GLsizei>(visible_instances.size()));
+            }
+
+            // Reset texture IDs for wireframe pass
+            if (show_images_) {
+                for (auto& inst : visible_instances) inst.texture_id = 0;
+                {
+                    BufferBinder<GL_ARRAY_BUFFER> instance_bind(instance_vbo_);
+                    upload_buffer(GL_ARRAY_BUFFER, std::span(visible_instances), GL_DYNAMIC_DRAW);
+                }
+                glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+                shader->set("showImages", false);
+            }
+
+            glLineWidth(WIREFRAME_WIDTH);
+            {
+                BufferBinder<GL_ELEMENT_ARRAY_BUFFER> edge_bind(edge_ebo_);
+                glDrawElementsInstanced(GL_LINES, static_cast<GLsizei>(num_edge_indices_), GL_UNSIGNED_INT, nullptr, static_cast<GLsizei>(visible_instances.size()));
+            }
+
+            for (int i = 2; i <= 8; ++i) {
+                glDisableVertexAttribArray(i);
+                glVertexAttribDivisor(i, 0);
+            }
         }
-
-        // Ensure rendering is complete before reading pixels
-        glFinish();
-
-        // Read pixel under mouse
-        // Convert mouse position relative to viewport
-        int pixel_x = static_cast<int>(mouse_pos.x - viewport_pos.x);
-        int pixel_y = static_cast<int>(viewport_size.y - (mouse_pos.y - viewport_pos.y)); // Flip Y
-
-        // Clamp to viewport bounds
-        pixel_x = std::clamp(pixel_x, 0, picking_fbo_width_ - 1);
-        pixel_y = std::clamp(pixel_y, 0, picking_fbo_height_ - 1);
-
-        // Read a small area around the mouse position for debugging
-        const int sample_size = 3;
-        std::vector<float> pixels(sample_size * sample_size * 3);
-        int read_x = std::max(0, pixel_x - 1);
-        int read_y = std::max(0, pixel_y - 1);
-        int read_width = std::min(sample_size, picking_fbo_width_ - read_x);
-        int read_height = std::min(sample_size, picking_fbo_height_ - read_y);
-
-        glReadPixels(read_x, read_y, read_width, read_height, GL_RGB, GL_FLOAT, pixels.data());
-
-        // Get the center pixel (or first pixel if we're at the edge)
-        int center_idx = 0;
-        if (read_width == 3 && read_height == 3) {
-            center_idx = 4 * 3; // Center of 3x3 is index 4
-        } else if (read_width >= 2 && read_height >= 2) {
-            // Try to get a center-ish pixel
-            center_idx = ((read_height / 2) * read_width + (read_width / 2)) * 3;
-        }
-
-        float r = pixels[center_idx];
-        float g = pixels[center_idx + 1];
-        float b = pixels[center_idx + 2];
-
-        // Decode ID from color
-        int id = static_cast<int>(r * 255.0f + 0.5f) << 16 |
-                 static_cast<int>(g * 255.0f + 0.5f) << 8 |
-                 static_cast<int>(b * 255.0f + 0.5f);
-
-        id -= 1; // We added 1 in the shader to avoid 0
-
-        LOG_TRACE("Picked pixel at ({}, {}): RGB({:.3f}, {:.3f}, {:.3f}) -> ID {}",
-                  pixel_x, pixel_y, r, g, b, id);
-
-        // Restore previous FBO and viewport
-        glBindFramebuffer(GL_FRAMEBUFFER, current_fbo);
-        glViewport(current_viewport[0], current_viewport[1], current_viewport[2], current_viewport[3]);
-
-        // Return camera ID if valid
-        if (id >= 0 && id < static_cast<int>(camera_ids_.size())) {
-            LOG_TRACE("Picked camera at index {} with ID {}", id, camera_ids_[id]);
-            return camera_ids_[id];
-        }
-
-        return -1;
     }
+
+    return {};
+}
+
+Result<int> CameraFrustumRenderer::pickCamera(
+    const std::vector<std::shared_ptr<const lfs::core::Camera>>& cameras,
+    const glm::vec2& mouse_pos,
+    const glm::vec2& viewport_pos,
+    const glm::vec2& viewport_size,
+    const glm::mat4& view,
+    const glm::mat4& projection,
+    const float scale,
+    const glm::mat4& scene_transform) {
+
+    if (!initialized_ || cameras.empty()) return -1;
+
+    if (cached_instances_.empty() || camera_ids_.size() != cameras.size()) {
+        const glm::vec3 view_position = glm::vec3(glm::inverse(view)[3]);
+        prepareInstances(cameras, scale, last_train_color_, last_eval_color_, false, view_position, scene_transform);
+        if (cached_instances_.empty()) return -1;
+    }
+
+    const int vp_width = static_cast<int>(viewport_size.x);
+    const int vp_height = static_cast<int>(viewport_size.y);
+
+    if (vp_width != picking_fbo_width_ || vp_height != picking_fbo_height_) {
+        picking_fbo_width_ = vp_width;
+        picking_fbo_height_ = vp_height;
+
+        glBindTexture(GL_TEXTURE_2D, picking_color_texture_);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, picking_fbo_width_, picking_fbo_height_, 0, GL_RGB, GL_FLOAT, nullptr);
+
+        glBindTexture(GL_TEXTURE_2D, picking_depth_texture_);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F, picking_fbo_width_, picking_fbo_height_, 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
+    }
+
+    GLint current_fbo;
+    GLint current_viewport[4];
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &current_fbo);
+    glGetIntegerv(GL_VIEWPORT, current_viewport);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, picking_fbo_);
+    glViewport(0, 0, picking_fbo_width_, picking_fbo_height_);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    {
+        ShaderScope shader(shader_);
+        if (!shader.isBound()) {
+            glBindFramebuffer(GL_FRAMEBUFFER, current_fbo);
+            glViewport(current_viewport[0], current_viewport[1], current_viewport[2], current_viewport[3]);
+            return std::unexpected("Failed to bind picking shader");
+        }
+
+        const glm::mat4 view_proj = projection * view;
+        const glm::vec3 view_pos = glm::vec3(glm::inverse(view)[3]);
+
+        shader->set("viewProj", view_proj);
+        shader->set("viewPos", view_pos);
+        shader->set("pickingMode", true);
+        shader->set("minimumPickDistance", scale * 2.0f);
+
+        VAOBinder vao_bind(vao_);
+
+        {
+            BufferBinder<GL_ARRAY_BUFFER> instance_bind(instance_vbo_);
+            upload_buffer(GL_ARRAY_BUFFER, std::span(cached_instances_), GL_DYNAMIC_DRAW);
+
+            for (int i = 0; i < 4; ++i) {
+                glEnableVertexAttribArray(2 + i);
+                glVertexAttribPointer(2 + i, 4, GL_FLOAT, GL_FALSE, sizeof(InstanceData),
+                                      reinterpret_cast<void*>(sizeof(glm::vec4) * i));
+                glVertexAttribDivisor(2 + i, 1);
+            }
+
+            glEnableVertexAttribArray(6);
+            glVertexAttribPointer(6, 4, GL_FLOAT, GL_FALSE, sizeof(InstanceData),
+                                  reinterpret_cast<void*>(offsetof(InstanceData, color)));
+            glVertexAttribDivisor(6, 1);
+
+            glEnableVertexAttribArray(7);
+            glVertexAttribIPointer(7, 1, GL_UNSIGNED_INT, sizeof(InstanceData),
+                                   reinterpret_cast<void*>(offsetof(InstanceData, texture_id)));
+            glVertexAttribDivisor(7, 1);
+
+            glEnableVertexAttribArray(8);
+            glVertexAttribIPointer(8, 1, GL_UNSIGNED_INT, sizeof(InstanceData),
+                                   reinterpret_cast<void*>(offsetof(InstanceData, is_validation)));
+            glVertexAttribDivisor(8, 1);
+        }
+
+        glEnable(GL_DEPTH_TEST);
+        glDepthFunc(GL_LESS);
+        glDepthMask(GL_TRUE);
+        glDisable(GL_BLEND);
+
+        {
+            BufferBinder<GL_ELEMENT_ARRAY_BUFFER> face_bind(face_ebo_);
+            glDrawElementsInstanced(GL_TRIANGLES, static_cast<GLsizei>(num_face_indices_), GL_UNSIGNED_INT, nullptr, static_cast<GLsizei>(cached_instances_.size()));
+        }
+
+        for (int i = 2; i <= 8; ++i) {
+            glDisableVertexAttribArray(i);
+            glVertexAttribDivisor(i, 0);
+        }
+    }
+
+    glFinish();
+
+    const int pixel_x = std::clamp(static_cast<int>(mouse_pos.x - viewport_pos.x), 0, picking_fbo_width_ - 1);
+    const int pixel_y = std::clamp(static_cast<int>(viewport_size.y - (mouse_pos.y - viewport_pos.y)), 0, picking_fbo_height_ - 1);
+
+    const int read_x = std::max(0, pixel_x - 1);
+    const int read_y = std::max(0, pixel_y - 1);
+    const int read_width = std::min(PICKING_SAMPLE_SIZE, picking_fbo_width_ - read_x);
+    const int read_height = std::min(PICKING_SAMPLE_SIZE, picking_fbo_height_ - read_y);
+
+    std::vector<float> pixels(read_width * read_height * 3);
+    glReadPixels(read_x, read_y, read_width, read_height, GL_RGB, GL_FLOAT, pixels.data());
+
+    int center_idx = 0;
+    if (read_width == 3 && read_height == 3) {
+        center_idx = 4 * 3;
+    } else if (read_width >= 2 && read_height >= 2) {
+        center_idx = ((read_height / 2) * read_width + (read_width / 2)) * 3;
+    }
+
+    const int id = (static_cast<int>(pixels[center_idx] * 255.0f + 0.5f) << 16 |
+                    static_cast<int>(pixels[center_idx + 1] * 255.0f + 0.5f) << 8 |
+                    static_cast<int>(pixels[center_idx + 2] * 255.0f + 0.5f)) - 1;
+
+    glBindFramebuffer(GL_FRAMEBUFFER, current_fbo);
+    glViewport(current_viewport[0], current_viewport[1], current_viewport[2], current_viewport[3]);
+
+    if (id >= 0 && id < static_cast<int>(camera_ids_.size())) {
+        return camera_ids_[id];
+    }
+    return -1;
+}
+
+GLuint CameraFrustumRenderer::getOrLoadThumbnail(const lfs::core::Camera& camera) {
+    const int uid = camera.uid();
+
+    // Return layer index + 1 (0 means no texture)
+    if (const auto it = uid_to_layer_.find(uid); it != uid_to_layer_.end()) {
+        return static_cast<GLuint>(it->second + 1);
+    }
+
+    const auto& image_path = camera.image_path();
+    if (image_path.empty() || !std::filesystem::exists(image_path)) {
+        return 0;
+    }
+
+    queueThumbnailLoad(camera);
+    return 0;
+}
+
+void CameraFrustumRenderer::startThumbnailLoader() {
+    if (thumbnail_loader_running_) return;
+
+    thumbnail_loader_running_ = true;
+    thumbnail_loader_thread_ = std::thread(&CameraFrustumRenderer::thumbnailLoaderWorker, this);
+}
+
+void CameraFrustumRenderer::stopThumbnailLoader() {
+    if (!thumbnail_loader_running_) return;
+
+    thumbnail_loader_running_ = false;
+    load_queue_cv_.notify_all();
+
+    if (thumbnail_loader_thread_.joinable()) {
+        thumbnail_loader_thread_.join();
+    }
+}
+
+void CameraFrustumRenderer::thumbnailLoaderWorker() {
+    std::unique_ptr<lfs::loader::NvCodecImageLoader> nvcodec_loader;
+    bool use_nvcodec = false;
+
+    try {
+        if (lfs::loader::NvCodecImageLoader::is_available()) {
+            lfs::loader::NvCodecImageLoader::Options opts;
+            opts.device_id = 0;
+            opts.decoder_pool_size = NVCODEC_DECODER_POOL_SIZE;
+            nvcodec_loader = std::make_unique<lfs::loader::NvCodecImageLoader>(opts);
+            use_nvcodec = true;
+        }
+    } catch (const std::exception& e) {
+        LOG_WARN("nvImageCodec init failed: {}", e.what());
+    }
+
+    while (thumbnail_loader_running_) {
+        ThumbnailRequest request;
+
+        {
+            std::unique_lock lock(load_queue_mutex_);
+            load_queue_cv_.wait(lock, [this] {
+                return !thumbnail_load_queue_.empty() || !thumbnail_loader_running_;
+            });
+
+            if (!thumbnail_loader_running_) break;
+            if (thumbnail_load_queue_.empty()) continue;
+
+            request = std::move(thumbnail_load_queue_.front());
+            thumbnail_load_queue_.pop();
+        }
+
+        LoadedThumbnail loaded;
+        loaded.camera_uid = request.camera_uid;
+
+        try {
+            std::string ext = request.image_path.extension().string();
+            std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+
+            bool loaded_with_nvcodec = false;
+
+            if (use_nvcodec && nvcodec_loader && (ext == ".jpg" || ext == ".jpeg")) {
+                try {
+                    const int max_dim = std::max(request.image_width, request.image_height);
+                    int pot_resize = 1;
+                    while (pot_resize * 2 <= max_dim / THUMBNAIL_SIZE) {
+                        pot_resize *= 2;
+                    }
+
+                    auto tensor = nvcodec_loader->load_image_gpu(request.image_path, pot_resize, THUMBNAIL_SIZE);
+                    auto cpu_tensor = tensor.cpu().contiguous();
+                    const auto shape = cpu_tensor.shape();
+                    const int c = shape[0], h = shape[1], w = shape[2];
+
+                    if (c != 3) throw std::runtime_error("Expected 3 channels");
+
+                    loaded.width = w;
+                    loaded.height = h;
+                    loaded.pixel_data.resize(w * h * 3);
+
+                    // CHW (channel-first) to HWC (interleaved) with Y-flip
+                    const float* src = cpu_tensor.ptr<float>();
+                    const int plane_size = h * w;
+                    const float* r_plane = src;
+                    const float* g_plane = src + plane_size;
+                    const float* b_plane = src + 2 * plane_size;
+
+                    for (int y = 0; y < h; ++y) {
+                        const int src_y = h - 1 - y;
+                        uint8_t* dst_row = loaded.pixel_data.data() + y * w * 3;
+                        const float* r_row = r_plane + src_y * w;
+                        const float* g_row = g_plane + src_y * w;
+                        const float* b_row = b_plane + src_y * w;
+
+                        for (int x = 0; x < w; ++x) {
+                            dst_row[x * 3] = static_cast<uint8_t>(std::clamp(r_row[x] * 255.0f, 0.0f, 255.0f));
+                            dst_row[x * 3 + 1] = static_cast<uint8_t>(std::clamp(g_row[x] * 255.0f, 0.0f, 255.0f));
+                            dst_row[x * 3 + 2] = static_cast<uint8_t>(std::clamp(b_row[x] * 255.0f, 0.0f, 255.0f));
+                        }
+                    }
+                    loaded_with_nvcodec = true;
+                } catch (...) {}
+            }
+
+            if (!loaded_with_nvcodec) {
+                auto [data, width, height, channels] = lfs::core::load_image(request.image_path, -1, THUMBNAIL_SIZE);
+                if (!data) continue;
+
+                loaded.width = width;
+                loaded.height = height;
+                loaded.pixel_data.resize(width * height * 3);
+
+                for (int y = 0; y < height; ++y) {
+                    std::memcpy(loaded.pixel_data.data() + y * width * 3,
+                                data + (height - 1 - y) * width * 3,
+                                width * 3);
+                }
+                lfs::core::free_image(data);
+            }
+
+            {
+                std::lock_guard lock(ready_queue_mutex_);
+                thumbnail_ready_queue_.push(std::move(loaded));
+            }
+
+        } catch (const std::exception& e) {
+            LOG_WARN("Thumbnail load failed for camera {}: {}", request.camera_uid, e.what());
+            std::lock_guard lock(pending_mutex_);
+            thumbnail_pending_.erase(request.camera_uid);
+        }
+    }
+}
+
+void CameraFrustumRenderer::queueThumbnailLoad(const lfs::core::Camera& camera) {
+    const int uid = camera.uid();
+
+    {
+        std::lock_guard lock(pending_mutex_);
+        if (thumbnail_pending_.contains(uid) || uid_to_layer_.contains(uid)) {
+            return;
+        }
+        thumbnail_pending_.insert(uid);
+    }
+
+    ThumbnailRequest request{
+        .camera_uid = uid,
+        .image_path = camera.image_path(),
+        .image_width = camera.image_width(),
+        .image_height = camera.image_height()
+    };
+
+    {
+        std::lock_guard lock(load_queue_mutex_);
+        thumbnail_load_queue_.push(std::move(request));
+    }
+    load_queue_cv_.notify_one();
+}
+
+void CameraFrustumRenderer::uploadReadyThumbnails() {
+    while (true) {
+        LoadedThumbnail loaded;
+
+        {
+            std::lock_guard lock(ready_queue_mutex_);
+            if (thumbnail_ready_queue_.empty()) break;
+            loaded = std::move(thumbnail_ready_queue_.front());
+            thumbnail_ready_queue_.pop();
+        }
+
+        // Initialize texture array if needed
+        if (thumbnail_array_capacity_ == 0) {
+            GLuint tex_id;
+            glGenTextures(1, &tex_id);
+            thumbnail_array_ = Texture(tex_id);
+
+            glBindTexture(GL_TEXTURE_2D_ARRAY, thumbnail_array_);
+            glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGB8,
+                         THUMBNAIL_SIZE, THUMBNAIL_SIZE, INITIAL_TEXTURE_ARRAY_CAPACITY,
+                         0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
+            glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+
+            thumbnail_array_capacity_ = INITIAL_TEXTURE_ARRAY_CAPACITY;
+            LOG_DEBUG("Created texture array with capacity {}", thumbnail_array_capacity_);
+        }
+
+        // Grow texture array if needed
+        if (thumbnail_array_count_ >= thumbnail_array_capacity_) {
+            const int new_capacity = thumbnail_array_capacity_ * 2;
+
+            GLuint new_tex;
+            glGenTextures(1, &new_tex);
+            glBindTexture(GL_TEXTURE_2D_ARRAY, new_tex);
+            glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_RGB8,
+                         THUMBNAIL_SIZE, THUMBNAIL_SIZE, new_capacity,
+                         0, GL_RGB, GL_UNSIGNED_BYTE, nullptr);
+            glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+            // Copy existing layers
+            glCopyImageSubData(thumbnail_array_, GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0,
+                               new_tex, GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0,
+                               THUMBNAIL_SIZE, THUMBNAIL_SIZE, thumbnail_array_count_);
+
+            thumbnail_array_ = Texture(new_tex);
+            thumbnail_array_capacity_ = new_capacity;
+            LOG_DEBUG("Grew texture array to capacity {}", new_capacity);
+        }
+
+        // Upload to next available layer (resize to THUMBNAIL_SIZE if needed)
+        const int layer = thumbnail_array_count_++;
+        glBindTexture(GL_TEXTURE_2D_ARRAY, thumbnail_array_);
+
+        // Resize if dimensions don't match
+        if (loaded.width != THUMBNAIL_SIZE || loaded.height != THUMBNAIL_SIZE) {
+            std::vector<uint8_t> resized(THUMBNAIL_SIZE * THUMBNAIL_SIZE * 3);
+            const float scale_x = static_cast<float>(loaded.width) / THUMBNAIL_SIZE;
+            const float scale_y = static_cast<float>(loaded.height) / THUMBNAIL_SIZE;
+            for (int y = 0; y < THUMBNAIL_SIZE; ++y) {
+                for (int x = 0; x < THUMBNAIL_SIZE; ++x) {
+                    const int src_x = std::min(static_cast<int>(x * scale_x), loaded.width - 1);
+                    const int src_y = std::min(static_cast<int>(y * scale_y), loaded.height - 1);
+                    const int dst_idx = (y * THUMBNAIL_SIZE + x) * 3;
+                    const int src_idx = (src_y * loaded.width + src_x) * 3;
+                    resized[dst_idx] = loaded.pixel_data[src_idx];
+                    resized[dst_idx + 1] = loaded.pixel_data[src_idx + 1];
+                    resized[dst_idx + 2] = loaded.pixel_data[src_idx + 2];
+                }
+            }
+            glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, layer,
+                            THUMBNAIL_SIZE, THUMBNAIL_SIZE, 1, GL_RGB, GL_UNSIGNED_BYTE, resized.data());
+        } else {
+            glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, layer,
+                            THUMBNAIL_SIZE, THUMBNAIL_SIZE, 1, GL_RGB, GL_UNSIGNED_BYTE, loaded.pixel_data.data());
+        }
+        glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+
+        uid_to_layer_[loaded.camera_uid] = layer;
+
+        {
+            std::lock_guard lock(pending_mutex_);
+            thumbnail_pending_.erase(loaded.camera_uid);
+        }
+    }
+}
 
 } // namespace lfs::rendering

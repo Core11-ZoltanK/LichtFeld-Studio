@@ -10,6 +10,12 @@
 
 namespace lfs::training {
 
+    /**
+     * @brief Strategy interface for Gaussian splatting optimization.
+     *
+     * Strategies operate on a SplatData reference owned by the Scene.
+     * This allows the same model to be used for both training and visualization.
+     */
     class IStrategy {
     public:
         virtual ~IStrategy() = default;
@@ -22,9 +28,8 @@ namespace lfs::training {
 
         virtual bool is_refining(int iter) const = 0;
 
-        // Get the underlying Gaussian model for rendering
+        // Get the underlying Gaussian model (reference to Scene-owned data)
         virtual lfs::core::SplatData& get_model() = 0;
-
         virtual const lfs::core::SplatData& get_model() const = 0;
 
         // Remove Gaussians based on mask

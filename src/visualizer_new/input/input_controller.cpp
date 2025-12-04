@@ -464,8 +464,8 @@ namespace lfs::vis {
         }
 
         // Camera frustum hover detection with improved throttling
+        // (frustum visibility is now controlled by scene graph, not a checkbox)
         if (rendering_manager_ &&
-            rendering_manager_->getSettings().show_camera_frustums &&
             isInViewport(x, y) &&
             drag_mode_ == DragMode::None &&
             !ImGui::IsWindowHovered(ImGuiHoveredFlags_AnyWindow)) {
@@ -755,6 +755,8 @@ namespace lfs::vis {
                     return;
 
                 case input::Action::CAMERA_NEXT_VIEW:
+                    // Don't iterate cameras if ImGui wants keyboard (e.g., image viewer is open)
+                    if (ImGui::GetIO().WantCaptureKeyboard) return;
                     if (training_manager_) {
                         const int num_cams = static_cast<int>(training_manager_->getCamList().size());
                         if (num_cams > 0) {
@@ -765,6 +767,8 @@ namespace lfs::vis {
                     return;
 
                 case input::Action::CAMERA_PREV_VIEW:
+                    // Don't iterate cameras if ImGui wants keyboard (e.g., image viewer is open)
+                    if (ImGui::GetIO().WantCaptureKeyboard) return;
                     if (training_manager_) {
                         const int num_cams = static_cast<int>(training_manager_->getCamList().size());
                         if (num_cams > 0) {

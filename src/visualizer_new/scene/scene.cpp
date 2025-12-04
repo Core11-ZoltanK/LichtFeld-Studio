@@ -5,6 +5,7 @@
 #include "scene/scene.hpp"
 #include "core_new/logger.hpp"
 #include "core_new/splat_data_transform.hpp"
+#include "training_new/dataset.hpp"
 
 #include <algorithm>
 #include <limits>
@@ -287,6 +288,31 @@ namespace lfs::vis {
             }
         }
         return visible;
+    }
+
+    std::unordered_set<int> Scene::getVisibleCameraIndices() const {
+        std::unordered_set<int> visible_indices;
+        for (const auto& node : nodes_) {
+            if (node->type == NodeType::CAMERA && node->visible.get() && node->camera_index >= 0) {
+                // Also check if parent (camera group) is visible
+                bool parent_visible = true;
+                if (node->parent_id != NULL_NODE) {
+                    if (const auto* parent = getNodeById(node->parent_id)) {
+                        parent_visible = parent->visible.get();
+                        // Check grandparent too (Cameras group)
+                        if (parent_visible && parent->parent_id != NULL_NODE) {
+                            if (const auto* grandparent = getNodeById(parent->parent_id)) {
+                                parent_visible = grandparent->visible.get();
+                            }
+                        }
+                    }
+                }
+                if (parent_visible) {
+                    visible_indices.insert(node->camera_index);
+                }
+            }
+        }
+        return visible_indices;
     }
 
     const Scene::Node* Scene::getNode(const std::string& name) const {
@@ -901,6 +927,71 @@ namespace lfs::vis {
         return id;
     }
 
+    NodeId Scene::addDataset(const std::string& name) {
+        const NodeId id = next_node_id_++;
+        auto node = std::make_unique<Node>();
+        node->id = id;
+        node->parent_id = NULL_NODE;
+        node->type = NodeType::DATASET;
+        node->name = name;
+
+        id_to_index_[id] = nodes_.size();
+        node->initObservables(this);
+        nodes_.push_back(std::move(node));
+
+        LOG_DEBUG("Added dataset node '{}' (id={})", name, id);
+        return id;
+    }
+
+    NodeId Scene::addCameraGroup(const std::string& name, const NodeId parent, const size_t camera_count) {
+        const NodeId id = next_node_id_++;
+        auto node = std::make_unique<Node>();
+        node->id = id;
+        node->parent_id = parent;
+        node->type = NodeType::CAMERA_GROUP;
+        node->name = name;
+        node->gaussian_count = camera_count;  // Reuse gaussian_count to store camera count
+
+        // Add to parent's children
+        if (parent != NULL_NODE) {
+            if (auto* p = getNodeById(parent)) {
+                p->children.push_back(id);
+            }
+        }
+
+        id_to_index_[id] = nodes_.size();
+        node->initObservables(this);
+        nodes_.push_back(std::move(node));
+
+        LOG_DEBUG("Added camera group '{}' (id={}, {} cameras)", name, id, camera_count);
+        return id;
+    }
+
+    NodeId Scene::addCamera(const std::string& name, const NodeId parent, const int camera_index, const int camera_uid, const std::string& image_path) {
+        const NodeId id = next_node_id_++;
+        auto node = std::make_unique<Node>();
+        node->id = id;
+        node->parent_id = parent;
+        node->type = NodeType::CAMERA;
+        node->name = name;
+        node->camera_index = camera_index;
+        node->camera_uid = camera_uid;
+        node->image_path = image_path;
+
+        // Add to parent's children
+        if (parent != NULL_NODE) {
+            if (auto* p = getNodeById(parent)) {
+                p->children.push_back(id);
+            }
+        }
+
+        id_to_index_[id] = nodes_.size();
+        node->initObservables(this);
+        nodes_.push_back(std::move(node));
+
+        return id;
+    }
+
     std::string Scene::duplicateNode(const std::string& name) {
         const auto* src_node = getNode(name);
         if (!src_node) return "";
@@ -1478,6 +1569,68 @@ namespace lfs::vis {
             result.push_back(rcb);
         }
 
+        return result;
+    }
+
+    // ========== Training Data Storage ==========
+
+    void Scene::setTrainCameras(std::shared_ptr<lfs::training::CameraDataset> dataset) {
+        train_cameras_ = std::move(dataset);
+        LOG_DEBUG("Scene: set train cameras ({})", train_cameras_ ? "valid" : "null");
+    }
+
+    void Scene::setValCameras(std::shared_ptr<lfs::training::CameraDataset> dataset) {
+        val_cameras_ = std::move(dataset);
+        LOG_DEBUG("Scene: set val cameras ({})", val_cameras_ ? "valid" : "null");
+    }
+
+    void Scene::setInitialPointCloud(std::shared_ptr<lfs::core::PointCloud> point_cloud) {
+        initial_point_cloud_ = std::move(point_cloud);
+        LOG_DEBUG("Scene: set initial point cloud ({})", initial_point_cloud_ ? "valid" : "null");
+    }
+
+    void Scene::setTrainingModelNode(const std::string& name) {
+        training_model_node_ = name;
+        LOG_DEBUG("Scene: set training model node to '{}'", name);
+    }
+
+    lfs::core::SplatData* Scene::getTrainingModel() {
+        if (training_model_node_.empty()) {
+            return nullptr;
+        }
+        auto* node = getMutableNode(training_model_node_);
+        return node ? node->model.get() : nullptr;
+    }
+
+    const lfs::core::SplatData* Scene::getTrainingModel() const {
+        if (training_model_node_.empty()) {
+            return nullptr;
+        }
+        const auto* node = getNode(training_model_node_);
+        return node ? node->model.get() : nullptr;
+    }
+
+    std::shared_ptr<const lfs::core::Camera> Scene::getCameraByUid(int uid) const {
+        if (!train_cameras_) {
+            return nullptr;
+        }
+        for (const auto& cam : train_cameras_->get_cameras()) {
+            if (cam->uid() == uid) {
+                return cam;
+            }
+        }
+        return nullptr;
+    }
+
+    std::vector<std::shared_ptr<const lfs::core::Camera>> Scene::getAllCameras() const {
+        std::vector<std::shared_ptr<const lfs::core::Camera>> result;
+        if (train_cameras_) {
+            const auto& cams = train_cameras_->get_cameras();
+            result.reserve(cams.size());
+            for (const auto& cam : cams) {
+                result.push_back(cam);
+            }
+        }
         return result;
     }
 

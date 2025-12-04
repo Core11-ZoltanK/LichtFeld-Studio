@@ -28,13 +28,29 @@
 #include <shared_mutex>
 #include <stop_token>
 
+// Forward declaration for Scene
+namespace lfs::vis {
+    class Scene;
+}
+
 namespace lfs::training {
     class Trainer {
     public:
-        // Constructor that takes ownership of strategy and shares datasets
+        // Legacy constructor - takes ownership of strategy and shares datasets
         Trainer(std::shared_ptr<CameraDataset> dataset,
                 std::unique_ptr<IStrategy> strategy,
                 std::optional<std::tuple<std::vector<std::string>, std::vector<std::string>>> provided_splits);
+
+        /**
+         * @brief New constructor - takes Scene reference (Scene owns all data)
+         *
+         * Scene provides:
+         * - Training model via getTrainingModel() (SplatData)
+         * - Train/val cameras via getTrainCameras()/getValCameras()
+         *
+         * Strategy type ("mcmc" or "default") is determined by params during initialize()
+         */
+        Trainer(lfs::vis::Scene& scene);
 
         // Delete copy operations
         Trainer(const Trainer&) = delete;
@@ -80,13 +96,7 @@ namespace lfs::training {
 
         const lfs::core::param::TrainingParameters& getParams() const { return params_; }
 
-        std::shared_ptr<const lfs::core::Camera> getCamById(int camId) const;
-
-        std::vector<std::shared_ptr<const lfs::core::Camera>> getCamList() const;
-
         void setProject(std::shared_ptr<lfs::project::Project> project) { lf_project_ = project; }
-
-        void load_cameras_info();
 
     private:
         // Helper for deferred event emission to prevent deadlocks
@@ -169,7 +179,8 @@ namespace lfs::training {
         void save_ply(const std::filesystem::path& save_path, int iter_num, bool join_threads = true);
 
         // Member variables
-        std::shared_ptr<CameraDataset> base_dataset_;
+        lfs::vis::Scene* scene_ = nullptr;  // Non-owning pointer to Scene (new mode)
+        std::shared_ptr<CameraDataset> base_dataset_;  // Legacy mode only - source cameras
         std::shared_ptr<CameraDataset> train_dataset_;
         std::shared_ptr<CameraDataset> val_dataset_;
         std::unique_ptr<IStrategy> strategy_;
@@ -221,9 +232,6 @@ namespace lfs::training {
         std::atomic<bool> callback_busy_{false};
         cudaStream_t callback_stream_ = nullptr;
         cudaEvent_t callback_launch_event_ = nullptr;
-
-        // camera id to cam
-        std::map<int, std::shared_ptr<const lfs::core::Camera>> m_cam_id_to_cam;
 
         // LichtFeld project
         std::shared_ptr<lfs::project::Project> lf_project_ = nullptr;

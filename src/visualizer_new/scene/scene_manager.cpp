@@ -15,6 +15,7 @@
 #include "rendering/rendering_manager.hpp"
 #include "training/training_manager.hpp"
 #include "training_new/training_setup.hpp"
+#include "training_new/trainer.hpp"
 #include <algorithm>
 #include <format>
 #include <glm/gtc/quaternion.hpp>
@@ -110,6 +111,12 @@ namespace lfs::vis {
 
         // Handle node selection from scene panel (both PLYs and Groups)
         ui::NodeSelected::when([this](const auto& event) {
+            // Don't allow selection changes during training
+            if (trainer_manager_ && trainer_manager_->isRunning()) {
+                LOG_TRACE("Ignoring selection change during training");
+                return;
+            }
+
             if (event.type == "PLY" || event.type == "Group") {
                 // Skip if this is a multi-select event (already handled by selectNodes)
                 auto it = event.metadata.find("multi_select");
@@ -129,8 +136,13 @@ namespace lfs::vis {
             }
         });
 
-        // Handle node deselection
+        // Handle node deselection (but not during training)
         ui::NodeDeselected::when([this](const auto&) {
+            // Don't clear selection during training - dataset and model must stay selected
+            if (trainer_manager_ && trainer_manager_->isRunning()) {
+                LOG_TRACE("Ignoring deselection during training");
+                return;
+            }
             std::lock_guard<std::mutex> lock(state_mutex_);
             selected_nodes_.clear();
         });
@@ -865,25 +877,30 @@ namespace lfs::vis {
             // Clear scene
             clear();
 
-            // Setup training
+            // Setup training parameters
             auto dataset_params = params;
             dataset_params.dataset.data_path = path;
             cached_params_ = dataset_params;
 
-            LOG_DEBUG("Setting up training with parameters");
+            LOG_DEBUG("Loading training data into scene");
             LOG_TRACE("Dataset path: {}", path.string());
             LOG_TRACE("Iterations: {}", dataset_params.optimization.iterations);
 
-            auto setup_result = lfs::training::setupTraining(dataset_params);
-            if (!setup_result) {
-                LOG_ERROR("Failed to setup training: {}", setup_result.error());
-                throw std::runtime_error(setup_result.error());
+            // Load training data into Scene (unified path)
+            auto load_result = lfs::training::loadTrainingDataIntoScene(dataset_params, scene_);
+            if (!load_result) {
+                LOG_ERROR("Failed to load training data: {}", load_result.error());
+                throw std::runtime_error(load_result.error());
             }
+
+            // Create Trainer from Scene
+            auto trainer = std::make_unique<lfs::training::Trainer>(scene_);
 
             // Pass trainer to manager
             if (trainer_manager_) {
                 LOG_DEBUG("Setting trainer in manager");
-                trainer_manager_->setTrainer(std::move(setup_result->trainer));
+                trainer_manager_->setScene(&scene_);
+                trainer_manager_->setTrainer(std::move(trainer));
             } else {
                 LOG_ERROR("No trainer manager available");
                 throw std::runtime_error("No trainer manager available");
@@ -896,14 +913,13 @@ namespace lfs::vis {
                 dataset_path_ = path;
             }
 
-            // Emit events
-            const size_t num_gaussians = trainer_manager_->getTrainer()
-                                             ->get_strategy()
-                                             .get_model()
-                                             .size();
+            // Get info from scene
+            const auto* training_model = scene_.getTrainingModel();
+            const size_t num_gaussians = training_model ? training_model->size() : 0;
+            const size_t num_cameras = scene_.getTrainCameras() ? scene_.getTrainCameras()->size() : 0;
 
             LOG_INFO("Dataset loaded successfully - {} images, {} initial gaussians",
-                     setup_result->dataset->size(), num_gaussians);
+                     num_cameras, num_gaussians);
 
             state::SceneLoaded{
                 .scene = nullptr,
@@ -916,7 +932,7 @@ namespace lfs::vis {
                 .path = path,
                 .success = true,
                 .error = std::nullopt,
-                .num_images = setup_result->dataset->size(),
+                .num_images = num_cameras,
                 .num_points = num_gaussians}
                 .emit();
 
@@ -969,9 +985,8 @@ namespace lfs::vis {
         if (content_type_ == ContentType::SplatFiles) {
             return scene_.getCombinedModel();
         } else if (content_type_ == ContentType::Dataset) {
-            if (trainer_manager_ && trainer_manager_->getTrainer()) {
-                return &trainer_manager_->getTrainer()->get_strategy().get_model();
-            }
+            // For dataset mode, get model from scene directly (Scene owns the model)
+            return scene_.getTrainingModel();
         }
 
         return nullptr;
@@ -986,9 +1001,8 @@ namespace lfs::vis {
         if (content_type_ == ContentType::SplatFiles) {
             state.combined_model = scene_.getCombinedModel();
         } else if (content_type_ == ContentType::Dataset) {
-            if (trainer_manager_ && trainer_manager_->getTrainer()) {
-                state.combined_model = &trainer_manager_->getTrainer()->get_strategy().get_model();
-            }
+            // For dataset mode, get model from scene directly (Scene owns the model)
+            state.combined_model = scene_.getTrainingModel();
         }
 
         // Get transforms and indices
@@ -1062,14 +1076,13 @@ namespace lfs::vis {
             break;
 
         case ContentType::Dataset:
-            info.has_model = trainer_manager_ && trainer_manager_->getTrainer();
+            // For dataset mode, get info from scene directly (Scene owns the model)
+            info.has_model = scene_.hasNodes();
             if (info.has_model) {
-                info.num_gaussians = trainer_manager_->getTrainer()
-                                         ->get_strategy()
-                                         .get_model()
-                                         .size();
+                const auto* training_model = scene_.getTrainingModel();
+                info.num_gaussians = training_model ? training_model->size() : 0;
             }
-            info.num_nodes = 1;
+            info.num_nodes = scene_.getNodeCount();
             info.source_type = "Dataset";
             info.source_path = dataset_path_;
             break;

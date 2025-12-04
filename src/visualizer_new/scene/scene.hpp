@@ -11,8 +11,18 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
+
+// Forward declarations for training data
+namespace lfs::training {
+    class CameraDataset;
+}
+namespace lfs::core {
+    struct PointCloud;
+    class Camera;
+}
 
 namespace lfs::vis {
 
@@ -22,9 +32,14 @@ namespace lfs::vis {
 
     // Node types
     enum class NodeType : uint8_t {
-        SPLAT,    // Contains gaussian splat data
-        GROUP,    // Empty transform node for organization
-        CROPBOX   // Crop box visualization (child of SPLAT)
+        SPLAT,        // Contains gaussian splat data
+        GROUP,        // Empty transform node for organization
+        CROPBOX,      // Crop box visualization (child of SPLAT)
+        DATASET,      // Root node for training dataset (contains cameras + model)
+        CAMERA_GROUP, // Container for camera nodes (e.g., "Training", "Validation")
+        CAMERA,       // Individual camera from dataset
+        IMAGE_GROUP,  // Container for image nodes
+        IMAGE         // Individual image file reference (not loaded, just path)
     };
 
     // Crop box data for CROPBOX nodes
@@ -71,6 +86,13 @@ namespace lfs::vis {
         std::unique_ptr<CropBoxData> cropbox;
         size_t gaussian_count = 0;
         glm::vec3 centroid{0.0f};
+
+        // Camera data (for CAMERA nodes)
+        int camera_index = -1;  // Index into CameraDataset
+        int camera_uid = -1;    // Camera unique identifier (for GoToCamView)
+
+        // Image data (for IMAGE nodes) - just the filename, not loaded
+        std::string image_path;  // Path to image file
 
         // Cached world transform (mutable for lazy evaluation)
         mutable glm::mat4 world_transform{1.0f};
@@ -119,6 +141,9 @@ namespace lfs::vis {
         NodeId addGroup(const std::string& name, NodeId parent = NULL_NODE);
         NodeId addSplat(const std::string& name, std::unique_ptr<lfs::core::SplatData> model, NodeId parent = NULL_NODE);
         NodeId addCropBox(const std::string& name, NodeId parent_splat);
+        NodeId addDataset(const std::string& name);  // Root node for training dataset
+        NodeId addCameraGroup(const std::string& name, NodeId parent, size_t camera_count);
+        NodeId addCamera(const std::string& name, NodeId parent, int camera_index, int camera_uid, const std::string& image_path = "");
         void reparent(NodeId node, NodeId new_parent);
         // Duplicate a node (and all children recursively for groups)
         // Returns new node name (original name with "_copy" or "_copy_N" suffix)
@@ -206,6 +231,33 @@ namespace lfs::vis {
         void clearSelectionGroup(uint8_t id);
         void resetSelectionState();  // Full reset: clear mask, remove all groups, create default
 
+        // ========== Training Data Storage ==========
+        // Scene owns training data (cameras + initial point cloud)
+        // This allows unified handling in both headless and GUI modes
+
+        void setTrainCameras(std::shared_ptr<lfs::training::CameraDataset> dataset);
+        void setValCameras(std::shared_ptr<lfs::training::CameraDataset> dataset);
+        void setInitialPointCloud(std::shared_ptr<lfs::core::PointCloud> point_cloud);
+
+        [[nodiscard]] std::shared_ptr<lfs::training::CameraDataset> getTrainCameras() const { return train_cameras_; }
+        [[nodiscard]] std::shared_ptr<lfs::training::CameraDataset> getValCameras() const { return val_cameras_; }
+        [[nodiscard]] std::shared_ptr<lfs::core::PointCloud> getInitialPointCloud() const { return initial_point_cloud_; }
+
+        [[nodiscard]] bool hasTrainingData() const { return train_cameras_ != nullptr; }
+
+        // Camera access helpers (delegates to CameraDataset)
+        [[nodiscard]] std::shared_ptr<const lfs::core::Camera> getCameraByUid(int uid) const;
+        [[nodiscard]] std::vector<std::shared_ptr<const lfs::core::Camera>> getAllCameras() const;
+
+        // Get the primary training model node (for Trainer to operate on)
+        // Returns nullptr if no training model exists
+        [[nodiscard]] lfs::core::SplatData* getTrainingModel();
+        [[nodiscard]] const lfs::core::SplatData* getTrainingModel() const;
+
+        // Set which node is the training model (by name)
+        void setTrainingModelNode(const std::string& name);
+        [[nodiscard]] const std::string& getTrainingModelNodeName() const { return training_model_node_; }
+
         // Direct queries
         size_t getNodeCount() const { return nodes_.size(); }
         size_t getTotalGaussianCount() const;
@@ -216,6 +268,10 @@ namespace lfs::vis {
 
         // Get visible nodes for split view
         std::vector<const Node*> getVisibleNodes() const;
+
+        // Get visible camera indices (for frustum rendering)
+        // Returns set of camera_index values for CAMERA nodes that are visible
+        [[nodiscard]] std::unordered_set<int> getVisibleCameraIndices() const;
 
         // Mark scene data as changed (e.g., after modifying a node's deleted mask)
         // Also called by SceneNode Observable properties when they change
@@ -260,6 +316,12 @@ namespace lfs::vis {
         // Helper to find group by ID
         SelectionGroup* findGroup(uint8_t id);
         const SelectionGroup* findGroup(uint8_t id) const;
+
+        // Training data storage
+        std::shared_ptr<lfs::training::CameraDataset> train_cameras_;
+        std::shared_ptr<lfs::training::CameraDataset> val_cameras_;
+        std::shared_ptr<lfs::core::PointCloud> initial_point_cloud_;
+        std::string training_model_node_;  // Name of the node being trained
     };
 
 } // namespace lfs::vis

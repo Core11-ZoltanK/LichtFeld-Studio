@@ -226,12 +226,23 @@ namespace lfs::vis {
             handleLoadProjectCommand(cmd);
         });
 
-        // Listen to TrainingStarted - switch to splat rendering
+        // Listen to TrainingStarted - switch to splat rendering and select training model
         state::TrainingStarted::when([this](const auto&) {
             ui::PointCloudModeChanged{
                 .enabled = false,
                 .voxel_size = 0.0f}
                 .emit();
+
+            // Select the training model so it's visible
+            if (scene_manager_) {
+                const auto& scene = scene_manager_->getScene();
+                const auto& model_name = scene.getTrainingModelNodeName();
+                if (!model_name.empty()) {
+                    scene_manager_->selectNode(model_name);
+                    LOG_INFO("Selected training model '{}' for training", model_name);
+                }
+            }
+
             LOG_INFO("Switched to splat rendering mode (training started)");
         });
 
@@ -617,15 +628,17 @@ namespace lfs::vis {
                 // write to project file on every change - maybe configurable in the future?
                 project_->setUpdateFileOnChange(true);
 
-                // Load dataset from project if available
+                // Load dataset from project if available and not already loaded
                 auto dataset = static_cast<const lfs::core::param::DatasetConfig&>(project_->getProjectData().data_set_info);
-                if (!dataset.data_path.empty()) {
+                if (!dataset.data_path.empty() && !scene_manager_->hasDataset()) {
                     LOG_DEBUG("Loading dataset from project: {}", dataset.data_path.string());
                     auto result = data_loader_->loadDataset(dataset.data_path);
                     if (!result) {
                         LOG_ERROR("Failed to load dataset from project: {}", result.error());
                         throw std::runtime_error(std::format("Failed to load dataset from project: {}", result.error()));
                     }
+                } else if (scene_manager_->hasDataset()) {
+                    LOG_DEBUG("Dataset already loaded, skipping project load");
                 }
                 // update the project of all the different managers
                 updateProjectOnModules();

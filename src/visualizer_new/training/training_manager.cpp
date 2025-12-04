@@ -5,6 +5,7 @@
 #include "training/training_manager.hpp"
 #include "core_new/events.hpp"
 #include "core_new/logger.hpp"
+#include "scene/scene.hpp"
 #include "training_new/training_setup.hpp"
 #include <cstring>
 #include <cuda_runtime.h>
@@ -38,11 +39,6 @@ namespace lfs::vis {
             LOG_DEBUG("Setting new trainer");
             trainer_ = std::move(trainer);
             trainer_->setProject(project_);
-
-            if (project_) {
-                trainer_->load_cameras_info();
-            }
-
             setState(State::Ready);
 
             // Trainer is ready
@@ -302,9 +298,6 @@ namespace lfs::vis {
             if (setup_result) {
                 trainer_ = std::move(setup_result->trainer);
                 trainer_->setProject(project_);
-                if (project_) {
-                    trainer_->load_cameras_info();
-                }
             } else {
                 LOG_ERROR("Failed to recreate trainer after reset: {}", setup_result.error());
                 setState(State::Error);
@@ -355,7 +348,19 @@ namespace lfs::vis {
     int TrainerManager::getNumSplats() const {
         if (!trainer_)
             return 0;
-        return static_cast<int>(trainer_->get_strategy().get_model().size());
+        // Strategy may not be created yet if using Scene-based constructor
+        // In that case, try to get size from scene
+        if (scene_) {
+            const auto* model = scene_->getTrainingModel();
+            if (model) {
+                return static_cast<int>(model->size());
+            }
+        }
+        // Fall back to strategy if trainer is initialized
+        if (trainer_->isInitialized()) {
+            return static_cast<int>(trainer_->get_strategy().get_model().size());
+        }
+        return 0;
     }
 
     void TrainerManager::updateLoss(float loss) {
@@ -458,21 +463,20 @@ namespace lfs::vis {
     }
 
     std::shared_ptr<const lfs::core::Camera> TrainerManager::getCamById(int camId) const {
-        if (trainer_) {
-            LOG_TRACE("Retrieving camera with ID: {}", camId);
-            return trainer_->getCamById(camId);
+        // Get camera from Scene (Scene owns all training data)
+        if (scene_) {
+            return scene_->getCameraByUid(camId);
         }
-        LOG_ERROR("getCamById called but trainer is not initialized");
+        LOG_ERROR("getCamById called but scene is not set");
         return nullptr;
     }
 
     std::vector<std::shared_ptr<const lfs::core::Camera>> TrainerManager::getCamList() const {
-        if (trainer_) {
-            auto cams = trainer_->getCamList();
-            LOG_TRACE("Retrieved {} cameras from trainer", cams.size());
-            return cams;
+        // Get cameras from Scene (Scene owns all training data)
+        if (scene_) {
+            return scene_->getAllCameras();
         }
-        LOG_ERROR("getCamList called but trainer is not initialized");
+        LOG_ERROR("getCamList called but scene is not set");
         return {};
     }
 

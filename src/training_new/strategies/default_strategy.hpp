@@ -13,19 +13,26 @@ namespace lfs::training {
     // Forward declarations
     struct RenderOutput;
 
+    /**
+     * @brief Default densification-based optimization strategy.
+     *
+     * Can take ownership of SplatData (legacy) or operate on externally-owned data.
+     */
     class DefaultStrategy : public IStrategy {
     public:
         DefaultStrategy() = delete;
 
-        DefaultStrategy(lfs::core::SplatData&& splat_data);
+        /// Construct with ownership of SplatData (legacy mode)
+        explicit DefaultStrategy(lfs::core::SplatData&& splat_data);
 
+        /// Construct with reference to externally-owned SplatData (from Scene)
+        explicit DefaultStrategy(lfs::core::SplatData& splat_data);
+
+        // Prevent copy/move
         DefaultStrategy(const DefaultStrategy&) = delete;
-
         DefaultStrategy& operator=(const DefaultStrategy&) = delete;
-
-        DefaultStrategy(DefaultStrategy&&) = default;
-
-        DefaultStrategy& operator=(DefaultStrategy&&) = default;
+        DefaultStrategy(DefaultStrategy&&) = delete;
+        DefaultStrategy& operator=(DefaultStrategy&&) = delete;
 
         // IStrategy interface implementation
         void initialize(const lfs::core::param::OptimizationParameters& optimParams) override;
@@ -36,8 +43,8 @@ namespace lfs::training {
 
         bool is_refining(int iter) const override;
 
-        lfs::core::SplatData& get_model() override { return _splat_data; }
-        const lfs::core::SplatData& get_model() const override { return _splat_data; }
+        lfs::core::SplatData& get_model() override { return *_splat_data; }
+        const lfs::core::SplatData& get_model() const override { return *_splat_data; }
 
         void remove_gaussians(const lfs::core::Tensor& mask) override;
 
@@ -58,7 +65,8 @@ namespace lfs::training {
         // Member variables
         std::unique_ptr<AdamOptimizer> _optimizer;
         std::unique_ptr<ExponentialLR> _scheduler;
-        lfs::core::SplatData _splat_data;
+        std::unique_ptr<lfs::core::SplatData> _owned_splat_data;  // Owned data (legacy mode)
+        lfs::core::SplatData* _splat_data = nullptr;  // Pointer to active model (owned or external)
         std::unique_ptr<const lfs::core::param::OptimizationParameters> _params;
     };
 } // namespace lfs::training

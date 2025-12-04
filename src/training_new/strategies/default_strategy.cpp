@@ -10,25 +10,32 @@
 #include "kernels/densification_kernels.hpp"
 
 namespace lfs::training {
+    // Legacy constructor - takes ownership
     DefaultStrategy::DefaultStrategy(lfs::core::SplatData&& splat_data)
-        : _splat_data(std::move(splat_data)) {
+        : _owned_splat_data(std::make_unique<lfs::core::SplatData>(std::move(splat_data))),
+          _splat_data(_owned_splat_data.get()) {
+    }
+
+    // New constructor - uses external reference (Scene-owned)
+    DefaultStrategy::DefaultStrategy(lfs::core::SplatData& splat_data)
+        : _splat_data(&splat_data) {
     }
 
     void DefaultStrategy::initialize(const lfs::core::param::OptimizationParameters& optimParams) {
         _params = std::make_unique<const lfs::core::param::OptimizationParameters>(optimParams);
 
-        initialize_gaussians(_splat_data, _params->max_cap);
+        initialize_gaussians(*_splat_data, _params->max_cap);
 
         // Initialize optimizer
-        _optimizer = create_optimizer(_splat_data, *_params);
+        _optimizer = create_optimizer(*_splat_data, *_params);
 
         // Initialize exponential scheduler
         _scheduler = create_scheduler(*_params, *_optimizer);
 
         // Initialize densification info: [2, N] tensor for tracking gradients
-        _splat_data._densification_info = lfs::core::Tensor::zeros(
-            {2, static_cast<size_t>(_splat_data.size())},
-            _splat_data.means().device());
+        _splat_data->_densification_info = lfs::core::Tensor::zeros(
+            {2, static_cast<size_t>(_splat_data->size())},
+            _splat_data->means().device());
     }
 
     bool DefaultStrategy::is_refining(int iter) const {
@@ -58,53 +65,53 @@ namespace lfs::training {
         }
 
         // Gather parameters for selected Gaussians to duplicate
-        LOG_DEBUG("duplicate(): sh0 shape before index_select: {}", _splat_data.sh0().shape().str());
-        LOG_DEBUG("duplicate(): shN shape before index_select: {}", _splat_data.shN().shape().str());
+        LOG_DEBUG("duplicate(): sh0 shape before index_select: {}", _splat_data->sh0().shape().str());
+        LOG_DEBUG("duplicate(): shN shape before index_select: {}", _splat_data->shN().shape().str());
 
-        auto pos_selected = _splat_data.means().index_select(0, sampled_idxs).contiguous();
-        auto rot_selected = _splat_data.rotation_raw().index_select(0, sampled_idxs).contiguous();
-        auto scale_selected = _splat_data.scaling_raw().index_select(0, sampled_idxs).contiguous();
-        auto sh0_selected = _splat_data.sh0().index_select(0, sampled_idxs).contiguous();
-        auto shN_selected = _splat_data.shN().index_select(0, sampled_idxs).contiguous();
-        auto op_selected = _splat_data.opacity_raw().index_select(0, sampled_idxs).contiguous();
+        auto pos_selected = _splat_data->means().index_select(0, sampled_idxs).contiguous();
+        auto rot_selected = _splat_data->rotation_raw().index_select(0, sampled_idxs).contiguous();
+        auto scale_selected = _splat_data->scaling_raw().index_select(0, sampled_idxs).contiguous();
+        auto sh0_selected = _splat_data->sh0().index_select(0, sampled_idxs).contiguous();
+        auto shN_selected = _splat_data->shN().index_select(0, sampled_idxs).contiguous();
+        auto op_selected = _splat_data->opacity_raw().index_select(0, sampled_idxs).contiguous();
 
         LOG_DEBUG("duplicate(): sh0_selected shape after index_select: {}", sh0_selected.shape().str());
         LOG_DEBUG("duplicate(): shN_selected shape after index_select: {}", shN_selected.shape().str());
 
         // Concatenate parameters directly in SplatData
-        LOG_DEBUG("duplicate(): About to cat means: existing={}, selected={}", _splat_data.means().shape().str(), pos_selected.shape().str());
-        _splat_data.means() = _splat_data.means().cat(pos_selected, 0);
+        LOG_DEBUG("duplicate(): About to cat means: existing={}, selected={}", _splat_data->means().shape().str(), pos_selected.shape().str());
+        _splat_data->means() = _splat_data->means().cat(pos_selected, 0);
 
-        LOG_DEBUG("duplicate(): About to cat rotation: existing={}, selected={}", _splat_data.rotation_raw().shape().str(), rot_selected.shape().str());
-        _splat_data.rotation_raw() = _splat_data.rotation_raw().cat(rot_selected, 0);
+        LOG_DEBUG("duplicate(): About to cat rotation: existing={}, selected={}", _splat_data->rotation_raw().shape().str(), rot_selected.shape().str());
+        _splat_data->rotation_raw() = _splat_data->rotation_raw().cat(rot_selected, 0);
 
-        LOG_DEBUG("duplicate(): About to cat scaling: existing={}, selected={}", _splat_data.scaling_raw().shape().str(), scale_selected.shape().str());
-        _splat_data.scaling_raw() = _splat_data.scaling_raw().cat(scale_selected, 0);
+        LOG_DEBUG("duplicate(): About to cat scaling: existing={}, selected={}", _splat_data->scaling_raw().shape().str(), scale_selected.shape().str());
+        _splat_data->scaling_raw() = _splat_data->scaling_raw().cat(scale_selected, 0);
 
-        LOG_ERROR("duplicate(): About to cat sh0: existing={}, selected={}", _splat_data.sh0().shape().str(), sh0_selected.shape().str());
-        _splat_data.sh0() = _splat_data.sh0().cat(sh0_selected, 0);
+        LOG_ERROR("duplicate(): About to cat sh0: existing={}, selected={}", _splat_data->sh0().shape().str(), sh0_selected.shape().str());
+        _splat_data->sh0() = _splat_data->sh0().cat(sh0_selected, 0);
 
-        LOG_ERROR("duplicate(): About to cat shN: existing={}, selected={}", _splat_data.shN().shape().str(), shN_selected.shape().str());
-        _splat_data.shN() = _splat_data.shN().cat(shN_selected, 0);
+        LOG_ERROR("duplicate(): About to cat shN: existing={}, selected={}", _splat_data->shN().shape().str(), shN_selected.shape().str());
+        _splat_data->shN() = _splat_data->shN().cat(shN_selected, 0);
 
-        LOG_DEBUG("duplicate(): About to cat opacity: existing={}, selected={}", _splat_data.opacity_raw().shape().str(), op_selected.shape().str());
-        _splat_data.opacity_raw() = _splat_data.opacity_raw().cat(op_selected, 0);
+        LOG_DEBUG("duplicate(): About to cat opacity: existing={}, selected={}", _splat_data->opacity_raw().shape().str(), op_selected.shape().str());
+        _splat_data->opacity_raw() = _splat_data->opacity_raw().cat(op_selected, 0);
 
         // Update gradients to match new size
-        if (_splat_data.has_gradients()) {
-            auto means_shape = _splat_data.means().shape();
-            auto rotation_shape = _splat_data.rotation_raw().shape();
-            auto scaling_shape = _splat_data.scaling_raw().shape();
-            auto sh0_shape = _splat_data.sh0().shape();
-            auto shN_shape = _splat_data.shN().shape();
-            auto opacity_shape = _splat_data.opacity_raw().shape();
+        if (_splat_data->has_gradients()) {
+            auto means_shape = _splat_data->means().shape();
+            auto rotation_shape = _splat_data->rotation_raw().shape();
+            auto scaling_shape = _splat_data->scaling_raw().shape();
+            auto sh0_shape = _splat_data->sh0().shape();
+            auto shN_shape = _splat_data->shN().shape();
+            auto opacity_shape = _splat_data->opacity_raw().shape();
 
-            _splat_data.means_grad() = lfs::core::Tensor::zeros(means_shape, _splat_data.means().device());
-            _splat_data.rotation_grad() = lfs::core::Tensor::zeros(rotation_shape, _splat_data.rotation_raw().device());
-            _splat_data.scaling_grad() = lfs::core::Tensor::zeros(scaling_shape, _splat_data.scaling_raw().device());
-            _splat_data.sh0_grad() = lfs::core::Tensor::zeros(sh0_shape, _splat_data.sh0().device());
-            _splat_data.shN_grad() = lfs::core::Tensor::zeros(shN_shape, _splat_data.shN().device());
-            _splat_data.opacity_grad() = lfs::core::Tensor::zeros(opacity_shape, _splat_data.opacity_raw().device());
+            _splat_data->means_grad() = lfs::core::Tensor::zeros(means_shape, _splat_data->means().device());
+            _splat_data->rotation_grad() = lfs::core::Tensor::zeros(rotation_shape, _splat_data->rotation_raw().device());
+            _splat_data->scaling_grad() = lfs::core::Tensor::zeros(scaling_shape, _splat_data->scaling_raw().device());
+            _splat_data->sh0_grad() = lfs::core::Tensor::zeros(sh0_shape, _splat_data->sh0().device());
+            _splat_data->shN_grad() = lfs::core::Tensor::zeros(shN_shape, _splat_data->shN().device());
+            _splat_data->opacity_grad() = lfs::core::Tensor::zeros(opacity_shape, _splat_data->opacity_raw().device());
         }
 
         // Update optimizer states: duplicate the optimizer states for the duplicated Gaussians
@@ -149,7 +156,7 @@ namespace lfs::training {
         const lfs::core::Tensor split_idxs = is_split.nonzero().squeeze(-1);
         const lfs::core::Tensor keep_idxs = is_split.logical_not().nonzero().squeeze(-1);
 
-        const int N = _splat_data.size();
+        const int N = _splat_data->size();
         const int num_split = split_idxs.shape()[0];
         const int num_keep = keep_idxs.shape()[0];
 
@@ -161,33 +168,33 @@ namespace lfs::training {
 
         // Get SH dimensions - total elements per Gaussian (coeffs * channels)
         // shN has shape [N, num_coeffs, 3], so total elements = num_coeffs * 3
-        const int shN_coeffs = _splat_data.shN().shape()[1];
-        const int shN_channels = _splat_data.shN().shape()[2];
+        const int shN_coeffs = _splat_data->shN().shape()[1];
+        const int shN_channels = _splat_data->shN().shape()[2];
         const int shN_dim = shN_coeffs * shN_channels;  // Total elements per Gaussian
 
         // Generate random noise [2, num_split, 3]
         const lfs::core::Tensor random_noise = lfs::core::Tensor::randn(
             {split_size, static_cast<size_t>(num_split), 3},
-            _splat_data.sh0().device());
+            _splat_data->sh0().device());
 
         // Allocate output tensors [num_keep + num_split*2, ...]
         const int out_size = num_keep + num_split * split_size;
-        auto positions_out = lfs::core::Tensor::empty({static_cast<size_t>(out_size), 3}, _splat_data.means().device());
-        auto rotations_out = lfs::core::Tensor::empty({static_cast<size_t>(out_size), 4}, _splat_data.rotation_raw().device());
-        auto scales_out = lfs::core::Tensor::empty({static_cast<size_t>(out_size), 3}, _splat_data.scaling_raw().device());
+        auto positions_out = lfs::core::Tensor::empty({static_cast<size_t>(out_size), 3}, _splat_data->means().device());
+        auto rotations_out = lfs::core::Tensor::empty({static_cast<size_t>(out_size), 4}, _splat_data->rotation_raw().device());
+        auto scales_out = lfs::core::Tensor::empty({static_cast<size_t>(out_size), 3}, _splat_data->scaling_raw().device());
         // CUDA kernel produces 2D outputs, we'll reshape to 3D after
-        auto sh0_out_2d = lfs::core::Tensor::empty({static_cast<size_t>(out_size), 3}, _splat_data.sh0().device());
-        auto shN_out_2d = lfs::core::Tensor::empty({static_cast<size_t>(out_size), static_cast<size_t>(shN_dim)}, _splat_data.shN().device());
-        auto opacities_out = lfs::core::Tensor::empty({static_cast<size_t>(out_size), 1}, _splat_data.opacity_raw().device());
+        auto sh0_out_2d = lfs::core::Tensor::empty({static_cast<size_t>(out_size), 3}, _splat_data->sh0().device());
+        auto shN_out_2d = lfs::core::Tensor::empty({static_cast<size_t>(out_size), static_cast<size_t>(shN_dim)}, _splat_data->shN().device());
+        auto opacities_out = lfs::core::Tensor::empty({static_cast<size_t>(out_size), 1}, _splat_data->opacity_raw().device());
 
         // Call custom CUDA kernel (outputs sh0 and shN separately - NO slice/contiguous overhead!)
         kernels::launch_split_gaussians(
-            _splat_data.means().ptr<float>(),
-            _splat_data.rotation_raw().ptr<float>(),
-            _splat_data.scaling_raw().ptr<float>(),
-            _splat_data.sh0().ptr<float>(),
-            _splat_data.shN().ptr<float>(),
-            _splat_data.opacity_raw().ptr<float>(),
+            _splat_data->means().ptr<float>(),
+            _splat_data->rotation_raw().ptr<float>(),
+            _splat_data->scaling_raw().ptr<float>(),
+            _splat_data->sh0().ptr<float>(),
+            _splat_data->shN().ptr<float>(),
+            _splat_data->opacity_raw().ptr<float>(),
             positions_out.ptr<float>(),
             rotations_out.ptr<float>(),
             scales_out.ptr<float>(),
@@ -212,21 +219,21 @@ namespace lfs::training {
         auto shN_out = shN_out_2d.reshape({out_size, shN_coeffs, shN_channels});
 
         // Update SplatData with new tensors (already contiguous from kernel!)
-        _splat_data.means() = positions_out;
-        _splat_data.rotation_raw() = rotations_out;
-        _splat_data.scaling_raw() = scales_out;
-        _splat_data.sh0() = sh0_out;
-        _splat_data.shN() = shN_out;
-        _splat_data.opacity_raw() = opacities_out.squeeze(-1);
+        _splat_data->means() = positions_out;
+        _splat_data->rotation_raw() = rotations_out;
+        _splat_data->scaling_raw() = scales_out;
+        _splat_data->sh0() = sh0_out;
+        _splat_data->shN() = shN_out;
+        _splat_data->opacity_raw() = opacities_out.squeeze(-1);
 
         // Update gradients to match new size
-        if (_splat_data.has_gradients()) {
-            _splat_data.means_grad() = lfs::core::Tensor::zeros(positions_out.shape(), positions_out.device());
-            _splat_data.rotation_grad() = lfs::core::Tensor::zeros(rotations_out.shape(), rotations_out.device());
-            _splat_data.scaling_grad() = lfs::core::Tensor::zeros(scales_out.shape(), scales_out.device());
-            _splat_data.sh0_grad() = lfs::core::Tensor::zeros(sh0_out.shape(), sh0_out.device());
-            _splat_data.shN_grad() = lfs::core::Tensor::zeros(shN_out.shape(), shN_out.device());
-            _splat_data.opacity_grad() = lfs::core::Tensor::zeros(opacities_out.squeeze(-1).shape(), opacities_out.device());
+        if (_splat_data->has_gradients()) {
+            _splat_data->means_grad() = lfs::core::Tensor::zeros(positions_out.shape(), positions_out.device());
+            _splat_data->rotation_grad() = lfs::core::Tensor::zeros(rotations_out.shape(), rotations_out.device());
+            _splat_data->scaling_grad() = lfs::core::Tensor::zeros(scales_out.shape(), scales_out.device());
+            _splat_data->sh0_grad() = lfs::core::Tensor::zeros(sh0_out.shape(), sh0_out.device());
+            _splat_data->shN_grad() = lfs::core::Tensor::zeros(shN_out.shape(), shN_out.device());
+            _splat_data->opacity_grad() = lfs::core::Tensor::zeros(opacities_out.squeeze(-1).shape(), opacities_out.device());
         }
 
         // Update optimizer states: keep old states for kept Gaussians, add zeros for split Gaussians
@@ -278,15 +285,15 @@ namespace lfs::training {
     }
 
     void DefaultStrategy::grow_gs(int iter) {
-        lfs::core::Tensor numer = _splat_data._densification_info[1];
-        lfs::core::Tensor denom = _splat_data._densification_info[0];
+        lfs::core::Tensor numer = _splat_data->_densification_info[1];
+        lfs::core::Tensor denom = _splat_data->_densification_info[0];
         const lfs::core::Tensor grads = numer / denom.clamp_min(1.0f);
 
         const lfs::core::Tensor is_grad_high = grads > _params->grad_threshold;
 
         // Get max along last dimension
-        const lfs::core::Tensor max_values = _splat_data.get_scaling().max(-1, false);
-        const lfs::core::Tensor is_small = max_values <= _params->grow_scale3d * _splat_data.get_scene_scale();
+        const lfs::core::Tensor max_values = _splat_data->get_scaling().max(-1, false);
+        const lfs::core::Tensor is_small = max_values <= _params->grow_scale3d * _splat_data->get_scene_scale();
         const lfs::core::Tensor is_duplicated = is_grad_high.logical_and(is_small);
 
         const auto num_duplicates = static_cast<int64_t>(is_duplicated.sum_scalar());
@@ -329,20 +336,20 @@ namespace lfs::training {
             LOG_DEBUG("  remove() size update: {} -> {} (removed {})", old_size, new_size, old_size - new_size);
         };
 
-        update_param_with_optimizer(param_fn, optimizer_fn, _optimizer, _splat_data);
+        update_param_with_optimizer(param_fn, optimizer_fn, _optimizer, *_splat_data);
     }
 
     void DefaultStrategy::prune_gs(int iter) {
         // Check for low opacity
-        lfs::core::Tensor is_prune = _splat_data.get_opacity() < _params->prune_opacity;
+        lfs::core::Tensor is_prune = _splat_data->get_opacity() < _params->prune_opacity;
 
-        auto rotation_raw = _splat_data.rotation_raw();
+        auto rotation_raw = _splat_data->rotation_raw();
         is_prune = is_prune.logical_or((rotation_raw * rotation_raw).sum(-1, false) < 1e-8f);
 
         // Check for too large Gaussians
         if (iter > _params->reset_every) {
-            const lfs::core::Tensor max_values = _splat_data.get_scaling().max(-1, false);
-            lfs::core::Tensor is_too_big = max_values > _params->prune_scale3d * _splat_data.get_scene_scale();
+            const lfs::core::Tensor max_values = _splat_data->get_scaling().max(-1, false);
+            lfs::core::Tensor is_too_big = max_values > _params->prune_scale3d * _splat_data->get_scene_scale();
             is_prune = is_prune.logical_or(is_too_big);
         }
 
@@ -371,18 +378,18 @@ namespace lfs::training {
             state.exp_avg_sq = lfs::core::Tensor::zeros_like(state.exp_avg_sq);
         };
 
-        update_param_with_optimizer(param_fn, optimizer_fn, _optimizer, _splat_data, {5});
+        update_param_with_optimizer(param_fn, optimizer_fn, _optimizer, *_splat_data, {5});
     }
 
     void DefaultStrategy::post_backward(int iter, RenderOutput& render_output) {
         // Increment SH degree every 1000 iterations
         if (iter % _params->sh_degree_interval == 0) {
-            _splat_data.increment_sh_degree();
+            _splat_data->increment_sh_degree();
         }
 
         if (iter == _params->stop_refine) {
             // Reset densification info at the end of refinement. Saves memory and processing time.
-            _splat_data._densification_info = lfs::core::Tensor::empty({0});
+            _splat_data->_densification_info = lfs::core::Tensor::empty({0});
         }
 
         if (iter >= _params->stop_refine) {
@@ -393,9 +400,9 @@ namespace lfs::training {
             grow_gs(iter);
             prune_gs(iter);
 
-            _splat_data._densification_info = lfs::core::Tensor::zeros(
-                {2, static_cast<size_t>(_splat_data.size())},
-                _splat_data.means().device());
+            _splat_data->_densification_info = lfs::core::Tensor::zeros(
+                {2, static_cast<size_t>(_splat_data->size())},
+                _splat_data->means().device());
         }
 
         if (iter % _params->reset_every == 0 && iter > 0) {

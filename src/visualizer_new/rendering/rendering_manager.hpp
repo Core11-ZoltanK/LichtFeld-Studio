@@ -64,8 +64,7 @@ namespace lfs::vis {
         float ring_width = 0.01f;
         bool show_center_markers = false;
 
-        // Camera frustums
-        bool show_camera_frustums = false;
+        // Camera frustums (visibility controlled by scene graph, not checkbox)
         float camera_frustum_scale = 0.25f;
         glm::vec3 train_camera_color = glm::vec3(1.0f, 1.0f, 1.0f);
         glm::vec3 eval_camera_color = glm::vec3(1.0f, 0.0f, 0.0f);
