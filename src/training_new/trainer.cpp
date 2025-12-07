@@ -7,8 +7,8 @@
 #include "visualizer_new/scene/scene.hpp"  // For Scene-based constructor
 #include "strategies/mcmc.hpp"
 #include "strategies/default_strategy.hpp"
+#include "components/bilateral_grid.hpp"
 // TODO: Port components to LibTorch-free implementation
-// #include "components/bilateral_grid.hpp"         // Temporarily disabled - requires LibTorch
 // #include "components/sparsity_optimizer.hpp"      // Temporarily disabled - requires LibTorch
 // #include "components/poseopt.hpp"
 #include "core_new/events.hpp"
@@ -58,9 +58,7 @@ namespace lfs::training {
 
         // Reset all components
         progress_.reset();
-        // bilateral_grid_.reset();                // Temporarily disabled - requires LibTorch
-        // bilateral_grid_optimizer_.reset();      // Temporarily disabled - requires LibTorch
-        // bilateral_grid_scheduler_.reset();      // Temporarily disabled - requires LibTorch
+        bilateral_grid_.reset();
         // poseopt_module_.reset();
         // poseopt_optimizer_.reset();
         // sparsity_optimizer_.reset();            // Temporarily disabled - requires LibTorch
@@ -84,44 +82,34 @@ namespace lfs::training {
         LOG_DEBUG("Trainer cleanup complete");
     }
 
-    // Temporarily disabled - requires LibTorch
-    // std::expected<void, std::string> Trainer::initialize_bilateral_grid() {
-    //     if (!params_.optimization.use_bilateral_grid) {
-    //         return {};
-    //     }
+    std::expected<void, std::string> Trainer::initialize_bilateral_grid() {
+        if (!params_.optimization.use_bilateral_grid) {
+            return {};
+        }
 
-    //     try {
-    //         bilateral_grid_ = std::make_unique<BilateralGrid>(
-    //             train_dataset_size_,
-    //             params_.optimization.bilateral_grid_X,
-    //             params_.optimization.bilateral_grid_Y,
-    //             params_.optimization.bilateral_grid_W);
+        try {
+            BilateralGrid::Config config;
+            config.lr = params_.optimization.bilateral_grid_lr;
 
-    //         // TODO: Create AdamOptimizer variant that works with arbitrary tensors (not just SplatData)
-    //         // bilateral_grid_optimizer_ = std::make_unique<lfs::training::AdamOptimizer>(
-    //         //     bilateral_grid_->parameters(),
-    //         //     bilateral_grid_->grad(),
-    //         //     params_.optimization.bilateral_grid_lr,
-    //         //     1e-15);
-    //         //
-    //         // // Create scheduler with warmup
-    //         // const double gamma = std::pow(0.01, 1.0 / params_.optimization.iterations);
-    //         // bilateral_grid_scheduler_ = std::make_unique<WarmupExponentialLR>(
-    //         //     *bilateral_grid_optimizer_,
-    //         //     gamma,
-    //         //     1000, // warmup steps
-    //         //     0.01  // start at 1% of initial LR
-    //         // );
+            bilateral_grid_ = std::make_unique<BilateralGrid>(
+                static_cast<int>(train_dataset_size_),
+                params_.optimization.bilateral_grid_X,
+                params_.optimization.bilateral_grid_Y,
+                params_.optimization.bilateral_grid_W,
+                params_.optimization.iterations,
+                config);
 
-    //         LOG_DEBUG("Bilateral grid initialized with size {}x{}x{} (optimizer TODO)",
-    //                   params_.optimization.bilateral_grid_X,
-    //                   params_.optimization.bilateral_grid_Y,
-    //                   params_.optimization.bilateral_grid_W);
-    //         return {};
-    //     } catch (const std::exception& e) {
-    //         return std::unexpected(std::format("Failed to initialize bilateral grid: {}", e.what()));
-    //     }
-    // }
+            LOG_INFO("Bilateral grid initialized: {}x{}x{} for {} images",
+                     params_.optimization.bilateral_grid_X,
+                     params_.optimization.bilateral_grid_Y,
+                     params_.optimization.bilateral_grid_W,
+                     train_dataset_size_);
+
+            return {};
+        } catch (const std::exception& e) {
+            return std::unexpected(std::format("Failed to init bilateral grid: {}", e.what()));
+        }
+    }
 
     // Compute photometric loss AND gradient manually (using loss struct)
     // Returns GPU tensors (loss and gradient) - NO SYNC!
@@ -381,10 +369,10 @@ namespace lfs::training {
             strategy_->initialize(params.optimization);
             LOG_DEBUG("Strategy initialized");
 
-            // Initialize bilateral grid if enabled - Temporarily disabled (requires LibTorch)
-            // if (auto result = initialize_bilateral_grid(); !result) {
-            //     return std::unexpected(result.error());
-            // }
+            // Initialize bilateral grid if enabled
+            if (auto result = initialize_bilateral_grid(); !result) {
+                return std::unexpected(result.error());
+            }
 
             // Initialize sparsity optimizer if enabled - Temporarily disabled (requires LibTorch)
             // if (params.optimization.enable_sparsity) {
@@ -801,10 +789,18 @@ namespace lfs::training {
                 r_output = output;  // Save last tile for densification
                 nvtxRangePop();
 
+                // Apply bilateral grid if enabled (before loss computation)
+                lfs::core::Tensor corrected_image = output.image;
+                if (bilateral_grid_ && params_.optimization.use_bilateral_grid) {
+                    nvtxRangePush("bilateral_grid_forward");
+                    corrected_image = bilateral_grid_->apply(output.image, cam->uid());
+                    nvtxRangePop();
+                }
+
                 // Compute photometric loss and gradients for this tile
                 nvtxRangePush("compute_photometric_loss");
                 auto loss_grad_result = compute_photometric_loss_with_gradient(
-                    output.image,
+                    corrected_image,
                     gt_tile,
                     params_.optimization);
                 if (!loss_grad_result) {
@@ -820,9 +816,17 @@ namespace lfs::training {
                 }
                 nvtxRangePop();
 
+                // Backward through bilateral grid (accumulates gradients, no Adam yet)
+                lfs::core::Tensor raster_grad = tile_grad;
+                if (bilateral_grid_ && params_.optimization.use_bilateral_grid) {
+                    nvtxRangePush("bilateral_grid_backward");
+                    raster_grad = bilateral_grid_->backward(output.image, tile_grad, cam->uid());
+                    nvtxRangePop();
+                }
+
                 // Backward pass for this tile (gradients accumulate in SplatData)
                 nvtxRangePush("rasterize_backward");
-                fast_rasterize_backward(ctx, tile_grad, strategy_->get_model());
+                fast_rasterize_backward(ctx, raster_grad, strategy_->get_model());
                 nvtxRangePop();
 
                 nvtxRangePop();  // End tile
@@ -856,6 +860,20 @@ namespace lfs::training {
                     return std::unexpected(opacity_loss_result.error());
                 }
                 loss_tensor_gpu = loss_tensor_gpu + *opacity_loss_result;
+                nvtxRangePop();
+            }
+
+            // Bilateral grid: TV loss + optimizer step
+            if (bilateral_grid_ && params_.optimization.use_bilateral_grid) {
+                nvtxRangePush("bilateral_grid_tv_and_step");
+                const float tv_weight = params_.optimization.tv_loss_weight;
+
+                loss_tensor_gpu = loss_tensor_gpu + bilateral_grid_->tv_loss_gpu() * tv_weight;
+                bilateral_grid_->tv_backward(tv_weight);
+                bilateral_grid_->optimizer_step();
+                bilateral_grid_->zero_grad();
+                bilateral_grid_->scheduler_step();
+
                 nvtxRangePop();
             }
 
@@ -1185,7 +1203,8 @@ namespace lfs::training {
         }
 
         // Save checkpoint alongside PLY for training resumption
-        auto ckpt_result = lfs::training::save_checkpoint(save_path, iter_num, *strategy_, params_);
+        auto ckpt_result = lfs::training::save_checkpoint(
+            save_path, iter_num, *strategy_, params_, bilateral_grid_.get());
         if (!ckpt_result) {
             LOG_WARN("Failed to save checkpoint: {}", ckpt_result.error());
         }
@@ -1208,7 +1227,10 @@ namespace lfs::training {
         if (!strategy_) {
             return std::unexpected("Cannot save checkpoint: no strategy initialized");
         }
-        return lfs::training::save_checkpoint(params_.dataset.output_path, iteration, *strategy_, params_);
+
+        return lfs::training::save_checkpoint(
+            params_.dataset.output_path, iteration, *strategy_, params_,
+            bilateral_grid_.get());
     }
 
     std::expected<int, std::string> Trainer::load_checkpoint(const std::filesystem::path& checkpoint_path) {
@@ -1216,11 +1238,21 @@ namespace lfs::training {
             return std::unexpected("Cannot load checkpoint: no strategy initialized");
         }
 
-        auto result = lfs::training::load_checkpoint(checkpoint_path, *strategy_, params_);
-        if (result) {
-            current_iteration_ = *result;
-            LOG_INFO("Restored training state from checkpoint at iteration {}", *result);
+        // Create bilateral grid before loading if needed (checkpoint may contain grid state)
+        if (params_.optimization.use_bilateral_grid && !bilateral_grid_) {
+            if (auto init_result = initialize_bilateral_grid(); !init_result) {
+                LOG_WARN("Failed to init bilateral grid for resume: {}", init_result.error());
+            }
         }
+
+        auto result = lfs::training::load_checkpoint(
+            checkpoint_path, *strategy_, params_, bilateral_grid_.get());
+        if (!result) {
+            return result;
+        }
+        current_iteration_ = *result;
+
+        LOG_INFO("Restored training state from checkpoint at iteration {}", *result);
         return result;
     }
 

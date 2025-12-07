@@ -69,7 +69,7 @@ set(TRAINING_NEW_SOURCES
     strategies/default_strategy.cpp
     strategies/mcmc.cpp
     rasterization/fast_rasterizer.cpp
-    # components/bilateral_grid.cpp           # Temporarily disabled - requires LibTorch
+    components/bilateral_grid.cpp
     # components/sparsity_optimizer.cpp       # Temporarily disabled - requires LibTorch
     metrics/metrics.cpp
     checkpoint.cpp

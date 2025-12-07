@@ -4,111 +4,91 @@
 #pragma once
 #include "core_new/tensor.hpp"
 #include "lfs/kernels/bilateral_grid.cuh"
-#include <memory>
+#include <cmath>
+#include <istream>
+#include <ostream>
 
 namespace lfs::training {
 
-    // Context for manual bilateral grid slice forward/backward
-    // Optimized: store only minimal data (no tensor copies, no refcount overhead)
-    struct BilateralGridSliceContext {
-        const float* rgb_ptr;    // Pointer to RGB data [H, W, 3]
-        int h, w;                // Image dimensions
-        int image_idx;           // Image index for gradient accumulation
-    };
+struct BilateralGridConfig {
+    double lr = 2e-3;
+    double beta1 = 0.9;
+    double beta2 = 0.999;
+    double eps = 1e-15;
+    int warmup_steps = 1000;
+    double warmup_start_factor = 0.01;
+    double final_lr_factor = 0.01;
+};
 
-    // Context for manual TV loss forward/backward
-    // Optimized: empty context (grids are class members, no need to store)
-    struct BilateralGridTVContext {
-        // Empty - all data is in BilateralGrid class members
-    };
+/// Bilateral grid for per-image appearance modeling with fused Adam optimizer
+class BilateralGrid {
+public:
+    using Config = BilateralGridConfig;
 
-    /**
-     * @brief Bilateral grid for appearance modeling (LibTorch-free)
-     *
-     * Manages a learned 3D lookup table per image for appearance variations.
-     * Grid coordinates are (x, y, grayscale) where grayscale = 0.299*R + 0.587*G + 0.114*B.
-     */
-    class BilateralGrid {
-    public:
-        /**
-         * @brief Construct bilateral grid
-         * @param num_images Number of images (grid batch size)
-         * @param grid_W Grid width dimension
-         * @param grid_H Grid height dimension
-         * @param grid_L Grid depth/guidance dimension
-         */
-        BilateralGrid(int num_images, int grid_W = 16, int grid_H = 16, int grid_L = 8);
+    BilateralGrid(int num_images, int grid_W, int grid_H, int grid_L,
+                  int total_iterations, Config config = {});
 
-        /**
-         * @brief Apply bilateral grid to image (manual forward, no autograd)
-         * @param rgb Input image [H, W, 3]
-         * @param image_idx Index of image (selects which grid to use)
-         * @return (output_image, context) for backward pass
-         */
-        std::pair<lfs::core::Tensor, BilateralGridSliceContext> apply_forward(
-            const lfs::core::Tensor& rgb, int image_idx);
+    /// Forward pass: apply color correction
+    lfs::core::Tensor apply(const lfs::core::Tensor& rgb, int image_idx);
 
-        /**
-         * @brief Backward pass for bilateral grid (manual gradients)
-         * @param ctx Context from forward pass
-         * @param grad_output Gradient w.r.t. output [H, W, 3]
-         * @return grad_rgb - gradient w.r.t. input RGB
-         * @note Gradients w.r.t. grid are accumulated into grids_grad_
-         */
-        lfs::core::Tensor apply_backward(
-            const BilateralGridSliceContext& ctx,
-            const lfs::core::Tensor& grad_output);
+    /// Backward pass: accumulate gradients (call optimizer_step after all backward calls)
+    lfs::core::Tensor backward(const lfs::core::Tensor& rgb,
+                               const lfs::core::Tensor& grad_output,
+                               int image_idx);
 
-        /**
-         * @brief Compute total variation loss (manual forward)
-         * @return (loss_value, context) for backward pass
-         */
-        std::pair<float, BilateralGridTVContext> tv_loss_forward();
+    /// Compute TV loss for regularization (returns GPU tensor for async accumulation)
+    lfs::core::Tensor tv_loss_gpu();
 
-        /**
-         * @brief Backward pass for TV loss (manual gradients)
-         * @param ctx Context from forward pass
-         * @param grad_loss Gradient of total loss w.r.t. TV loss (scalar)
-         * @note Gradients are accumulated into grids_grad_
-         */
-        void tv_loss_backward(
-            const BilateralGridTVContext& ctx,
-            float grad_loss);
+    /// Accumulate TV loss gradients
+    void tv_backward(float tv_weight);
 
-        /**
-         * @brief Get grid parameters for optimizer
-         * @return Reference to grids tensor [N, 12, L, H, W]
-         */
-        lfs::core::Tensor& parameters() { return grids_; }
-        const lfs::core::Tensor& parameters() const { return grids_; }
+    /// Apply Adam with all accumulated gradients
+    void optimizer_step();
 
-        /**
-         * @brief Get gradient buffer
-         * @return Reference to gradient tensor [N, 12, L, H, W]
-         */
-        lfs::core::Tensor& grad() { return grids_grad_; }
-        const lfs::core::Tensor& grad() const { return grids_grad_; }
+    /// Clear gradients for next iteration
+    void zero_grad();
 
-        /**
-         * @brief Zero gradients
-         */
-        void zero_grad();
+    /// Update learning rate schedule
+    void scheduler_step();
 
-        // Grid dimensions
-        int grid_width() const { return grid_width_; }
-        int grid_height() const { return grid_height_; }
-        int grid_guidance() const { return grid_guidance_; }
-        int num_images() const { return num_images_; }
+    // Accessors
+    int grid_width() const { return grid_width_; }
+    int grid_height() const { return grid_height_; }
+    int grid_guidance() const { return grid_guidance_; }
+    int num_images() const { return num_images_; }
+    double get_lr() const { return current_lr_; }
+    int64_t get_step() const { return step_; }
+    const lfs::core::Tensor& grids() const { return grids_; }
 
-    private:
-        lfs::core::Tensor grids_;      // [N, 12, L, H, W] - grid parameters
-        lfs::core::Tensor grids_grad_; // [N, 12, L, H, W] - accumulated gradients
-        lfs::core::Tensor tv_temp_buffer_; // Temporary buffer for TV loss reduction
+    // Serialization
+    void serialize(std::ostream& os) const;
+    void deserialize(std::istream& is);
 
-        int num_images_;
-        int grid_width_;
-        int grid_height_;
-        int grid_guidance_;
-    };
+private:
+    void compute_bias_corrections(float& bc1_rcp, float& bc2_sqrt_rcp) const {
+        const double bc1 = 1.0 - std::pow(config_.beta1, step_ + 1);
+        const double bc2 = 1.0 - std::pow(config_.beta2, step_ + 1);
+        bc1_rcp = static_cast<float>(1.0 / bc1);
+        bc2_sqrt_rcp = static_cast<float>(1.0 / std::sqrt(bc2));
+    }
+
+    // Grid parameters [N, 12, L, H, W]
+    lfs::core::Tensor grids_;
+    lfs::core::Tensor exp_avg_;
+    lfs::core::Tensor exp_avg_sq_;
+    lfs::core::Tensor accumulated_grads_;
+    lfs::core::Tensor grad_buffer_;
+    lfs::core::Tensor tv_temp_buffer_;
+
+    Config config_;
+    int64_t step_ = 0;
+    double current_lr_;
+    double initial_lr_;
+    int total_iterations_;
+    int num_images_;
+    int grid_width_;
+    int grid_height_;
+    int grid_guidance_;
+};
 
 } // namespace lfs::training

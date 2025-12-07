@@ -4,8 +4,8 @@
 
 #pragma once
 
+#include "components/bilateral_grid.hpp"
 // TODO: Port these components to LibTorch-free implementation
-// #include "components/bilateral_grid.hpp"        // Temporarily disabled - requires LibTorch
 // #include "components/sparsity_optimizer.hpp"     // Temporarily disabled - requires LibTorch
 // #include "components/poseopt.hpp"
 // #include "core/events.hpp"                  // Temporarily disabled - requires LibTorch (gs_core)
@@ -175,8 +175,7 @@ namespace lfs::training {
         // Cleanup method for re-initialization
         void cleanup();
 
-        // Temporarily disabled - requires LibTorch
-        // std::expected<void, std::string> initialize_bilateral_grid();
+        std::expected<void, std::string> initialize_bilateral_grid();
 
         // Handle control requests
         void handle_control_requests(int iter, std::stop_token stop_token = {});
@@ -197,10 +196,8 @@ namespace lfs::training {
         std::unique_ptr<TrainingProgress> progress_;
         size_t train_dataset_size_ = 0;
 
-        // Bilateral grid components - Temporarily disabled (requires LibTorch)
-        // std::unique_ptr<BilateralGrid> bilateral_grid_;
-        // std::unique_ptr<lfs::training::AdamOptimizer> bilateral_grid_optimizer_;  // Use ported Adam
-        // std::unique_ptr<WarmupExponentialLR> bilateral_grid_scheduler_;
+        // Bilateral grid for appearance modeling (optional)
+        std::unique_ptr<BilateralGrid> bilateral_grid_;
 
         // TODO: Port pose optimization to LibTorch-free implementation
         // std::unique_ptr<PoseOptimizationModule> poseopt_module_; // Pose optimization module
