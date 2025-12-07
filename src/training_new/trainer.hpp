@@ -9,6 +9,7 @@
 // #include "components/sparsity_optimizer.hpp"     // Temporarily disabled - requires LibTorch
 // #include "components/poseopt.hpp"
 // #include "core/events.hpp"                  // Temporarily disabled - requires LibTorch (gs_core)
+#include "checkpoint.hpp"
 #include "core_new/parameters.hpp"
 #include "dataset.hpp"
 // #include "lfs/kernels/bilateral_grid.cuh"   // Temporarily disabled - not using bilateral grid
@@ -97,6 +98,10 @@ namespace lfs::training {
         const lfs::core::param::TrainingParameters& getParams() const { return params_; }
 
         void setProject(std::shared_ptr<lfs::project::Project> project) { lf_project_ = project; }
+
+        // Checkpoint methods
+        std::expected<void, std::string> save_checkpoint(int iteration);
+        std::expected<int, std::string> load_checkpoint(const std::filesystem::path& checkpoint_path);
 
     private:
         // Helper for deferred event emission to prevent deadlocks

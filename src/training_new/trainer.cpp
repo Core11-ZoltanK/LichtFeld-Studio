@@ -455,10 +455,22 @@ namespace lfs::training {
             evaluator_ = std::make_unique<lfs::training::MetricsEvaluator>(params_);
             LOG_DEBUG("Metrics evaluator initialized");
 
+            // Resume from checkpoint if provided
+            if (params_.resume_checkpoint.has_value()) {
+                auto resume_result = load_checkpoint(*params_.resume_checkpoint);
+                if (!resume_result) {
+                    return std::unexpected(std::format("Failed to resume from checkpoint: {}", resume_result.error()));
+                }
+                LOG_INFO("Resumed training from checkpoint at iteration {}", *resume_result);
+            }
+
             // Print configuration
             LOG_INFO("Render mode: {}", params.optimization.render_mode);
             LOG_INFO("Visualization: {}", params.optimization.headless ? "disabled" : "enabled");
             LOG_INFO("Strategy: {}", params.optimization.strategy);
+            if (current_iteration_ > 0) {
+                LOG_INFO("Starting from iteration: {}", current_iteration_.load());
+            }
 
             initialized_ = true;
             LOG_INFO("Trainer initialization complete");
@@ -514,20 +526,17 @@ namespace lfs::training {
             LOG_INFO("Training resumed at iteration {}", iter);
         }
 
-        // Handle save request
+        // Handle save request - save a real checkpoint (not just PLY)
         if (save_requested_.exchange(false)) {
             LOG_INFO("Saving checkpoint at iteration {}...", iter);
-            auto checkpoint_path = params_.dataset.output_path / "checkpoints";
-            save_ply(checkpoint_path, iter, /*join=*/true);
-
-            LOG_INFO("Checkpoint saved to {}", checkpoint_path.string());
-
-            // TODO: Port events system to use lfs::core events
-            // Emit checkpoint saved event
-            // events::state::CheckpointSaved{
-            //     .iteration = iter,
-            //     .path = checkpoint_path}
-            //     .emit();
+            auto result = save_checkpoint(iter);
+            if (result) {
+                auto checkpoint_path = params_.dataset.output_path / "checkpoints" /
+                                       std::format("checkpoint_{}.resume", iter);
+                LOG_INFO("Checkpoint saved to {}", checkpoint_path.string());
+            } else {
+                LOG_ERROR("Failed to save checkpoint: {}", result.error());
+            }
         }
 
         // Handle stop request - this permanently stops training
@@ -1005,7 +1014,8 @@ namespace lfs::training {
                                          params_.dataset.loading_params.print_status_freq_num);
 
         try {
-            int iter = 1;
+            // Start from current_iteration_ (allows resume from checkpoint)
+            int iter = current_iteration_.load() > 0 ? current_iteration_.load() + 1 : 1;
             const int num_workers = params_.optimization.num_workers;
             const RenderMode render_mode = stringToRenderMode(params_.optimization.render_mode);
 
@@ -1174,6 +1184,12 @@ namespace lfs::training {
                                            true); // Always synchronous
         }
 
+        // Save checkpoint alongside PLY for training resumption
+        auto ckpt_result = lfs::training::save_checkpoint(save_path, iter_num, *strategy_, params_);
+        if (!ckpt_result) {
+            LOG_WARN("Failed to save checkpoint: {}", ckpt_result.error());
+        }
+
         // Update project with PLY info
         if (lf_project_) {
             const std::string ply_name = "splat_" + std::to_string(iter_num);
@@ -1187,4 +1203,25 @@ namespace lfs::training {
 
         LOG_DEBUG("PLY save initiated: {} (sync={}), SOG always sync", save_path.string(), join_threads);
     }
+
+    std::expected<void, std::string> Trainer::save_checkpoint(int iteration) {
+        if (!strategy_) {
+            return std::unexpected("Cannot save checkpoint: no strategy initialized");
+        }
+        return lfs::training::save_checkpoint(params_.dataset.output_path, iteration, *strategy_, params_);
+    }
+
+    std::expected<int, std::string> Trainer::load_checkpoint(const std::filesystem::path& checkpoint_path) {
+        if (!strategy_) {
+            return std::unexpected("Cannot load checkpoint: no strategy initialized");
+        }
+
+        auto result = lfs::training::load_checkpoint(checkpoint_path, *strategy_, params_);
+        if (result) {
+            current_iteration_ = *result;
+            LOG_INFO("Restored training state from checkpoint at iteration {}", *result);
+        }
+        return result;
+    }
+
 } // namespace lfs::training

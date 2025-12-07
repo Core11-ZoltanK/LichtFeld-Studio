@@ -152,6 +152,13 @@ namespace lfs::core {
                 LOG_ERROR("Failed to load PLY: {}", result.error());
                 return -1;
             }
+        } else if (params->resume_checkpoint.has_value()) {
+            LOG_INFO("Loading checkpoint for training: {}", params->resume_checkpoint->string());
+            auto result = viewer->loadCheckpointForTraining(*params->resume_checkpoint);
+            if (!result) {
+                LOG_ERROR("Failed to load checkpoint: {}", result.error());
+                return -1;
+            }
         } else if (!params->dataset.data_path.empty()) {
             LOG_INFO("Loading dataset: {}", params->dataset.data_path.string());
             auto result = viewer->loadDataset(params->dataset.data_path);

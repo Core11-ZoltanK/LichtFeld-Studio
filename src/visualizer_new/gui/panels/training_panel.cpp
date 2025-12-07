@@ -726,8 +726,11 @@ namespace lfs::vis::gui::panels {
         case TrainerManager::State::Ready:
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.6f, 0.2f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.3f, 0.7f, 0.3f, 1.0f));
-            if (ImGui::Button("Start Training", ImVec2(-1, 0))) {
-                lfs::core::events::cmd::StartTraining{}.emit();
+            {
+                const char* const label = current_iteration > 0 ? "Resume Training" : "Start Training";
+                if (ImGui::Button(label, ImVec2(-1, 0))) {
+                    lfs::core::events::cmd::StartTraining{}.emit();
+                }
             }
             ImGui::PopStyleColor(2);
 

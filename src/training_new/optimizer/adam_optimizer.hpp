@@ -240,6 +240,16 @@ namespace lfs::training {
         // Set optimizer state (for manual state updates in strategy operations)
         void set_state(ParamType type, const AdamParamState& state);
 
+        // Serialization for checkpoints
+        void serialize(std::ostream& os) const;
+        void deserialize(std::istream& is);
+
+        // Get config for serialization
+        const AdamConfig& get_config() const { return config_; }
+
+        // Reserve capacity for all optimizer states (e.g., after checkpoint load)
+        void reserve_capacity(size_t capacity);
+
     private:
         AdamConfig config_;
         lfs::core::SplatData& splat_data_;

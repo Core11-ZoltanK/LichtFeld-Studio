@@ -47,6 +47,17 @@ namespace lfs::training {
 
         // Accessor for debugging/comparison
         AdamOptimizer* get_optimizer() { return _optimizer.get(); }
+        const AdamOptimizer* get_optimizer() const { return _optimizer.get(); }
+        ExponentialLR* get_scheduler() { return _scheduler.get(); }
+        const ExponentialLR* get_scheduler() const { return _scheduler.get(); }
+
+        // Serialization for checkpoints
+        void serialize(std::ostream& os) const override;
+        void deserialize(std::istream& is) override;
+        const char* strategy_type() const override { return "mcmc"; }
+
+        // Reserve optimizer capacity for future growth (e.g., after checkpoint load)
+        void reserve_optimizer_capacity(size_t capacity) override;
 
         // Exposed for testing (compare with legacy implementation)
         int add_new_gs_test() { return add_new_gs(); }

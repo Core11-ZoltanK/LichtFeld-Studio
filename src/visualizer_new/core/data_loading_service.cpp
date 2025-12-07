@@ -24,11 +24,22 @@ namespace lfs::vis {
         cmd::LoadFile::when([this](const auto& cmd) {
             handleLoadFileCommand(cmd.is_dataset, cmd.path);
         });
+
+        // Listen for checkpoint load for training commands
+        cmd::LoadCheckpointForTraining::when([this](const auto& cmd) {
+            handleLoadCheckpointForTrainingCommand(cmd.path);
+        });
     }
 
     void DataLoadingService::handleLoadFileCommand(const bool is_dataset, const std::filesystem::path& path) {
         if (is_dataset) {
             loadDataset(path);
+            return;
+        }
+
+        // Checkpoint files get special handling - redirect to training resume flow
+        if (isCheckpointFile(path)) {
+            handleLoadCheckpointForTrainingCommand(path);
             return;
         }
 
@@ -42,6 +53,11 @@ namespace lfs::vis {
         if (const auto project = scene_manager_->getProject()) {
             project->addPly(true, path, -1, actual_name);
         }
+    }
+
+    void DataLoadingService::handleLoadCheckpointForTrainingCommand(const std::filesystem::path& path) {
+        LOG_INFO("Loading checkpoint for training: {}", path.string());
+        loadCheckpointForTraining(path);
     }
 
     bool DataLoadingService::isSOGFile(const std::filesystem::path& path) const {
@@ -85,6 +101,12 @@ namespace lfs::vis {
         auto ext = path.extension().string();
         std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
         return ext == ".ply";
+    }
+
+    bool DataLoadingService::isCheckpointFile(const std::filesystem::path& path) const {
+        auto ext = path.extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+        return ext == ".resume";
     }
 
     std::expected<void, std::string> DataLoadingService::loadPLY(const std::filesystem::path& path) {
@@ -241,6 +263,23 @@ namespace lfs::vis {
         } catch (const std::exception& e) {
             LOG_ERROR("Failed to clear scene: {}", e.what());
             throw std::runtime_error(std::format("Failed to clear scene: {}", e.what()));
+        }
+    }
+
+    std::expected<void, std::string> DataLoadingService::loadCheckpointForTraining(const std::filesystem::path& path) {
+        LOG_TIMER("LoadCheckpointForTraining");
+
+        try {
+            LOG_INFO("Loading checkpoint for training from: {}", path.string());
+
+            // Load through scene manager with checkpoint flag
+            scene_manager_->loadCheckpointForTraining(path, params_);
+
+            return {};
+        } catch (const std::exception& e) {
+            std::string error_msg = std::format("Failed to load checkpoint for training: {}", e.what());
+            LOG_ERROR("{} (Path: {})", error_msg, path.string());
+            return std::unexpected(error_msg);
         }
     }
 

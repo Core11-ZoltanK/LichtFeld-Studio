@@ -6,6 +6,7 @@
 #include "core_new/logger.hpp"
 #include "core_new/parameters.hpp"
 #include "core_new/point_cloud.hpp"
+#include "core_new/tensor/internal/tensor_serialization.hpp"
 #include "external/nanoflann.hpp"
 
 #include <cmath>
@@ -424,6 +425,96 @@ namespace lfs::core {
         const size_t removed = old_size - new_size;
         LOG_INFO("apply_deleted: removed {} gaussians ({} -> {})", removed, old_size, new_size);
         return removed;
+    }
+
+    // ========== SERIALIZATION ==========
+
+    namespace {
+        constexpr uint32_t SPLAT_DATA_MAGIC = 0x4C465350;   // "LFSP"
+        constexpr uint32_t SPLAT_DATA_VERSION = 3;
+    }
+
+    void SplatData::serialize(std::ostream& os) const {
+        os.write(reinterpret_cast<const char*>(&SPLAT_DATA_MAGIC), sizeof(SPLAT_DATA_MAGIC));
+        os.write(reinterpret_cast<const char*>(&SPLAT_DATA_VERSION), sizeof(SPLAT_DATA_VERSION));
+        os.write(reinterpret_cast<const char*>(&_active_sh_degree), sizeof(_active_sh_degree));
+        os.write(reinterpret_cast<const char*>(&_max_sh_degree), sizeof(_max_sh_degree));
+        os.write(reinterpret_cast<const char*>(&_scene_scale), sizeof(_scene_scale));
+
+        os << _means << _sh0 << _scaling << _rotation << _opacity;
+
+        if (_max_sh_degree > 0) {
+            if (!_shN.is_valid()) {
+                throw std::runtime_error("shN tensor must be valid when max_sh_degree > 0");
+            }
+            os << _shN;
+        }
+
+        const uint8_t has_deleted = _deleted.is_valid() ? 1 : 0;
+        os.write(reinterpret_cast<const char*>(&has_deleted), sizeof(has_deleted));
+        if (has_deleted) os << _deleted;
+
+        const uint8_t has_densification = _densification_info.is_valid() ? 1 : 0;
+        os.write(reinterpret_cast<const char*>(&has_densification), sizeof(has_densification));
+        if (has_densification) os << _densification_info;
+
+        LOG_DEBUG("Serialized SplatData: {} Gaussians, SH {}/{}", size(), _active_sh_degree, _max_sh_degree);
+    }
+
+    void SplatData::deserialize(std::istream& is) {
+        uint32_t magic = 0, version = 0;
+        is.read(reinterpret_cast<char*>(&magic), sizeof(magic));
+        is.read(reinterpret_cast<char*>(&version), sizeof(version));
+
+        if (magic != SPLAT_DATA_MAGIC) {
+            throw std::runtime_error("Invalid SplatData: wrong magic");
+        }
+        if (version != SPLAT_DATA_VERSION) {
+            throw std::runtime_error("Unsupported SplatData version: " + std::to_string(version));
+        }
+
+        int32_t active_sh = 0, max_sh = 0;
+        float scene_scale = 0.0f;
+        is.read(reinterpret_cast<char*>(&active_sh), sizeof(active_sh));
+        is.read(reinterpret_cast<char*>(&max_sh), sizeof(max_sh));
+        is.read(reinterpret_cast<char*>(&scene_scale), sizeof(scene_scale));
+
+        Tensor means, sh0, scaling, rotation, opacity;
+        is >> means >> sh0 >> scaling >> rotation >> opacity;
+
+        _means = std::move(means).cuda();
+        _sh0 = std::move(sh0).cuda();
+        _scaling = std::move(scaling).cuda();
+        _rotation = std::move(rotation).cuda();
+        _opacity = std::move(opacity).cuda();
+        _active_sh_degree = active_sh;
+        _max_sh_degree = max_sh;
+        _scene_scale = scene_scale;
+
+        if (max_sh > 0) {
+            Tensor shN;
+            is >> shN;
+            _shN = std::move(shN).cuda();
+        }
+
+        uint8_t has_deleted = 0;
+        is.read(reinterpret_cast<char*>(&has_deleted), sizeof(has_deleted));
+        if (has_deleted) {
+            Tensor deleted;
+            is >> deleted;
+            _deleted = std::move(deleted).cuda();
+        }
+
+        uint8_t has_densification = 0;
+        is.read(reinterpret_cast<char*>(&has_densification), sizeof(has_densification));
+        if (has_densification) {
+            Tensor densification;
+            is >> densification;
+            _densification_info = std::move(densification).cuda();
+        }
+
+        allocate_gradients();
+        LOG_DEBUG("Deserialized SplatData: {} Gaussians, SH {}/{}", size(), active_sh, max_sh);
     }
 
     // ========== FREE FUNCTION: FACTORY ==========

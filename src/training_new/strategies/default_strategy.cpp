@@ -417,4 +417,75 @@ namespace lfs::training {
             _scheduler->step();
         }
     }
+
+    // ===== Serialization =====
+
+    namespace {
+        constexpr uint32_t DEFAULT_MAGIC = 0x4C464446;  // "LFDF"
+        constexpr uint32_t DEFAULT_VERSION = 1;
+    }
+
+    void DefaultStrategy::serialize(std::ostream& os) const {
+        os.write(reinterpret_cast<const char*>(&DEFAULT_MAGIC), sizeof(DEFAULT_MAGIC));
+        os.write(reinterpret_cast<const char*>(&DEFAULT_VERSION), sizeof(DEFAULT_VERSION));
+
+        // Serialize optimizer state
+        if (_optimizer) {
+            uint8_t has_optimizer = 1;
+            os.write(reinterpret_cast<const char*>(&has_optimizer), sizeof(has_optimizer));
+            _optimizer->serialize(os);
+        } else {
+            uint8_t has_optimizer = 0;
+            os.write(reinterpret_cast<const char*>(&has_optimizer), sizeof(has_optimizer));
+        }
+
+        // Serialize scheduler state
+        if (_scheduler) {
+            uint8_t has_scheduler = 1;
+            os.write(reinterpret_cast<const char*>(&has_scheduler), sizeof(has_scheduler));
+            _scheduler->serialize(os);
+        } else {
+            uint8_t has_scheduler = 0;
+            os.write(reinterpret_cast<const char*>(&has_scheduler), sizeof(has_scheduler));
+        }
+
+        LOG_DEBUG("Serialized DefaultStrategy");
+    }
+
+    void DefaultStrategy::deserialize(std::istream& is) {
+        uint32_t magic, version;
+        is.read(reinterpret_cast<char*>(&magic), sizeof(magic));
+        is.read(reinterpret_cast<char*>(&version), sizeof(version));
+
+        if (magic != DEFAULT_MAGIC) {
+            throw std::runtime_error("Invalid DefaultStrategy checkpoint: wrong magic");
+        }
+        if (version != DEFAULT_VERSION) {
+            throw std::runtime_error("Unsupported DefaultStrategy checkpoint version: " + std::to_string(version));
+        }
+
+        // Deserialize optimizer state
+        uint8_t has_optimizer;
+        is.read(reinterpret_cast<char*>(&has_optimizer), sizeof(has_optimizer));
+        if (has_optimizer && _optimizer) {
+            _optimizer->deserialize(is);
+        }
+
+        // Deserialize scheduler state
+        uint8_t has_scheduler;
+        is.read(reinterpret_cast<char*>(&has_scheduler), sizeof(has_scheduler));
+        if (has_scheduler && _scheduler) {
+            _scheduler->deserialize(is);
+        }
+
+        LOG_DEBUG("Deserialized DefaultStrategy");
+    }
+
+    void DefaultStrategy::reserve_optimizer_capacity(size_t capacity) {
+        if (_optimizer) {
+            _optimizer->reserve_capacity(capacity);
+            LOG_INFO("Reserved optimizer capacity for {} Gaussians", capacity);
+        }
+    }
+
 } // namespace lfs::training

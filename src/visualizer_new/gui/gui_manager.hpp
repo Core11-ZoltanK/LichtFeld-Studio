@@ -174,6 +174,9 @@ namespace lfs::vis {
             bool show_save_merged_dialog_ = false;
             std::string save_ply_node_name_;
             std::string save_ply_path_;
+
+            // Focus training panel flag (set by FocusTrainingPanel event)
+            bool focus_training_panel_ = false;
         };
     } // namespace gui
 } // namespace lfs::vis

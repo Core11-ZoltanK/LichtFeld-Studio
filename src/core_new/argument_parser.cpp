@@ -97,6 +97,7 @@ namespace {
                 "LichtFeld Studio: High-performance CUDA implementation of 3D Gaussian Splatting algorithm. \n",
                 "Usage:\n"
                 "  Training: LichtFeld-Studio --data-path <path> --output-path <path> [options]\n"
+                "  Resume:   LichtFeld-Studio --resume <checkpoint.resume> [options]\n"
                 "  Viewing:  LichtFeld-Studio --view <path_to_ply> [options]\n");
 
             // Define all arguments
@@ -105,6 +106,9 @@ namespace {
 
             // PLY viewing mode
             ::args::ValueFlag<std::string> view_ply(parser, "ply_file", "View a PLY file", {'v', "view"});
+
+            // Resume from checkpoint
+            ::args::ValueFlag<std::string> resume_checkpoint(parser, "checkpoint", "Resume training from checkpoint file", {"resume"});
 
             // LichtFeldStudio project arguments
             ::args::ValueFlag<std::string> project_name(parser, "proj_path", "LichtFeldStudio project path. Path must end with .lfs", {"proj_path"});
@@ -239,6 +243,17 @@ namespace {
                 return std::make_tuple(ParseResult::Success, std::function<void()>{});
             }
 
+            // Check for resume mode
+            if (resume_checkpoint) {
+                const auto ckpt_path = ::args::get(resume_checkpoint);
+                if (!ckpt_path.empty()) {
+                    if (!std::filesystem::exists(ckpt_path)) {
+                        return std::unexpected(std::format("Checkpoint file does not exist: {}", ckpt_path));
+                    }
+                    params.resume_checkpoint = ckpt_path;
+                }
+            }
+
             if (init_ply) {
                 const auto ply_path = ::args::get(init_ply);
                 params.init_ply = ply_path;
@@ -250,17 +265,19 @@ namespace {
             }
 
             // Training mode
-            bool has_data_path = data_path && !::args::get(data_path).empty();
-            bool has_output_path = output_path && !::args::get(output_path).empty();
+            const bool has_data_path = data_path && !::args::get(data_path).empty();
+            const bool has_output_path = output_path && !::args::get(output_path).empty();
+            const bool has_resume = params.resume_checkpoint.has_value();
 
-            // If headless mode, require data path
-            if (headless && !has_data_path) {
+            // If headless mode, require data path or resume checkpoint
+            if (headless && !has_data_path && !has_resume) {
                 return std::unexpected(std::format(
-                    "ERROR: Headless mode requires --data-path\n\n{}",
+                    "ERROR: Headless mode requires --data-path or --resume\n\n{}",
                     parser.Help()));
             }
 
-            // If both paths provided, it's training mode
+            // Training/resume mode requires both data-path and output-path
+            // Exception: resume mode can work without explicit paths (extracted from checkpoint)
             if (has_data_path && has_output_path) {
                 params.dataset.data_path = ::args::get(data_path);
                 params.dataset.output_path = ::args::get(output_path);
@@ -273,10 +290,28 @@ namespace {
                         "Failed to create output directory '{}': {}",
                         params.dataset.output_path.string(), ec.message()));
                 }
-            } else if (has_data_path != has_output_path) {
+            } else if (has_data_path != has_output_path && !has_resume) {
+                // Only require both if not in resume mode
                 return std::unexpected(std::format(
                     "ERROR: Training mode requires both --data-path and --output-path\n\n{}",
                     parser.Help()));
+            } else if (has_resume) {
+                // Resume mode: paths are optional (will be read from checkpoint)
+                if (has_data_path) {
+                    params.dataset.data_path = ::args::get(data_path);
+                }
+                if (has_output_path) {
+                    params.dataset.output_path = ::args::get(output_path);
+
+                    // Create output directory if provided
+                    std::error_code ec;
+                    std::filesystem::create_directories(params.dataset.output_path, ec);
+                    if (ec) {
+                        return std::unexpected(std::format(
+                            "Failed to create output directory '{}': {}",
+                            params.dataset.output_path.string(), ec.message()));
+                    }
+                }
             }
 
             // Validate render mode if provided

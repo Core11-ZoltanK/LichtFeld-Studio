@@ -158,6 +158,8 @@ namespace lfs::vis {
 
         void loadDataset(const std::filesystem::path& path,
                          const lfs::core::param::TrainingParameters& params);
+        void loadCheckpointForTraining(const std::filesystem::path& path,
+                                       const lfs::core::param::TrainingParameters& params);
         void clear();
 
         // For rendering - gets appropriate model

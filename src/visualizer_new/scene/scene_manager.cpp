@@ -14,6 +14,7 @@
 #include "loader_new/loader.hpp"
 #include "rendering/rendering_manager.hpp"
 #include "training/training_manager.hpp"
+#include "training_new/checkpoint.hpp"
 #include "training_new/training_setup.hpp"
 #include "training_new/trainer.hpp"
 #include <algorithm>
@@ -1014,6 +1015,120 @@ namespace lfs::vis {
 
         } catch (const std::exception& e) {
             LOG_ERROR("Failed to load dataset: {} (path: {})", e.what(), path.string());
+            throw;
+        }
+    }
+
+    void SceneManager::loadCheckpointForTraining(const std::filesystem::path& path,
+                                                  const lfs::core::param::TrainingParameters& params) {
+        LOG_TIMER("SceneManager::loadCheckpointForTraining");
+
+        try {
+            if (trainer_manager_) {
+                trainer_manager_->clearTrainer();
+            }
+            clear();
+
+            const auto header_result = lfs::training::load_checkpoint_header(path);
+            if (!header_result) {
+                throw std::runtime_error("Failed to load checkpoint header: " + header_result.error());
+            }
+            const int checkpoint_iteration = header_result->iteration;
+
+            auto params_result = lfs::training::load_checkpoint_params(path);
+            if (!params_result) {
+                throw std::runtime_error("Failed to load checkpoint params: " + params_result.error());
+            }
+            auto checkpoint_params = *params_result;
+
+            // CLI params override checkpoint params
+            if (!params.dataset.data_path.empty()) {
+                checkpoint_params.dataset.data_path = params.dataset.data_path;
+            }
+            if (!params.dataset.output_path.empty()) {
+                checkpoint_params.dataset.output_path = params.dataset.output_path;
+            }
+            constexpr int DEFAULT_ITERATIONS = 30000;
+            if (params.optimization.iterations != DEFAULT_ITERATIONS) {
+                checkpoint_params.optimization.iterations = params.optimization.iterations;
+            }
+
+            if (checkpoint_params.dataset.data_path.empty()) {
+                throw std::runtime_error("Checkpoint has no dataset path and none provided");
+            }
+            if (!std::filesystem::exists(checkpoint_params.dataset.data_path)) {
+                throw std::runtime_error("Dataset path does not exist: " +
+                                        checkpoint_params.dataset.data_path.string());
+            }
+
+            cached_params_ = checkpoint_params;
+
+            const auto load_result = lfs::training::loadTrainingDataIntoScene(checkpoint_params, scene_);
+            if (!load_result) {
+                throw std::runtime_error("Failed to load training data: " + load_result.error());
+            }
+
+            // Remove POINTCLOUD node (checkpoint model replaces it)
+            for (const auto* node : scene_.getNodes()) {
+                if (node->type == lfs::vis::NodeType::POINTCLOUD) {
+                    scene_.removeNode(node->name, false);
+                    break;
+                }
+            }
+
+            auto splat_result = lfs::training::load_checkpoint_splat_data(path);
+            if (!splat_result) {
+                throw std::runtime_error("Failed to load checkpoint SplatData: " + splat_result.error());
+            }
+
+            auto splat_data = std::make_unique<lfs::core::SplatData>(std::move(*splat_result));
+            const size_t num_gaussians = splat_data->size();
+            constexpr const char* MODEL_NAME = "Model";
+
+            scene_.addSplat(MODEL_NAME, std::move(splat_data), lfs::vis::NULL_NODE);
+            scene_.setTrainingModelNode(MODEL_NAME);
+
+            auto trainer = std::make_unique<lfs::training::Trainer>(scene_);
+            const auto init_result = trainer->initialize(checkpoint_params);
+            if (!init_result) {
+                throw std::runtime_error("Failed to initialize trainer: " + init_result.error());
+            }
+
+            const auto ckpt_load_result = trainer->load_checkpoint(path);
+            if (!ckpt_load_result) {
+                LOG_WARN("Failed to restore checkpoint state: {}", ckpt_load_result.error());
+            }
+
+            if (!trainer_manager_) {
+                throw std::runtime_error("No trainer manager available");
+            }
+            trainer_manager_->setScene(&scene_);
+            trainer_manager_->setTrainerFromCheckpoint(std::move(trainer), checkpoint_iteration);
+
+            {
+                std::lock_guard<std::mutex> lock(state_mutex_);
+                content_type_ = ContentType::Dataset;
+                dataset_path_ = checkpoint_params.dataset.data_path;
+            }
+
+            LOG_INFO("Checkpoint loaded: {} gaussians, iteration {}", num_gaussians, checkpoint_iteration);
+
+            state::SceneLoaded{
+                .scene = nullptr,
+                .path = path,
+                .type = state::SceneLoaded::Type::Checkpoint,
+                .num_gaussians = num_gaussians,
+                .checkpoint_iteration = checkpoint_iteration}
+                .emit();
+
+            emitSceneChanged();
+
+            ui::PointCloudModeChanged{.enabled = false, .voxel_size = 0.03f}.emit();
+            selectNode(MODEL_NAME);
+            ui::FocusTrainingPanel{}.emit();
+
+        } catch (const std::exception& e) {
+            LOG_ERROR("Failed to load checkpoint: {}", e.what());
             throw;
         }
     }

@@ -150,4 +150,106 @@ namespace lfs::training {
         }
     }
 
+    // ===== Serialization =====
+
+    namespace {
+        constexpr uint32_t SCHED_EXPONENTIAL_MAGIC = 0x4C465345;  // "LFSE"
+        constexpr uint32_t SCHED_WARMUP_MAGIC = 0x4C465357;       // "LFSW"
+        constexpr uint32_t SCHED_VERSION = 1;
+    }
+
+    void ExponentialLR::serialize(std::ostream& os) const {
+        os.write(reinterpret_cast<const char*>(&SCHED_EXPONENTIAL_MAGIC), sizeof(SCHED_EXPONENTIAL_MAGIC));
+        os.write(reinterpret_cast<const char*>(&SCHED_VERSION), sizeof(SCHED_VERSION));
+        os.write(reinterpret_cast<const char*>(&gamma_), sizeof(gamma_));
+
+        // Write params_to_update
+        uint32_t num_params = static_cast<uint32_t>(params_to_update_.size());
+        os.write(reinterpret_cast<const char*>(&num_params), sizeof(num_params));
+        for (const auto& param : params_to_update_) {
+            uint8_t param_val = static_cast<uint8_t>(param);
+            os.write(reinterpret_cast<const char*>(&param_val), sizeof(param_val));
+        }
+
+        LOG_DEBUG("Serialized ExponentialLR: gamma={}", gamma_);
+    }
+
+    void ExponentialLR::deserialize(std::istream& is) {
+        uint32_t magic, version;
+        is.read(reinterpret_cast<char*>(&magic), sizeof(magic));
+        is.read(reinterpret_cast<char*>(&version), sizeof(version));
+
+        if (magic != SCHED_EXPONENTIAL_MAGIC) {
+            throw std::runtime_error("Invalid ExponentialLR checkpoint: wrong magic");
+        }
+        if (version != SCHED_VERSION) {
+            throw std::runtime_error("Unsupported ExponentialLR checkpoint version");
+        }
+
+        is.read(reinterpret_cast<char*>(&gamma_), sizeof(gamma_));
+
+        uint32_t num_params;
+        is.read(reinterpret_cast<char*>(&num_params), sizeof(num_params));
+        params_to_update_.resize(num_params);
+        for (uint32_t i = 0; i < num_params; ++i) {
+            uint8_t param_val;
+            is.read(reinterpret_cast<char*>(&param_val), sizeof(param_val));
+            params_to_update_[i] = static_cast<ParamType>(param_val);
+        }
+
+        LOG_DEBUG("Deserialized ExponentialLR: gamma={}", gamma_);
+    }
+
+    void WarmupExponentialLR::serialize(std::ostream& os) const {
+        os.write(reinterpret_cast<const char*>(&SCHED_WARMUP_MAGIC), sizeof(SCHED_WARMUP_MAGIC));
+        os.write(reinterpret_cast<const char*>(&SCHED_VERSION), sizeof(SCHED_VERSION));
+
+        // Write state
+        os.write(reinterpret_cast<const char*>(&gamma_), sizeof(gamma_));
+        os.write(reinterpret_cast<const char*>(&warmup_steps_), sizeof(warmup_steps_));
+        os.write(reinterpret_cast<const char*>(&warmup_start_factor_), sizeof(warmup_start_factor_));
+        os.write(reinterpret_cast<const char*>(&current_step_), sizeof(current_step_));
+        os.write(reinterpret_cast<const char*>(&initial_lr_), sizeof(initial_lr_));
+
+        // Write params_to_update
+        uint32_t num_params = static_cast<uint32_t>(params_to_update_.size());
+        os.write(reinterpret_cast<const char*>(&num_params), sizeof(num_params));
+        for (const auto& param : params_to_update_) {
+            uint8_t param_val = static_cast<uint8_t>(param);
+            os.write(reinterpret_cast<const char*>(&param_val), sizeof(param_val));
+        }
+
+        LOG_DEBUG("Serialized WarmupExponentialLR: step={}, initial_lr={}", current_step_, initial_lr_);
+    }
+
+    void WarmupExponentialLR::deserialize(std::istream& is) {
+        uint32_t magic, version;
+        is.read(reinterpret_cast<char*>(&magic), sizeof(magic));
+        is.read(reinterpret_cast<char*>(&version), sizeof(version));
+
+        if (magic != SCHED_WARMUP_MAGIC) {
+            throw std::runtime_error("Invalid WarmupExponentialLR checkpoint: wrong magic");
+        }
+        if (version != SCHED_VERSION) {
+            throw std::runtime_error("Unsupported WarmupExponentialLR checkpoint version");
+        }
+
+        is.read(reinterpret_cast<char*>(&gamma_), sizeof(gamma_));
+        is.read(reinterpret_cast<char*>(&warmup_steps_), sizeof(warmup_steps_));
+        is.read(reinterpret_cast<char*>(&warmup_start_factor_), sizeof(warmup_start_factor_));
+        is.read(reinterpret_cast<char*>(&current_step_), sizeof(current_step_));
+        is.read(reinterpret_cast<char*>(&initial_lr_), sizeof(initial_lr_));
+
+        uint32_t num_params;
+        is.read(reinterpret_cast<char*>(&num_params), sizeof(num_params));
+        params_to_update_.resize(num_params);
+        for (uint32_t i = 0; i < num_params; ++i) {
+            uint8_t param_val;
+            is.read(reinterpret_cast<char*>(&param_val), sizeof(param_val));
+            params_to_update_[i] = static_cast<ParamType>(param_val);
+        }
+
+        LOG_DEBUG("Deserialized WarmupExponentialLR: step={}, initial_lr={}", current_step_, initial_lr_);
+    }
+
 } // namespace lfs::training

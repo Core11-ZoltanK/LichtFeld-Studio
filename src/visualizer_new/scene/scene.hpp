@@ -273,6 +273,9 @@ namespace lfs::vis {
         void setTrainingModelNode(const std::string& name);
         [[nodiscard]] const std::string& getTrainingModelNodeName() const { return training_model_node_; }
 
+        // Create training model from SplatData (used for checkpoint loading)
+        void setTrainingModel(std::unique_ptr<lfs::core::SplatData> splat_data, const std::string& name);
+
         // Direct queries
         size_t getNodeCount() const { return nodes_.size(); }
         size_t getTotalGaussianCount() const;

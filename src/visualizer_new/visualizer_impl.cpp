@@ -833,6 +833,18 @@ namespace lfs::vis {
         return result;
     }
 
+    std::expected<void, std::string> VisualizerImpl::loadCheckpointForTraining(const std::filesystem::path& path) {
+        LOG_TIMER("LoadCheckpointForTraining");
+
+        // Ensure full initialization before loading checkpoint
+        if (!initialize()) {
+            return std::unexpected("Failed to initialize visualizer");
+        }
+
+        LOG_INFO("Loading checkpoint for training: {}", path.string());
+        return data_loader_->loadCheckpointForTraining(path);
+    }
+
     void VisualizerImpl::clearScene() {
         data_loader_->clearScene();
     }

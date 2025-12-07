@@ -7,6 +7,8 @@
 #include "core_new/parameters.hpp"
 #include "core_new/splat_data.hpp"
 #include "optimizer/render_output.hpp"
+#include <ostream>
+#include <istream>
 
 namespace lfs::training {
 
@@ -34,5 +36,15 @@ namespace lfs::training {
 
         // Remove Gaussians based on mask
         virtual void remove_gaussians(const lfs::core::Tensor& mask) = 0;
+
+        // Serialization for checkpoints
+        virtual void serialize(std::ostream& os) const = 0;
+        virtual void deserialize(std::istream& is) = 0;
+
+        // Strategy type identifier for checkpoint compatibility
+        virtual const char* strategy_type() const = 0;
+
+        // Reserve optimizer capacity for future growth (e.g., after checkpoint load)
+        virtual void reserve_optimizer_capacity(size_t capacity) = 0;
     };
 } // namespace lfs::training

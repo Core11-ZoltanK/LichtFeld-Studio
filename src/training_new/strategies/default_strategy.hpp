@@ -48,6 +48,20 @@ namespace lfs::training {
 
         void remove_gaussians(const lfs::core::Tensor& mask) override;
 
+        // Accessor for optimizer/scheduler
+        AdamOptimizer* get_optimizer() { return _optimizer.get(); }
+        const AdamOptimizer* get_optimizer() const { return _optimizer.get(); }
+        ExponentialLR* get_scheduler() { return _scheduler.get(); }
+        const ExponentialLR* get_scheduler() const { return _scheduler.get(); }
+
+        // Serialization for checkpoints
+        void serialize(std::ostream& os) const override;
+        void deserialize(std::istream& is) override;
+        const char* strategy_type() const override { return "default"; }
+
+        // Reserve optimizer capacity for future growth (e.g., after checkpoint load)
+        void reserve_optimizer_capacity(size_t capacity) override;
+
     private:
         // Helper functions
         void duplicate(const lfs::core::Tensor& is_duplicated);

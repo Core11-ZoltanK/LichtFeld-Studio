@@ -44,6 +44,7 @@ namespace lfs::vis {
 
         // Setup and teardown
         void setTrainer(std::unique_ptr<lfs::training::Trainer> trainer);
+        void setTrainerFromCheckpoint(std::unique_ptr<lfs::training::Trainer> trainer, int checkpoint_iteration);
         void clearTrainer();
         bool hasTrainer() const;
 

@@ -66,6 +66,11 @@ namespace lfs::loader {
                     return true;
                 }
 
+                if (ext == ".resume") {
+                    LOG_TRACE("Checkpoint file detected: {}", path.string());
+                    return true;
+                }
+
                 if (ext == ".json") {
                     LOG_TRACE("JSON file detected (potential transforms): {}", path.string());
                     return true;
@@ -140,6 +145,12 @@ namespace lfs::loader {
             // PLY files are definitely not datasets
             if (ext == ".ply") {
                 LOG_TRACE("PLY file detected, not a dataset: {}", path.string());
+                return false;
+            }
+
+            // Checkpoint files are not datasets
+            if (ext == ".resume") {
+                LOG_TRACE("Checkpoint file detected, not a dataset: {}", path.string());
                 return false;
             }
 

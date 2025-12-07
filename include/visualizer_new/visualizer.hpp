@@ -36,6 +36,7 @@ namespace lfs::vis {
         virtual void setParameters(const lfs::core::param::TrainingParameters& params) = 0;
         virtual std::expected<void, std::string> loadPLY(const std::filesystem::path& path) = 0;
         virtual std::expected<void, std::string> loadDataset(const std::filesystem::path& path) = 0;
+        virtual std::expected<void, std::string> loadCheckpointForTraining(const std::filesystem::path& path) = 0;
 
         // project handling
         virtual bool openProject(const std::filesystem::path& path) = 0;

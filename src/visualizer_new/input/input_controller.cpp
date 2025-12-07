@@ -956,7 +956,12 @@ namespace lfs::vis {
             auto ext = filepath.extension().string();
             std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 
-            if (ext == ".ply" || ext == ".sog") {
+            if (ext == ".resume") {
+                // Checkpoint files go through the training resume flow
+                cmd::LoadCheckpointForTraining{.path = filepath}.emit();
+                LOG_INFO("Loading checkpoint for training via drag-and-drop: {}", filepath.filename().string());
+                return;  // Don't process other files when loading a checkpoint
+            } else if (ext == ".ply" || ext == ".sog") {
                 splat_files.push_back(filepath);
             } else if (!dataset_path && std::filesystem::is_directory(filepath)) {
                 // Check for dataset markers

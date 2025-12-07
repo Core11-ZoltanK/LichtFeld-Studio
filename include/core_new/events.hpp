@@ -47,6 +47,7 @@ namespace lfs::core {
             EVENT(SaveProject, std::filesystem::path project_dir;);
             EVENT(LoadFile, std::filesystem::path path; bool is_dataset;);
             EVENT(LoadProject, std::filesystem::path path;);
+            EVENT(LoadCheckpointForTraining, std::filesystem::path path;);
             EVENT(ClearScene, );
             EVENT(ResetCamera, );
             EVENT(ShowWindow, std::string window_name; bool show;);
@@ -110,8 +111,9 @@ namespace lfs::core {
             EVENT(SceneLoaded,
                   Scene* scene;
                   std::filesystem::path path;
-                  enum class Type{PLY, Dataset, SOG} type;
-                  size_t num_gaussians;);
+                  enum class Type{PLY, Dataset, SOG, Checkpoint} type;
+                  size_t num_gaussians;
+                  int checkpoint_iteration = 0;);
             EVENT(SceneCleared, );
             EVENT(ModelUpdated, int iteration; size_t num_gaussians;);
             EVENT(SceneChanged, );
@@ -186,7 +188,8 @@ namespace lfs::core {
             EVENT(CropBoxVisibilityChanged, bool visible;);
             EVENT(ConsoleResult, std::string command; std::string result;);
             EVENT(SplitPositionChanged, float position;);
-            EVENT(GTComparisonModeChanged, bool enabled;); // NEW: GT comparison mode changed
+            EVENT(GTComparisonModeChanged, bool enabled;);
+            EVENT(FocusTrainingPanel, );
         }                                                  // namespace ui
 
         // ============================================================================

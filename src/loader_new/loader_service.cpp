@@ -5,6 +5,7 @@
 #include "loader_new/loader_service.hpp"
 #include "core_new/logger.hpp"
 #include "loader_new/loaders/blender_loader.hpp"
+#include "loader_new/loaders/checkpoint_loader.hpp"
 #include "loader_new/loaders/colmap_loader.hpp"
 #include "loader_new/loaders/ply_loader.hpp"
 #include "loader_new/loaders/sogs_loader.hpp"
@@ -18,6 +19,7 @@ namespace lfs::loader {
         // Register default loaders
         registry_->registerLoader(std::make_unique<PLYLoader>());
         registry_->registerLoader(std::make_unique<SogLoader>());
+        registry_->registerLoader(std::make_unique<CheckpointLoader>());
         registry_->registerLoader(std::make_unique<ColmapLoader>());
         registry_->registerLoader(std::make_unique<BlenderLoader>());
 

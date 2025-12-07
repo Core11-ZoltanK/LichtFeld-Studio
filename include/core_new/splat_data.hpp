@@ -130,6 +130,10 @@ namespace lfs::core {
         void increment_sh_degree();
         void set_active_sh_degree(int sh_degree);
 
+        // ========== Serialization ==========
+        void serialize(std::ostream& os) const;
+        void deserialize(std::istream& is);
+
     public:
         // Holds the magnitude of the screen space gradient (used for densification)
         Tensor _densification_info;

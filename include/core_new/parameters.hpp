@@ -129,6 +129,9 @@ namespace lfs::core {
 
             // Optional PLY splat file for initialization
             std::optional<std::string> init_ply = std::nullopt;
+
+            // Checkpoint to resume training from
+            std::optional<std::filesystem::path> resume_checkpoint = std::nullopt;
         };
 
         // Modern C++23 functions returning expected values

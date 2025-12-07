@@ -32,6 +32,8 @@ add_library(lfs_loader STATIC
         loaders/blender_loader.cpp
         loaders/sogs_loader.hpp
         loaders/sogs_loader.cpp
+        loaders/checkpoint_loader.hpp
+        loaders/checkpoint_loader.cpp
         cache_image_loader.cpp
         nvcodec_image_loader.hpp
         nvcodec_image_loader.cpp
@@ -76,6 +78,7 @@ endif()
 target_link_libraries(lfs_loader
         PUBLIC
         lfs_core            # Link to modular core library for SplatData, Camera, etc.
+        lfs_training        # For checkpoint loading
         PRIVATE
         TBB::tbb
         spdlog::spdlog

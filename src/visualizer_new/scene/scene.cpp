@@ -1592,6 +1592,14 @@ namespace lfs::vis {
         LOG_DEBUG("Scene: set training model node to '{}'", name);
     }
 
+    void Scene::setTrainingModel(std::unique_ptr<lfs::core::SplatData> splat_data, const std::string& name) {
+        // Add as a new SPLAT node
+        addNode(name, std::move(splat_data));
+        // Set it as the training model
+        setTrainingModelNode(name);
+        LOG_INFO("Scene: created training model node '{}' from checkpoint", name);
+    }
+
     lfs::core::SplatData* Scene::getTrainingModel() {
         if (training_model_node_.empty()) return nullptr;
         auto* node = getMutableNode(training_model_node_);

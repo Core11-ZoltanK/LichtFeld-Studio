@@ -346,7 +346,9 @@ namespace lfs::vis::gui {
             ImGui::End();
 
             if (viewer_->getTrainer() && !window_states_["training_tab"]) {
-                ImGui::SetWindowFocus("Rendering");
+                if (!focus_training_panel_) {
+                    ImGui::SetWindowFocus("Rendering");
+                }
                 window_states_["training_tab"] = true;
             }
 
@@ -361,6 +363,11 @@ namespace lfs::vis::gui {
                     panels::DrawProgressInfo(ctx);
                 }
                 ImGui::End();
+
+                if (focus_training_panel_) {
+                    ImGui::SetWindowFocus("Training");
+                    focus_training_panel_ = false;
+                }
             }
 
             ImGui::PopStyleColor();
@@ -1253,6 +1260,10 @@ namespace lfs::vis::gui {
             settings.show_center_markers = !centers && !rings;
             settings.show_rings = centers && !rings;
             rm->updateSettings(settings);
+        });
+
+        ui::FocusTrainingPanel::when([this](const auto&) {
+            focus_training_panel_ = true;
         });
     }
 

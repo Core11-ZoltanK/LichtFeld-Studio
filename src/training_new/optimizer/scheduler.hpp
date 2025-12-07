@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <istream>
+#include <ostream>
 #include <vector>
 
 namespace lfs::training {
@@ -45,6 +47,13 @@ namespace lfs::training {
         }
 
         void step();
+
+        // Serialization for checkpoints
+        void serialize(std::ostream& os) const;
+        void deserialize(std::istream& is);
+
+        // Accessors for state
+        double get_gamma() const { return gamma_; }
 
     private:
         AdamOptimizer& optimizer_;
@@ -93,6 +102,16 @@ namespace lfs::training {
 
         // Get current step count
         int get_step() const { return current_step_; }
+
+        // Serialization for checkpoints
+        void serialize(std::ostream& os) const;
+        void deserialize(std::istream& is);
+
+        // Accessors for state
+        double get_gamma() const { return gamma_; }
+        int get_warmup_steps() const { return warmup_steps_; }
+        double get_warmup_start_factor() const { return warmup_start_factor_; }
+        double get_initial_lr() const { return initial_lr_; }
 
     private:
         AdamOptimizer& optimizer_;

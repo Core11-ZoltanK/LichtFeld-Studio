@@ -47,6 +47,27 @@ namespace lfs::vis {
         }
     }
 
+    void TrainerManager::setTrainerFromCheckpoint(std::unique_ptr<lfs::training::Trainer> trainer, int checkpoint_iteration) {
+        LOG_TIMER_TRACE("TrainerManager::setTrainerFromCheckpoint");
+
+        // Clear any existing trainer first
+        clearTrainer();
+
+        if (trainer) {
+            LOG_DEBUG("Setting trainer from checkpoint (iteration {})", checkpoint_iteration);
+            trainer_ = std::move(trainer);
+            trainer_->setProject(project_);
+
+            // Set to Ready state - user will click "Resume" or "Start" to begin training
+            // The iteration is already set in the trainer from load_checkpoint
+            setState(State::Ready);
+
+            // Trainer is ready
+            lfs::core::events::internal::TrainerReady{}.emit();
+            LOG_INFO("Trainer ready from checkpoint at iteration {} (state: Ready)", checkpoint_iteration);
+        }
+    }
+
     bool TrainerManager::hasTrainer() const {
         return trainer_ != nullptr;
     }
@@ -136,32 +157,37 @@ namespace lfs::vis {
             return false;
         }
 
-        // Initialize training model from PointCloud if needed
-        // This converts PointCloud node to SplatData, applying any CropBox filtering
-        if (scene_ && project_) {
-            lfs::core::param::TrainingParameters params;
-            const auto& updated_dataset = project_->getProjectData().data_set_info;
-            params.dataset = static_cast<lfs::core::param::DatasetConfig>(updated_dataset);
-            params.optimization = project_->getOptimizationParams();
+        // Skip initialization if trainer is already initialized (e.g., resuming from checkpoint)
+        if (trainer_->isInitialized()) {
+            LOG_INFO("Trainer already initialized (resuming from iteration {}), skipping reinitialization",
+                     trainer_->get_current_iteration());
+        } else {
+            // Initialize training model from PointCloud if needed
+            // This converts PointCloud node to SplatData, applying any CropBox filtering
+            if (scene_ && project_) {
+                lfs::core::param::TrainingParameters params;
+                const auto& updated_dataset = project_->getProjectData().data_set_info;
+                params.dataset = static_cast<lfs::core::param::DatasetConfig>(updated_dataset);
+                params.optimization = project_->getOptimizationParams();
 
-            auto model_init_result = lfs::training::initializeTrainingModel(params, *scene_);
-            if (!model_init_result) {
-                LOG_ERROR("Failed to initialize training model: {}", model_init_result.error());
-                last_error_ = model_init_result.error();
+                auto model_init_result = lfs::training::initializeTrainingModel(params, *scene_);
+                if (!model_init_result) {
+                    LOG_ERROR("Failed to initialize training model: {}", model_init_result.error());
+                    last_error_ = model_init_result.error();
+                    setState(State::Error);
+                    return false;
+                }
+            }
+
+            // Reinitialize trainer to pick up any parameter changes from the project
+            LOG_INFO("Initializing trainer with current project parameters");
+            auto init_result = initializeTrainerFromProject();
+            if (!init_result) {
+                LOG_ERROR("Failed to initialize trainer: {}", init_result.error());
+                last_error_ = init_result.error();
                 setState(State::Error);
                 return false;
             }
-        }
-
-        // ALWAYS reinitialize trainer to pick up any parameter changes from the project
-        // This ensures that any UI changes are applied
-        LOG_INFO("Initializing trainer with current project parameters");
-        auto init_result = initializeTrainerFromProject();
-        if (!init_result) {
-            LOG_ERROR("Failed to initialize trainer: {}", init_result.error());
-            last_error_ = init_result.error();
-            setState(State::Error);
-            return false;
         }
 
         // Reset completion state

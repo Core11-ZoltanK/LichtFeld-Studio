@@ -72,6 +72,7 @@ set(TRAINING_NEW_SOURCES
     # components/bilateral_grid.cpp           # Temporarily disabled - requires LibTorch
     # components/sparsity_optimizer.cpp       # Temporarily disabled - requires LibTorch
     metrics/metrics.cpp
+    checkpoint.cpp
     trainer.cpp
     training_setup.cpp
 )

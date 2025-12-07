@@ -5,6 +5,7 @@
 #include "adam_optimizer.hpp"
 #include "adam_api.h"  // fast_lfs::optimizer::adam_step_raw
 #include "core_new/logger.hpp"
+#include "core_new/tensor/internal/tensor_serialization.hpp"
 #include <cmath>
 #include <stdexcept>
 #include <cuda_runtime.h>
@@ -587,6 +588,160 @@ namespace lfs::training {
 
         LOG_DEBUG("relocate_params_at_indices_gpu: Reset optimizer state for {} at {} indices (batched GPU kernel)",
                   name, n_indices);
+    }
+
+    // ===== Serialization =====
+
+    namespace {
+        constexpr uint32_t ADAM_STATE_MAGIC = 0x4C464144;  // "LFAD"
+        constexpr uint32_t ADAM_STATE_VERSION = 1;
+    }
+
+    void AdamOptimizer::serialize(std::ostream& os) const {
+        // Write header
+        os.write(reinterpret_cast<const char*>(&ADAM_STATE_MAGIC), sizeof(ADAM_STATE_MAGIC));
+        os.write(reinterpret_cast<const char*>(&ADAM_STATE_VERSION), sizeof(ADAM_STATE_VERSION));
+
+        // Write config
+        os.write(reinterpret_cast<const char*>(&config_.lr), sizeof(config_.lr));
+        os.write(reinterpret_cast<const char*>(&config_.beta1), sizeof(config_.beta1));
+        os.write(reinterpret_cast<const char*>(&config_.beta2), sizeof(config_.beta2));
+        os.write(reinterpret_cast<const char*>(&config_.eps), sizeof(config_.eps));
+        os.write(reinterpret_cast<const char*>(&config_.growth_factor), sizeof(config_.growth_factor));
+        os.write(reinterpret_cast<const char*>(&config_.initial_capacity), sizeof(config_.initial_capacity));
+
+        // Write per-param LRs count and data
+        uint32_t num_param_lrs = static_cast<uint32_t>(config_.param_lrs.size());
+        os.write(reinterpret_cast<const char*>(&num_param_lrs), sizeof(num_param_lrs));
+        for (const auto& [name, lr] : config_.param_lrs) {
+            uint32_t name_len = static_cast<uint32_t>(name.size());
+            os.write(reinterpret_cast<const char*>(&name_len), sizeof(name_len));
+            os.write(name.data(), name_len);
+            os.write(reinterpret_cast<const char*>(&lr), sizeof(lr));
+        }
+
+        // Count valid states (those with valid tensors)
+        uint32_t num_states = 0;
+        for (const auto& [name, state] : states_) {
+            if (state.exp_avg.is_valid() && state.exp_avg_sq.is_valid()) {
+                ++num_states;
+            }
+        }
+        os.write(reinterpret_cast<const char*>(&num_states), sizeof(num_states));
+
+        // Write each valid state
+        for (const auto& [name, state] : states_) {
+            // Skip invalid states
+            if (!state.exp_avg.is_valid() || !state.exp_avg_sq.is_valid()) {
+                continue;
+            }
+
+            // Write name
+            uint32_t name_len = static_cast<uint32_t>(name.size());
+            os.write(reinterpret_cast<const char*>(&name_len), sizeof(name_len));
+            os.write(name.data(), name_len);
+
+            // Write state metadata
+            os.write(reinterpret_cast<const char*>(&state.step_count), sizeof(state.step_count));
+            os.write(reinterpret_cast<const char*>(&state.capacity), sizeof(state.capacity));
+            os.write(reinterpret_cast<const char*>(&state.size), sizeof(state.size));
+
+            // Write tensors using tensor serialization
+            os << state.exp_avg;
+            os << state.exp_avg_sq;
+        }
+
+        LOG_DEBUG("Serialized AdamOptimizer: {} states", num_states);
+    }
+
+    void AdamOptimizer::deserialize(std::istream& is) {
+        // Read and verify header
+        uint32_t magic, version;
+        is.read(reinterpret_cast<char*>(&magic), sizeof(magic));
+        is.read(reinterpret_cast<char*>(&version), sizeof(version));
+
+        if (magic != ADAM_STATE_MAGIC) {
+            throw std::runtime_error("Invalid AdamOptimizer checkpoint: wrong magic");
+        }
+        if (version != ADAM_STATE_VERSION) {
+            throw std::runtime_error("Unsupported AdamOptimizer checkpoint version: " + std::to_string(version));
+        }
+
+        // Read config
+        is.read(reinterpret_cast<char*>(&config_.lr), sizeof(config_.lr));
+        is.read(reinterpret_cast<char*>(&config_.beta1), sizeof(config_.beta1));
+        is.read(reinterpret_cast<char*>(&config_.beta2), sizeof(config_.beta2));
+        is.read(reinterpret_cast<char*>(&config_.eps), sizeof(config_.eps));
+        is.read(reinterpret_cast<char*>(&config_.growth_factor), sizeof(config_.growth_factor));
+        is.read(reinterpret_cast<char*>(&config_.initial_capacity), sizeof(config_.initial_capacity));
+
+        // Read per-param LRs
+        uint32_t num_param_lrs;
+        is.read(reinterpret_cast<char*>(&num_param_lrs), sizeof(num_param_lrs));
+        config_.param_lrs.clear();
+        for (uint32_t i = 0; i < num_param_lrs; ++i) {
+            uint32_t name_len;
+            is.read(reinterpret_cast<char*>(&name_len), sizeof(name_len));
+            std::string name(name_len, '\0');
+            is.read(name.data(), name_len);
+            double lr;
+            is.read(reinterpret_cast<char*>(&lr), sizeof(lr));
+            config_.param_lrs[name] = lr;
+        }
+
+        // Read number of states
+        uint32_t num_states;
+        is.read(reinterpret_cast<char*>(&num_states), sizeof(num_states));
+
+        // Read each state
+        states_.clear();
+        for (uint32_t i = 0; i < num_states; ++i) {
+            // Read name
+            uint32_t name_len;
+            is.read(reinterpret_cast<char*>(&name_len), sizeof(name_len));
+            std::string name(name_len, '\0');
+            is.read(name.data(), name_len);
+
+            // Read state metadata
+            AdamParamState state;
+            is.read(reinterpret_cast<char*>(&state.step_count), sizeof(state.step_count));
+            is.read(reinterpret_cast<char*>(&state.capacity), sizeof(state.capacity));
+            is.read(reinterpret_cast<char*>(&state.size), sizeof(state.size));
+
+            // Read tensors (loaded on CPU, move to CUDA)
+            is >> state.exp_avg;
+            is >> state.exp_avg_sq;
+            state.exp_avg = state.exp_avg.cuda();
+            state.exp_avg_sq = state.exp_avg_sq.cuda();
+
+            // Reserve capacity for future growth (MCMC densification)
+            // Use saved capacity or compute based on config if larger
+            const size_t target_capacity = std::max(state.capacity,
+                compute_new_capacity(state.size, state.size));
+            if (target_capacity > state.size) {
+                state.exp_avg.reserve(target_capacity);
+                state.exp_avg_sq.reserve(target_capacity);
+                state.capacity = target_capacity;
+                LOG_DEBUG("Reserved capacity {} for optimizer state '{}' (size: {})",
+                         target_capacity, name, state.size);
+            }
+
+            states_[name] = std::move(state);
+        }
+
+        LOG_DEBUG("Deserialized AdamOptimizer: {} states", num_states);
+    }
+
+    void AdamOptimizer::reserve_capacity(size_t capacity) {
+        for (auto& [name, state] : states_) {
+            if (capacity > state.capacity) {
+                state.exp_avg.reserve(capacity);
+                state.exp_avg_sq.reserve(capacity);
+                state.capacity = capacity;
+                LOG_DEBUG("Reserved capacity {} for optimizer state '{}' (current size: {})",
+                         capacity, name, state.size);
+            }
+        }
     }
 
 } // namespace lfs::training
