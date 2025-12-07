@@ -130,7 +130,8 @@ namespace lfs::core {
                     {"init_rho", defaults.init_rho, "Initial ADMM penalty parameter"},
                     {"prune_ratio", defaults.prune_ratio, "Final pruning ratio for sparsity"},
                     {"save_sog", defaults.save_sog, "Save in SOG format alongside PLY"},
-                    {"sog_iterations", defaults.sog_iterations, "K-means iterations for SOG compression"}};
+                    {"sog_iterations", defaults.sog_iterations, "K-means iterations for SOG compression"},
+                    {"bg_modulation", defaults.bg_modulation, "Enable sinusoidal background modulation"}};
 
                 // Check all expected parameters
                 for (const auto& param : expected_params) {
@@ -287,6 +288,7 @@ namespace lfs::core {
             opt_json["sparsify_steps"] = sparsify_steps;
             opt_json["init_rho"] = init_rho;
             opt_json["prune_ratio"] = prune_ratio;
+            opt_json["bg_modulation"] = bg_modulation;
 
             return opt_json;
         }
@@ -460,6 +462,9 @@ namespace lfs::core {
             }
             if (json.contains("prune_ratio")) {
                 params.prune_ratio = json["prune_ratio"];
+            }
+            if (json.contains("bg_modulation")) {
+                params.bg_modulation = json["bg_modulation"];
             }
 
             return params;

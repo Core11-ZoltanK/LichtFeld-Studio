@@ -559,89 +559,43 @@ namespace lfs::training {
         }
     }
 
-    // TODO: Port to LibTorch-free implementation
-    // torch::Tensor sine_background_for_step(
-    //     int step, int periodR = 37, int periodG = 41, int periodB = 43, bool grayscale_only = false, float jitter_amp = 0.03f) {
-    //     const float eps = 1e-4f;
-    //     auto opts = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA);
-    //     const float two_pi = M_PI * 2.0f;
-    //
-    //     // Phase 0..2PI
-    //     const float tR = (periodR > 0) ? float(step % periodR) / float(periodR) : 0.0f;
-    //     const float phaseR = two_pi * tR;
-    //
-    //     const float tG = (periodG > 0) ? float(step % periodG) / float(periodG) : 0.0f;
-    //     const float phaseG = two_pi * tG;
-    //
-    //     const float tB = (periodB > 0) ? float(step % periodB) / float(periodB) : 0.0f;
-    //     const float phaseB = two_pi * tB;
-    //
-    //     torch::Tensor bg;
-    //     if (grayscale_only) {
-    //         // Grayscale: g in [0,1]
-    //         float g = 0.5f * (1.0f + std::sin(phaseG));
-    //         bg = torch::tensor({g, g, g}, opts);
-    //     } else {
-    //         // Phase-shifted RGB: covers the color wheel over the cycle
-    //         float r = 0.5f * (1.0f + std::sin(phaseR + 0.0f * two_pi / 3.0f));
-    //         float g = 0.5f * (1.0f + std::sin(phaseG + 1.0f * two_pi / 3.0f));
-    //         float b = 0.5f * (1.0f + std::sin(phaseB + 2.0f * two_pi / 3.0f));
-    //         bg = torch::tensor({r, g, b}, opts);
-    //     }
-    //
-    //     // Small jitter to prevent exact periodic lock-in
-    //     if (jitter_amp > 0.0f) {
-    //         auto jitter = (torch::rand({3}, opts) - 0.5f) * (2.0f * jitter_amp);
-    //         bg = (bg + jitter).clamp(eps, 1.0f - eps);
-    //     } else {
-    //         bg = bg.clamp(eps, 1.0f - eps);
-    //     }
-    //     return bg;
-    // }
-
-    // TODO: Port to LibTorch-free implementation
-    // Helper to ensure buf matches base (defined, dtype, device, shape)
-    // static inline void ensure_like(torch::Tensor& buf, const torch::Tensor& base) {
-    //     bool is_undefined = !buf.defined();
-    //     bool dtype_mismatch = (buf.dtype() != base.dtype());
-    //
-    //     bool need = (is_undefined || dtype_mismatch);
-    //     if (!need) {
-    //         bool device_mismatch = (buf.device() != base.device());
-    //         bool shape_mismatch = (buf.sizes().vec() != base.sizes().vec());
-    //         need = (device_mismatch || shape_mismatch);
-    //     }
-    //
-    //     if (need)
-    //         buf = torch::empty_like(base);
-    // }
+    namespace {
+        constexpr float TWO_PI = static_cast<float>(M_PI * 2.0);
+        constexpr float PHASE_OFFSET_G = TWO_PI / 3.0f;
+        constexpr float PHASE_OFFSET_B = TWO_PI * 2.0f / 3.0f;
+        constexpr float CLAMP_EPS = 1e-4f;
+        constexpr int BG_PERIOD_R = 37;
+        constexpr int BG_PERIOD_G = 41;
+        constexpr int BG_PERIOD_B = 43;
+    } // anonymous namespace
 
     lfs::core::Tensor& Trainer::background_for_step(int iter) {
-        // TODO: Port background modulation to LibTorch-free implementation
-        // torch::NoGradGuard no_grad;
-        // const auto& opt = params_.optimization;
-        //
-        // // Fast path: modulation disabled: return base background_
-        // if (!opt.bg_modulation) {
+        if (!params_.optimization.bg_modulation) {
             return background_;
-        // }
-        //
-        // const float w_mix = inv_weight_piecewise(iter, opt.iterations);
-        // if (w_mix <= 0.0f) {
-        //     return background_;
-        // }
-        //
-        // // Generate per-iteration sine background
-        // auto sine_bg = sine_background_for_step(iter);
-        //
-        // // Ensure reusable buffer exists
-        // ensure_like(bg_mix_buffer_, background_);
-        //
-        // bg_mix_buffer_.copy_(background_); // d2d copy of 3 floats
-        // bg_mix_buffer_.mul_(1.0f - w_mix);
-        // bg_mix_buffer_.add_(sine_bg, w_mix);
-        //
-        // return bg_mix_buffer_; // const ref to mixed background
+        }
+
+        const float w = inv_weight_piecewise(iter, params_.optimization.iterations);
+        if (w <= 0.0f) {
+            return background_;
+        }
+
+        // Sine-based RGB with prime periods for color diversity
+        const float pr = TWO_PI * static_cast<float>(iter % BG_PERIOD_R) / BG_PERIOD_R;
+        const float pg = TWO_PI * static_cast<float>(iter % BG_PERIOD_G) / BG_PERIOD_G;
+        const float pb = TWO_PI * static_cast<float>(iter % BG_PERIOD_B) / BG_PERIOD_B;
+
+        const float result[3] = {
+            std::clamp(0.5f * (1.0f + std::sin(pr)) * w, CLAMP_EPS, 1.0f - CLAMP_EPS),
+            std::clamp(0.5f * (1.0f + std::sin(pg + PHASE_OFFSET_G)) * w, CLAMP_EPS, 1.0f - CLAMP_EPS),
+            std::clamp(0.5f * (1.0f + std::sin(pb + PHASE_OFFSET_B)) * w, CLAMP_EPS, 1.0f - CLAMP_EPS)
+        };
+
+        if (bg_mix_buffer_.is_empty()) {
+            bg_mix_buffer_ = lfs::core::Tensor::empty({3}, lfs::core::Device::CUDA, lfs::core::DataType::Float32);
+        }
+
+        cudaMemcpyAsync(bg_mix_buffer_.ptr<float>(), result, sizeof(result), cudaMemcpyHostToDevice, nullptr);
+        return bg_mix_buffer_;
     }
 
     std::expected<Trainer::StepResult, std::string> Trainer::train_step(
