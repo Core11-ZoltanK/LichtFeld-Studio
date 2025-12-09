@@ -7,6 +7,7 @@
 #include "core_new/logger.hpp"
 #include "gui/ui_widgets.hpp"
 #include "gui/utils/windows_utils.hpp"
+#include "theme/theme.hpp"
 #include "visualizer_impl.hpp"
 
 #include <chrono>
@@ -305,7 +306,7 @@ namespace lfs::vis::gui::panels {
                 // Learning Rates section - ALL EDITABLE
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
-                ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Learning Rates:");
+                ImGui::TextColored(theme().palette.text_dim, "Learning Rates:");
                 ImGui::TableNextColumn();
 
                 // Position LR
@@ -386,7 +387,7 @@ namespace lfs::vis::gui::panels {
                 // Refinement section - ALL EDITABLE
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
-                ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Refinement:");
+                ImGui::TextColored(theme().palette.text_dim, "Refinement:");
                 ImGui::TableNextColumn();
 
                 // Refine Every
@@ -532,7 +533,7 @@ namespace lfs::vis::gui::panels {
                 }
 
                 if (opt_params.save_steps.empty()) {
-                    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "No save steps configured");
+                    ImGui::TextColored(darken(theme().palette.text_dim, 0.15f), "No save steps configured");
                 }
             } else {
                 // Read-only display
@@ -545,7 +546,7 @@ namespace lfs::vis::gui::panels {
                     }
                     ImGui::Text("%s", steps_str.c_str());
                 } else {
-                    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "No save steps");
+                    ImGui::TextColored(darken(theme().palette.text_dim, 0.15f), "No save steps");
                 }
             }
             ImGui::TreePop();
@@ -693,7 +694,7 @@ namespace lfs::vis::gui::panels {
             }
 
             ImGui::Separator();
-            ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.0f, 1.0f),
+            ImGui::TextColored(theme().palette.warning,
                                "Parameters updated - will be applied when training starts");
         }
 
@@ -709,7 +710,7 @@ namespace lfs::vis::gui::panels {
         // Direct call to TrainerManager - no state duplication
         auto* trainer_manager = ctx.viewer->getTrainerManager();
         if (!trainer_manager || !trainer_manager->hasTrainer()) {
-            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "No trainer loaded");
+            ImGui::TextColored(darken(theme().palette.text_dim, 0.15f), "No trainer loaded");
             return;
         }
 
@@ -717,15 +718,16 @@ namespace lfs::vis::gui::panels {
         auto trainer_state = trainer_manager->getState();
         int current_iteration = trainer_manager->getCurrentIteration();
 
+        const auto& t = theme();
         // Render controls based on trainer state
         switch (trainer_state) {
         case TrainerManager::State::Idle:
-            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "No trainer loaded");
+            ImGui::TextColored(darken(t.palette.text_dim, 0.15f), "No trainer loaded");
             break;
 
         case TrainerManager::State::Ready:
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.6f, 0.2f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.3f, 0.7f, 0.3f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Button, darken(t.palette.success, 0.3f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, darken(t.palette.success, 0.15f));
             {
                 const char* const label = current_iteration > 0 ? "Resume Training" : "Start Training";
                 if (ImGui::Button(label, ImVec2(-1, 0))) {
@@ -735,8 +737,8 @@ namespace lfs::vis::gui::panels {
             ImGui::PopStyleColor(2);
 
             if (current_iteration > 0) {
-                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.5f, 0.5f, 0.7f, 1.0f));
-                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.6f, 0.6f, 0.8f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_Button, darken(t.palette.secondary, 0.2f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, darken(t.palette.secondary, 0.05f));
                 if (ImGui::Button("Reset Training", ImVec2(-1, 0))) {
                     lfs::core::events::cmd::ResetTraining{}.emit();
                 }
@@ -746,8 +748,8 @@ namespace lfs::vis::gui::panels {
             break;
 
         case TrainerManager::State::Running:
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.7f, 0.5f, 0.1f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.8f, 0.6f, 0.2f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Button, darken(t.palette.warning, 0.2f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, darken(t.palette.warning, 0.05f));
             if (ImGui::Button("Pause", ImVec2(-1, 0))) {
                 lfs::core::events::cmd::PauseTraining{}.emit();
             }
@@ -755,23 +757,23 @@ namespace lfs::vis::gui::panels {
             break;
 
         case TrainerManager::State::Paused:
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.6f, 0.2f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.3f, 0.7f, 0.3f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Button, darken(t.palette.success, 0.3f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, darken(t.palette.success, 0.15f));
             if (ImGui::Button("Resume", ImVec2(-1, 0))) {
                 lfs::core::events::cmd::ResumeTraining{}.emit();
             }
             ImGui::PopStyleColor(2);
 
             // Reset button
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.5f, 0.5f, 0.7f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.6f, 0.6f, 0.8f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Button, darken(t.palette.secondary, 0.2f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, darken(t.palette.secondary, 0.05f));
             if (ImGui::Button("Reset Training", ImVec2(-1, 0))) {
                 lfs::core::events::cmd::ResetTraining{}.emit();
             }
             ImGui::PopStyleColor(2);
 
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.7f, 0.2f, 0.2f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.8f, 0.3f, 0.3f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Button, darken(t.palette.error, 0.3f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, darken(t.palette.error, 0.15f));
             if (ImGui::Button("Stop Permanently", ImVec2(-1, 0))) {
                 lfs::core::events::cmd::StopTraining{}.emit();
             }
@@ -779,11 +781,11 @@ namespace lfs::vis::gui::panels {
             break;
 
         case TrainerManager::State::Completed:
-            ImGui::TextColored(ImVec4(0.2f, 0.8f, 0.2f, 1.0f), "Training Complete!");
+            ImGui::TextColored(t.palette.success, "Training Complete!");
 
             // Reset button for completed state
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.5f, 0.5f, 0.7f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.6f, 0.6f, 0.8f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Button, darken(t.palette.secondary, 0.2f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, darken(t.palette.secondary, 0.05f));
             if (ImGui::Button("Reset for New Training", ImVec2(-1, 0))) {
                 lfs::core::events::cmd::ResetTraining{}.emit();
             }
@@ -792,15 +794,15 @@ namespace lfs::vis::gui::panels {
             break;
 
         case TrainerManager::State::Error:
-            ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "Training Error!");
+            ImGui::TextColored(t.palette.error, "Training Error!");
             {
                 auto error_msg = trainer_manager->getLastError();
                 if (!error_msg.empty()) {
                     ImGui::TextWrapped("%s", error_msg.c_str());
                 }
                 // Reset button
-                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.5f, 0.5f, 0.7f, 1.0f));
-                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.6f, 0.6f, 0.8f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_Button, darken(t.palette.secondary, 0.2f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, darken(t.palette.secondary, 0.05f));
                 if (ImGui::Button("Reset Training", ImVec2(-1, 0))) {
                     lfs::core::events::cmd::ResetTraining{}.emit();
                 }
@@ -809,7 +811,7 @@ namespace lfs::vis::gui::panels {
             break;
 
         case TrainerManager::State::Stopping:
-            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Stopping...");
+            ImGui::TextColored(t.palette.text_dim, "Stopping...");
             break;
         }
 
@@ -817,8 +819,8 @@ namespace lfs::vis::gui::panels {
         if (trainer_state == TrainerManager::State::Running ||
             trainer_state == TrainerManager::State::Paused) {
 
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.1f, 0.4f, 0.7f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.2f, 0.5f, 0.8f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Button, darken(t.palette.info, 0.3f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, darken(t.palette.info, 0.15f));
             if (ImGui::Button("Save Checkpoint", ImVec2(-1, 0))) {
                 lfs::core::events::cmd::SaveCheckpoint{}.emit();
                 state.save_in_progress = true;
@@ -839,7 +841,7 @@ namespace lfs::vis::gui::panels {
                                now - state.save_start_time)
                                .count();
             if (elapsed < 2000) {
-                ImGui::TextColored(ImVec4(0.2f, 0.8f, 0.2f, 1.0f), "Checkpoint saved!");
+                ImGui::TextColored(t.palette.success, "Checkpoint saved!");
             } else {
                 state.save_in_progress = false;
             }
@@ -881,11 +883,11 @@ namespace lfs::vis::gui::panels {
         cudaMemGetInfo(&free_t, &total_t);
         size_t used_t = total_t - free_t;
 
-        ImVec4 memColor = ImVec4(0.0f, 0.0f, 0.0f, 1.0f);
+        ImVec4 memColor = t.palette.text;
         float pctUsed = (used_t / 1e9f) / (total_t / 1e9f) * 100;
 
         if (pctUsed > 75) {
-            memColor = ImVec4(0.9f, 0.2f, 0.2f, 1.0f); // red
+            memColor = t.palette.error;
         }
 
         ImGui::TextColored(memColor, "Used GPU Memory: %.1f%% (%.1f/%.1f GB)", pctUsed, used_t / 1e9f, total_t / 1e9f);

@@ -17,6 +17,9 @@ add_library(lfs_visualizer STATIC
         rendering/rendering_manager.cpp
         rendering/framerate_controller.cpp
 
+        # Theme system
+        theme/theme.cpp
+
         # GUI system
         gui/gui_manager.cpp
         gui/ui_widgets.cpp

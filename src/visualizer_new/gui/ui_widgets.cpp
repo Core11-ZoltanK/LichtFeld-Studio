@@ -4,6 +4,7 @@
 
 #include "gui/ui_widgets.hpp"
 #include "scene/scene_manager.hpp"
+#include "theme/theme.hpp"
 #include "training/training_manager.hpp"
 #include "visualizer_impl.hpp"
 #include <cstdarg>
@@ -92,8 +93,9 @@ namespace lfs::vis::gui::widgets {
             return;
         }
 
+        const auto& t = theme();
         const char* mode_str = "Unknown";
-        ImVec4 mode_color = ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
+        ImVec4 mode_color = t.palette.text_dim;
 
         // Content determines base mode
         SceneManager::ContentType content = scene_manager->getContentType();
@@ -101,12 +103,12 @@ namespace lfs::vis::gui::widgets {
         switch (content) {
         case SceneManager::ContentType::Empty:
             mode_str = "Empty";
-            mode_color = ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
+            mode_color = t.palette.text_dim;
             break;
 
         case SceneManager::ContentType::SplatFiles:
             mode_str = "Splat Viewer";
-            mode_color = ImVec4(0.2f, 0.6f, 1.0f, 1.0f);
+            mode_color = t.palette.info;
             break;
 
         case SceneManager::ContentType::Dataset: {
@@ -114,38 +116,38 @@ namespace lfs::vis::gui::widgets {
             auto* trainer_manager = scene_manager->getTrainerManager();
             if (!trainer_manager || !trainer_manager->hasTrainer()) {
                 mode_str = "Dataset (No Trainer)";
-                mode_color = ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
+                mode_color = t.palette.text_dim;
             } else {
                 // Use trainer state for specific mode
                 auto state = trainer_manager->getState();
                 switch (state) {
                 case TrainerManager::State::Ready:
                     mode_str = "Dataset (Ready)";
-                    mode_color = ImVec4(0.2f, 0.8f, 0.2f, 1.0f);
+                    mode_color = t.palette.success;
                     break;
                 case TrainerManager::State::Running:
                     mode_str = "Training";
-                    mode_color = ImVec4(1.0f, 0.6f, 0.2f, 1.0f);
+                    mode_color = t.palette.warning;
                     break;
                 case TrainerManager::State::Paused:
                     mode_str = "Training (Paused)";
-                    mode_color = ImVec4(0.7f, 0.7f, 0.2f, 1.0f);
+                    mode_color = lighten(t.palette.warning, -0.3f);
                     break;
                 case TrainerManager::State::Completed:
                     mode_str = "Training Complete";
-                    mode_color = ImVec4(0.2f, 0.8f, 0.2f, 1.0f);
+                    mode_color = t.palette.success;
                     break;
                 case TrainerManager::State::Error:
                     mode_str = "Training Error";
-                    mode_color = ImVec4(1.0f, 0.3f, 0.3f, 1.0f);
+                    mode_color = t.palette.error;
                     break;
                 case TrainerManager::State::Stopping:
                     mode_str = "Stopping...";
-                    mode_color = ImVec4(0.7f, 0.5f, 0.5f, 1.0f);
+                    mode_color = darken(t.palette.error, 0.3f);
                     break;
                 default:
                     mode_str = "Dataset";
-                    mode_color = ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
+                    mode_color = t.palette.text_dim;
                 }
             }
             break;

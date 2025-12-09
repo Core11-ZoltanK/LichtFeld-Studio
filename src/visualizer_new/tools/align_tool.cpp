@@ -4,6 +4,7 @@
 #include "tools/align_tool.hpp"
 #include "rendering/rendering_manager.hpp"
 #include "scene/scene_manager.hpp"
+#include "theme/theme.hpp"
 #include "internal/viewport.hpp"
 #include <GLFW/glfw3.h>
 #include <imgui.h>
@@ -61,28 +62,28 @@ namespace lfs::vis::tools {
         auto* const rendering_manager = tool_context_->getRenderingManager();
         const bool over_gui = ImGui::GetIO().WantCaptureMouse;
 
-        constexpr float kSphereWorldRadius = 0.05f;
-        constexpr ImU32 kSphereColor = IM_COL32(220, 50, 50, 255);
-        constexpr ImU32 kSphereOutline = IM_COL32(255, 255, 255, 200);
-        constexpr ImU32 kPreviewColor = IM_COL32(220, 50, 50, 150);
-        constexpr ImU32 kCrosshairColor = IM_COL32(255, 0, 0, 200);
+        constexpr float SPHERE_RADIUS = 0.05f;
+        const auto& t = theme();
+        const ImU32 SPHERE_COLOR = t.error_u32();
+        const ImU32 SPHERE_OUTLINE = t.overlay_text_u32();
+        const ImU32 PREVIEW_COLOR = toU32WithAlpha(t.palette.error, 0.6f);
+        const ImU32 CROSSHAIR_COLOR = toU32WithAlpha(t.palette.error, 0.8f);
 
-        // Draw picked points (always visible)
+        // Draw picked points
         for (size_t i = 0; i < picked_points_.size(); ++i) {
             const ImVec2 screen_pos = projectToScreen(picked_points_[i], viewport);
-            const float screen_radius = calculateScreenRadius(picked_points_[i], kSphereWorldRadius, viewport);
+            const float screen_radius = calculateScreenRadius(picked_points_[i], SPHERE_RADIUS, viewport);
 
-            draw_list->AddCircleFilled(screen_pos, screen_radius, kSphereColor, 32);
-            draw_list->AddCircle(screen_pos, screen_radius, kSphereOutline, 32, 1.5f);
+            draw_list->AddCircleFilled(screen_pos, screen_radius, SPHERE_COLOR, 32);
+            draw_list->AddCircle(screen_pos, screen_radius, SPHERE_OUTLINE, 32, 1.5f);
 
             const char label = '1' + static_cast<char>(i);
-            draw_list->AddText(ImVec2(screen_pos.x - 4, screen_pos.y - 6), IM_COL32(255, 255, 255, 255), &label, &label + 1);
+            draw_list->AddText(ImVec2(screen_pos.x - 4, screen_pos.y - 6), t.overlay_text_u32(), &label, &label + 1);
         }
 
-        // Hide mouse-following elements when over GUI
         if (over_gui) return;
 
-        draw_list->AddCircle(mouse_pos, 5.0f, kCrosshairColor, 16, 2.0f);
+        draw_list->AddCircle(mouse_pos, 5.0f, CROSSHAIR_COLOR, 16, 2.0f);
 
         // Live preview at mouse position
         if (picked_points_.size() < 3 && rendering_manager) {
@@ -93,13 +94,13 @@ namespace lfs::vis::tools {
                 const glm::vec3 preview_point = unprojectScreenPoint(mouse_pos.x, mouse_pos.y, *tool_context_);
                 if (preview_point.x > -1e9f) {
                     const ImVec2 screen_pos = projectToScreen(preview_point, viewport);
-                    const float screen_radius = calculateScreenRadius(preview_point, kSphereWorldRadius, viewport);
+                    const float screen_radius = calculateScreenRadius(preview_point, SPHERE_RADIUS, viewport);
 
-                    draw_list->AddCircleFilled(screen_pos, screen_radius, kPreviewColor, 32);
-                    draw_list->AddCircle(screen_pos, screen_radius, IM_COL32(255, 255, 255, 150), 32, 1.5f);
+                    draw_list->AddCircleFilled(screen_pos, screen_radius, PREVIEW_COLOR, 32);
+                    draw_list->AddCircle(screen_pos, screen_radius, toU32WithAlpha(t.palette.text, 0.6f), 32, 1.5f);
 
                     const char label = '1' + static_cast<char>(picked_points_.size());
-                    draw_list->AddText(ImVec2(screen_pos.x - 4, screen_pos.y - 6), IM_COL32(255, 255, 255, 180), &label, &label + 1);
+                    draw_list->AddText(ImVec2(screen_pos.x - 4, screen_pos.y - 6), toU32WithAlpha(t.palette.text, 0.7f), &label, &label + 1);
                 }
             }
         }
@@ -150,12 +151,12 @@ namespace lfs::vis::tools {
             default: break;
         }
         if (instruction) {
-            draw_list->AddText(ImVec2(mouse_pos.x + 15, mouse_pos.y - 10), kCrosshairColor, instruction);
+            draw_list->AddText(ImVec2(mouse_pos.x + 15, mouse_pos.y - 10), CROSSHAIR_COLOR, instruction);
         }
 
         char count_text[16];
         snprintf(count_text, sizeof(count_text), "Points: %zu/3", picked_points_.size());
-        draw_list->AddText(ImVec2(10, 50), IM_COL32(255, 255, 255, 200), count_text);
+        draw_list->AddText(ImVec2(10, 50), t.overlay_text_u32(), count_text);
     }
 
     bool AlignTool::handleMouseButton(int button, int action, double x, double y, const ToolContext& ctx) {

@@ -9,6 +9,7 @@
 #include "internal/viewport.hpp"
 #include "rendering/rendering_manager.hpp"
 #include "scene/scene_manager.hpp"
+#include "theme/theme.hpp"
 #include "core_new/splat_data.hpp"
 #include "core_new/tensor.hpp"
 #include "rendering_new/rasterizer/rasterization/include/forward.h"
@@ -884,14 +885,7 @@ namespace lfs::vis::tools {
     void SelectionTool::drawDepthFrustum(const ToolContext& ctx) const {
         constexpr float BAR_HEIGHT = 8.0f;
         constexpr float BAR_WIDTH = 200.0f;
-        constexpr float FONT_SIZE = 16.0f;
-        constexpr float HINT_FONT_SIZE = 12.0f;
-        constexpr ImU32 BAR_BG_COLOR = IM_COL32(50, 50, 50, 180);
-        constexpr ImU32 BAR_FILL_COLOR = IM_COL32(255, 180, 50, 200);
-        constexpr ImU32 MARKER_COLOR = IM_COL32(255, 100, 100, 200);
-        constexpr ImU32 TEXT_COLOR = IM_COL32(255, 255, 255, 255);
-        constexpr ImU32 SHADOW_COLOR = IM_COL32(0, 0, 0, 180);
-        constexpr ImU32 HINT_COLOR = IM_COL32(180, 180, 180, 200);
+        const auto& t = theme();
 
         const auto& bounds = ctx.getViewportBounds();
         const float bar_x = bounds.x + 10.0f;
@@ -899,13 +893,13 @@ namespace lfs::vis::tools {
 
         ImDrawList* const draw_list = ImGui::GetForegroundDrawList();
 
-        draw_list->AddRectFilled({bar_x, bar_y}, {bar_x + BAR_WIDTH, bar_y + BAR_HEIGHT}, BAR_BG_COLOR);
+        draw_list->AddRectFilled({bar_x, bar_y}, {bar_x + BAR_WIDTH, bar_y + BAR_HEIGHT}, t.progress_bar_bg_u32());
 
         const float log_range = std::log10(DEPTH_MAX) - std::log10(DEPTH_MIN);
         const float far_pos = bar_x + (std::log10(depth_far_) - std::log10(DEPTH_MIN)) / log_range * BAR_WIDTH;
 
-        draw_list->AddRectFilled({bar_x, bar_y}, {far_pos, bar_y + BAR_HEIGHT}, BAR_FILL_COLOR);
-        draw_list->AddLine({far_pos, bar_y - 3}, {far_pos, bar_y + BAR_HEIGHT + 3}, MARKER_COLOR, 2.0f);
+        draw_list->AddRectFilled({bar_x, bar_y}, {far_pos, bar_y + BAR_HEIGHT}, t.progress_bar_fill_u32());
+        draw_list->AddLine({far_pos, bar_y - 3}, {far_pos, bar_y + BAR_HEIGHT + 3}, t.progress_marker_u32(), 2.0f);
 
         char info_text[64];
         if (frustum_half_width_ < WIDTH_MAX - 1.0f) {
@@ -914,10 +908,10 @@ namespace lfs::vis::tools {
             snprintf(info_text, sizeof(info_text), "Depth: %.1f", depth_far_);
         }
         const ImVec2 text_pos(bar_x, bar_y - 20.0f);
-        draw_list->AddText(ImGui::GetFont(), FONT_SIZE, {text_pos.x + 1, text_pos.y + 1}, SHADOW_COLOR, info_text);
-        draw_list->AddText(ImGui::GetFont(), FONT_SIZE, text_pos, TEXT_COLOR, info_text);
+        draw_list->AddText(ImGui::GetFont(), t.fonts.large_size, {text_pos.x + 1, text_pos.y + 1}, t.overlay_shadow_u32(), info_text);
+        draw_list->AddText(ImGui::GetFont(), t.fonts.large_size, text_pos, t.overlay_text_u32(), info_text);
 
-        draw_list->AddText(ImGui::GetFont(), HINT_FONT_SIZE, {bar_x, bar_y + BAR_HEIGHT + 5.0f}, HINT_COLOR,
+        draw_list->AddText(ImGui::GetFont(), t.fonts.small_size, {bar_x, bar_y + BAR_HEIGHT + 5.0f}, t.overlay_hint_u32(),
                            "Alt+Scroll: depth | Ctrl+Alt+Scroll: width | Esc: off");
     }
 
@@ -933,43 +927,43 @@ namespace lfs::vis::tools {
 
         ImDrawList* const draw_list = ImGui::GetForegroundDrawList();
         const ImVec2 mouse_pos = ImGui::GetMousePos();
-        constexpr ImU32 BRUSH_COLOR = IM_COL32(100, 180, 255, 220);
+        const auto& t = theme();
 
         // Draw rectangle if dragging
         if (sel_mode == lfs::rendering::SelectionMode::Rectangle && is_dragging_) {
             const ImVec2 p1(rect_start_.x, rect_start_.y);
             const ImVec2 p2(rect_end_.x, rect_end_.y);
-            draw_list->AddRect(p1, p2, BRUSH_COLOR, 0.0f, 0, 2.0f);
-            draw_list->AddRectFilled(p1, p2, IM_COL32(100, 180, 255, 40));
+            draw_list->AddRect(p1, p2, t.selection_border_u32(), 0.0f, 0, 2.0f);
+            draw_list->AddRectFilled(p1, p2, t.selection_fill_u32());
         }
 
         // Draw lasso if dragging
         if (sel_mode == lfs::rendering::SelectionMode::Lasso && is_dragging_ && lasso_points_.size() >= 2) {
             for (size_t i = 1; i < lasso_points_.size(); ++i) {
                 draw_list->AddLine(ImVec2(lasso_points_[i - 1].x, lasso_points_[i - 1].y),
-                                   ImVec2(lasso_points_[i].x, lasso_points_[i].y), BRUSH_COLOR, 2.0f);
+                                   ImVec2(lasso_points_[i].x, lasso_points_[i].y), t.selection_border_u32(), 2.0f);
             }
             draw_list->AddLine(ImVec2(lasso_points_.back().x, lasso_points_.back().y),
                                ImVec2(lasso_points_.front().x, lasso_points_.front().y),
-                               IM_COL32(100, 180, 255, 100), 1.0f);
+                               t.selection_line_u32(), 1.0f);
         }
 
         // Draw polygon
         if (sel_mode == lfs::rendering::SelectionMode::Polygon && !polygon_points_.empty()) {
-            constexpr ImU32 VERTEX_COLOR = IM_COL32(255, 200, 100, 255);
-            constexpr ImU32 VERTEX_HOVER_COLOR = IM_COL32(255, 255, 150, 255);
-            constexpr ImU32 CLOSE_HINT_COLOR = IM_COL32(100, 255, 100, 200);
-            constexpr ImU32 FILL_COLOR = IM_COL32(100, 180, 255, 40);
-            constexpr ImU32 LINE_TO_MOUSE_COLOR = IM_COL32(100, 180, 255, 100);
+            const ImU32 VERTEX_COLOR = t.polygon_vertex_u32();
+            const ImU32 VERTEX_HOVER_COLOR = t.polygon_vertex_hover_u32();
+            const ImU32 CLOSE_HINT_COLOR = t.polygon_close_hint_u32();
+            const ImU32 FILL_COLOR = t.selection_fill_u32();
+            const ImU32 LINE_TO_MOUSE_COLOR = t.selection_line_u32();
 
             for (size_t i = 1; i < polygon_points_.size(); ++i) {
                 draw_list->AddLine(ImVec2(polygon_points_[i - 1].x, polygon_points_[i - 1].y),
-                                   ImVec2(polygon_points_[i].x, polygon_points_[i].y), BRUSH_COLOR, 2.0f);
+                                   ImVec2(polygon_points_[i].x, polygon_points_[i].y), t.selection_border_u32(), 2.0f);
             }
 
             if (polygon_closed_) {
                 draw_list->AddLine(ImVec2(polygon_points_.back().x, polygon_points_.back().y),
-                                   ImVec2(polygon_points_.front().x, polygon_points_.front().y), BRUSH_COLOR, 2.0f);
+                                   ImVec2(polygon_points_.front().x, polygon_points_.front().y), t.selection_border_u32(), 2.0f);
                 if (polygon_points_.size() >= 3) {
                     std::vector<ImVec2> im_points;
                     im_points.reserve(polygon_points_.size());
@@ -994,7 +988,7 @@ namespace lfs::vis::tools {
                 const auto& pt = polygon_points_[i];
                 const ImU32 color = (static_cast<int>(i) == hovered_idx) ? VERTEX_HOVER_COLOR : VERTEX_COLOR;
                 draw_list->AddCircleFilled(ImVec2(pt.x, pt.y), POLYGON_VERTEX_RADIUS, color);
-                draw_list->AddCircle(ImVec2(pt.x, pt.y), POLYGON_VERTEX_RADIUS, BRUSH_COLOR, 16, 1.5f);
+                draw_list->AddCircle(ImVec2(pt.x, pt.y), POLYGON_VERTEX_RADIUS, t.selection_border_u32(), 16, 1.5f);
             }
         }
 
@@ -1024,16 +1018,16 @@ namespace lfs::vis::tools {
         const bool is_brush = (sel_mode == lfs::rendering::SelectionMode::Centers);
 
         if (is_brush) {
-            draw_list->AddCircle(mouse_pos, brush_radius_, BRUSH_COLOR, 32, 2.0f);
-            draw_list->AddCircleFilled(mouse_pos, 3.0f, BRUSH_COLOR);
+            draw_list->AddCircle(mouse_pos, brush_radius_, t.selection_border_u32(), 32, 2.0f);
+            draw_list->AddCircleFilled(mouse_pos, 3.0f, t.selection_border_u32());
             snprintf(label_buf, sizeof(label_buf), "SEL%s", mod_suffix);
             text_offset = brush_radius_ + 10.0f;
         } else {
             constexpr float CROSS_SIZE = 8.0f;
             draw_list->AddLine(ImVec2(mouse_pos.x - CROSS_SIZE, mouse_pos.y),
-                               ImVec2(mouse_pos.x + CROSS_SIZE, mouse_pos.y), BRUSH_COLOR, 2.0f);
+                               ImVec2(mouse_pos.x + CROSS_SIZE, mouse_pos.y), t.selection_border_u32(), 2.0f);
             draw_list->AddLine(ImVec2(mouse_pos.x, mouse_pos.y - CROSS_SIZE),
-                               ImVec2(mouse_pos.x, mouse_pos.y + CROSS_SIZE), BRUSH_COLOR, 2.0f);
+                               ImVec2(mouse_pos.x, mouse_pos.y + CROSS_SIZE), t.selection_border_u32(), 2.0f);
 
             const char* mode_name = "";
             const char* suffix = "";
@@ -1047,11 +1041,9 @@ namespace lfs::vis::tools {
             snprintf(label_buf, sizeof(label_buf), "%s%s%s", mode_name, mod_suffix, suffix);
         }
 
-        constexpr float FONT_SIZE = 22.0f;
-        constexpr ImU32 SHADOW_COLOR = IM_COL32(0, 0, 0, 180);
-        const ImVec2 text_pos(mouse_pos.x + text_offset, mouse_pos.y - FONT_SIZE / 2);
-        draw_list->AddText(ImGui::GetFont(), FONT_SIZE, ImVec2(text_pos.x + 1, text_pos.y + 1), SHADOW_COLOR, label_buf);
-        draw_list->AddText(ImGui::GetFont(), FONT_SIZE, text_pos, IM_COL32(255, 255, 255, 255), label_buf);
+        const ImVec2 text_pos(mouse_pos.x + text_offset, mouse_pos.y - t.fonts.heading_size / 2);
+        draw_list->AddText(ImGui::GetFont(), t.fonts.heading_size, ImVec2(text_pos.x + 1, text_pos.y + 1), t.overlay_shadow_u32(), label_buf);
+        draw_list->AddText(ImGui::GetFont(), t.fonts.heading_size, text_pos, t.overlay_text_u32(), label_buf);
 
         // Draw depth filter
         if (depth_filter_enabled_ && tool_context_) {

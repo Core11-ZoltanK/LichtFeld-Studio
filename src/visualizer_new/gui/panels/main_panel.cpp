@@ -9,6 +9,7 @@
 #include "gui/panels/training_panel.hpp"
 #include "gui/ui_widgets.hpp"
 #include "scene/scene_manager.hpp"
+#include "theme/theme.hpp"
 #include "tools/selection_tool.hpp"
 #include "visualizer_impl.hpp"
 #include <algorithm>
@@ -373,7 +374,7 @@ namespace lfs::vis::gui::panels {
         const uint8_t active_id = scene.getActiveSelectionGroup();
 
         if (groups.empty()) {
-            ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "No selection groups");
+            ImGui::TextColored(theme().palette.text_dim, "No selection groups");
         } else {
             scene.updateSelectionGroupCounts();
 
@@ -391,7 +392,7 @@ namespace lfs::vis::gui::panels {
                 // Lock button
                 const bool is_locked = group.locked;
                 if (is_locked) {
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.8f, 0.2f, 1.0f));
+                    ImGui::PushStyleColor(ImGuiCol_Text, theme().palette.warning);
                 }
                 if (ImGui::SmallButton(is_locked ? "L" : "U")) {
                     scene.setSelectionGroupLocked(group.id, !is_locked);

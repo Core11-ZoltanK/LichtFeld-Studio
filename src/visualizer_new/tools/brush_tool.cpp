@@ -9,6 +9,7 @@
 #include "internal/viewport.hpp"
 #include "rendering/rendering_manager.hpp"
 #include "scene/scene_manager.hpp"
+#include "theme/theme.hpp"
 #include "core_new/splat_data.hpp"
 #include "core_new/tensor.hpp"
 #include <imgui.h>
@@ -39,12 +40,14 @@ namespace lfs::vis::tools {
                               [[maybe_unused]] bool* p_open) {
         if (!isEnabled() || ImGui::GetIO().WantCaptureMouse) return;
 
+        const auto& t = theme();
         ImDrawList* const draw_list = ImGui::GetForegroundDrawList();
         const ImVec2 mouse_pos(last_mouse_pos_.x, last_mouse_pos_.y);
 
+        // Selection mode uses primary color, saturation uses warning (orange)
         const ImU32 brush_color = (current_mode_ == BrushMode::Select)
-            ? IM_COL32(100, 180, 255, 220)
-            : IM_COL32(255, 200, 100, 220);
+            ? t.selection_border_u32()
+            : t.polygon_vertex_u32();
 
         draw_list->AddCircle(mouse_pos, brush_radius_, brush_color, 32, 2.0f);
         draw_list->AddCircleFilled(mouse_pos, 3.0f, brush_color);
@@ -59,18 +62,12 @@ namespace lfs::vis::tools {
                 snprintf(info_text, sizeof(info_text), "SEL");
             }
         } else {
-            // Always show saturation amount
             snprintf(info_text, sizeof(info_text), "SAT %+.0f%%", saturation_amount_ * 100.0f);
         }
 
-        // Larger font with background for better readability
-        constexpr float font_size = 22.0f;
-        const ImVec2 text_pos(mouse_pos.x + brush_radius_ + 10, mouse_pos.y - font_size / 2);
-
-        // Draw text shadow/outline for contrast
-        const ImU32 shadow_color = IM_COL32(0, 0, 0, 180);
-        draw_list->AddText(ImGui::GetFont(), font_size, ImVec2(text_pos.x + 1, text_pos.y + 1), shadow_color, info_text);
-        draw_list->AddText(ImGui::GetFont(), font_size, text_pos, IM_COL32(255, 255, 255, 255), info_text);
+        const ImVec2 text_pos(mouse_pos.x + brush_radius_ + 10, mouse_pos.y - t.fonts.heading_size / 2);
+        draw_list->AddText(ImGui::GetFont(), t.fonts.heading_size, ImVec2(text_pos.x + 1, text_pos.y + 1), t.overlay_shadow_u32(), info_text);
+        draw_list->AddText(ImGui::GetFont(), t.fonts.heading_size, text_pos, t.overlay_text_u32(), info_text);
     }
 
     bool BrushTool::handleMouseButton(int button, int action, int mods, double x, double y,

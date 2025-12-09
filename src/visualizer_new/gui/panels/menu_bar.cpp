@@ -6,6 +6,7 @@
 #include "config.h"
 #include "core_new/logger.hpp"
 #include "gui/utils/windows_utils.hpp"
+#include "theme/theme.hpp"
 #include <GLFW/glfw3.h>
 #include <imgui.h>
 
@@ -20,16 +21,9 @@ namespace lfs::vis::gui {
     MenuBar::~MenuBar() = default;
 
     void MenuBar::render() {
-        // Modern color scheme
+        // Menu bar uses theme colors with custom spacing
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12.0f, 8.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(12.0f, 6.0f));
-        ImGui::PushStyleColor(ImGuiCol_MenuBarBg, ImVec4(0.15f, 0.15f, 0.17f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.12f, 0.12f, 0.14f, 1.0f)); // dark menus
-        ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.35f, 0.65f, 1.0f, 0.25f));
-        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.45f, 0.75f, 1.0f, 0.5f));
-        ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.45f, 0.75f, 1.0f, 0.7f));
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.95f, 0.95f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_TextDisabled, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
 
         if (ImGui::BeginMainMenuBar()) {
             if (ImGui::BeginMenu("File")) {
@@ -63,6 +57,20 @@ namespace lfs::vis::gui {
                 ImGui::EndMenu();
             }
 
+            if (ImGui::BeginMenu("View")) {
+                if (ImGui::BeginMenu("Theme")) {
+                    const bool is_dark = (theme().name == "Dark");
+                    if (ImGui::MenuItem("Dark", nullptr, is_dark)) {
+                        setTheme(darkTheme());
+                    }
+                    if (ImGui::MenuItem("Light", nullptr, !is_dark)) {
+                        setTheme(lightTheme());
+                    }
+                    ImGui::EndMenu();
+                }
+                ImGui::EndMenu();
+            }
+
             if (ImGui::BeginMenu("Help")) {
                 if (ImGui::MenuItem("Getting Started")) {
                     show_getting_started_ = true;
@@ -76,7 +84,6 @@ namespace lfs::vis::gui {
             ImGui::EndMainMenuBar();
         }
 
-        ImGui::PopStyleColor(7);
         ImGui::PopStyleVar(2);
 
         renderGettingStartedWindow();
@@ -104,15 +111,16 @@ namespace lfs::vis::gui {
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(20.0f, 20.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f, 12.0f));
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.11f, 0.11f, 0.13f, 0.98f));
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.95f, 0.95f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_TitleBg, ImVec4(0.15f, 0.15f, 0.18f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_TitleBgActive, ImVec4(0.2f, 0.2f, 0.24f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.26f, 0.59f, 0.98f, 0.3f));
+        const auto& t = theme();
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, withAlpha(t.palette.surface, 0.98f));
+        ImGui::PushStyleColor(ImGuiCol_Text, t.palette.text);
+        ImGui::PushStyleColor(ImGuiCol_TitleBg, t.palette.surface);
+        ImGui::PushStyleColor(ImGuiCol_TitleBgActive, t.palette.surface_bright);
+        ImGui::PushStyleColor(ImGuiCol_Border, withAlpha(t.palette.info, 0.3f));
 
         if (ImGui::Begin("Getting Started", &show_getting_started_, WINDOW_FLAGS)) {
             ImGui::PushFont(ImGui::GetIO().Fonts->Fonts[0]);
-            ImGui::TextColored(ImVec4(0.26f, 0.59f, 0.98f, 1.0f), "QUICK START GUIDE");
+            ImGui::TextColored(t.palette.info, "QUICK START GUIDE");
             ImGui::PopFont();
             ImGui::Spacing();
             ImGui::Separator();
@@ -124,17 +132,17 @@ namespace lfs::vis::gui {
 
             // Reality Scan video with modern styling
             const char* reality_scan_url = "http://www.youtube.com/watch?v=JWmkhTlbDvg";
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.2f, 0.24f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.26f, 0.26f, 0.3f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.3f, 0.3f, 0.35f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Button, t.palette.surface_bright);
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, lighten(t.palette.surface_bright, 0.1f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, lighten(t.palette.surface_bright, 0.2f));
 
             ImGui::AlignTextToFramePadding();
-            ImGui::TextColored(ImVec4(0.26f, 0.59f, 0.98f, 1.0f), "*");
+            ImGui::TextColored(t.palette.info, "*");
             ImGui::SameLine();
             ImGui::TextWrapped("Using Reality Scan to create a dataset");
 
             ImGui::Indent(25.0f);
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 0.7f, 1.0f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Text, lighten(t.palette.info, 0.3f));
             ImGui::TextWrapped("%s", reality_scan_url);
             ImGui::PopStyleColor();
 
@@ -151,17 +159,17 @@ namespace lfs::vis::gui {
 
             // Colmap tutorial video
             const char* colmap_tutorial_url = "https://www.youtube.com/watch?v=-3TBbukYN00";
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.2f, 0.24f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.26f, 0.26f, 0.3f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.3f, 0.3f, 0.35f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Button, t.palette.surface_bright);
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, lighten(t.palette.surface_bright, 0.1f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, lighten(t.palette.surface_bright, 0.2f));
 
             ImGui::AlignTextToFramePadding();
-            ImGui::TextColored(ImVec4(0.26f, 0.59f, 0.98f, 1.0f), "*");
+            ImGui::TextColored(t.palette.info, "*");
             ImGui::SameLine();
             ImGui::TextWrapped("Beginner Tutorial - Using COLMAP to create a dataset");
 
             ImGui::Indent(25.0f);
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 0.7f, 1.0f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Text, lighten(t.palette.info, 0.3f));
             ImGui::TextWrapped("%s", colmap_tutorial_url);
             ImGui::PopStyleColor();
 
@@ -181,12 +189,12 @@ namespace lfs::vis::gui {
             ImGui::Spacing();
 
             // FAQ link
-            ImGui::TextColored(ImVec4(0.26f, 0.59f, 0.98f, 1.0f), "FREQUENTLY ASKED QUESTIONS");
+            ImGui::TextColored(t.palette.info, "FREQUENTLY ASKED QUESTIONS");
             ImGui::Spacing();
 
             const char* faq_url = "https://github.com/MrNeRF/LichtFeld-Studio/blob/master/docs/docs/faq.md";
             ImGui::Indent(25.0f);
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 0.7f, 1.0f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Text, lighten(t.palette.info, 0.3f));
             ImGui::TextWrapped("%s", faq_url);
             ImGui::PopStyleColor();
 
@@ -216,19 +224,20 @@ namespace lfs::vis::gui {
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(20.0f, 20.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f, 10.0f));
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.11f, 0.11f, 0.13f, 0.98f));
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.95f, 0.95f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_TitleBg, ImVec4(0.15f, 0.15f, 0.18f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_TitleBgActive, ImVec4(0.2f, 0.2f, 0.24f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.26f, 0.59f, 0.98f, 0.3f));
-        ImGui::PushStyleColor(ImGuiCol_TableHeaderBg, ImVec4(0.2f, 0.2f, 0.24f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_TableBorderStrong, ImVec4(0.3f, 0.3f, 0.35f, 1.0f));
+        const auto& t = theme();
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, withAlpha(t.palette.surface, 0.98f));
+        ImGui::PushStyleColor(ImGuiCol_Text, t.palette.text);
+        ImGui::PushStyleColor(ImGuiCol_TitleBg, t.palette.surface);
+        ImGui::PushStyleColor(ImGuiCol_TitleBgActive, t.palette.surface_bright);
+        ImGui::PushStyleColor(ImGuiCol_Border, withAlpha(t.palette.info, 0.3f));
+        ImGui::PushStyleColor(ImGuiCol_TableHeaderBg, t.palette.surface_bright);
+        ImGui::PushStyleColor(ImGuiCol_TableBorderStrong, lighten(t.palette.surface_bright, 0.15f));
 
         static constexpr const char* REPO_URL = "https://github.com/MrNeRF/LichtFeld-Studio";
         static constexpr const char* WEBSITE_URL = "https://lichtfeld.io";
 
         if (ImGui::Begin("About LichtFeld Studio", &show_about_window_, WINDOW_FLAGS)) {
-            ImGui::TextColored(ImVec4(0.26f, 0.59f, 0.98f, 1.0f), "LICHTFELD STUDIO");
+            ImGui::TextColored(t.palette.info, "LICHTFELD STUDIO");
             ImGui::Spacing();
             ImGui::Separator();
             ImGui::Spacing();
@@ -240,7 +249,7 @@ namespace lfs::vis::gui {
             ImGui::Spacing();
             ImGui::Spacing();
 
-            ImGui::TextColored(ImVec4(0.26f, 0.59f, 0.98f, 1.0f), "BUILD INFORMATION");
+            ImGui::TextColored(t.palette.info, "BUILD INFORMATION");
             ImGui::Spacing();
 
             constexpr ImGuiTableFlags TABLE_FLAGS = ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp;
@@ -248,7 +257,7 @@ namespace lfs::vis::gui {
                 ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 140.0f);
                 ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
 
-                static constexpr ImVec4 LABEL_COLOR{0.7f, 0.7f, 0.7f, 1.0f};
+                const ImVec4 LABEL_COLOR = t.palette.text_dim;
 
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
@@ -312,10 +321,10 @@ namespace lfs::vis::gui {
             ImGui::Spacing();
             ImGui::Spacing();
 
-            ImGui::TextColored(ImVec4(0.26f, 0.59f, 0.98f, 1.0f), "LINKS");
+            ImGui::TextColored(t.palette.info, "LINKS");
             ImGui::Spacing();
 
-            static constexpr ImVec4 LINK_COLOR{0.4f, 0.7f, 1.0f, 1.0f};
+            const ImVec4 LINK_COLOR = lighten(t.palette.info, 0.3f);
 
             ImGui::Text("Repository:");
             ImGui::SameLine();
@@ -344,11 +353,11 @@ namespace lfs::vis::gui {
             ImGui::Spacing();
             ImGui::Separator();
             ImGui::Spacing();
-            ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "LichtFeld Studio Authors");
+            ImGui::TextColored(t.palette.text_dim, "LichtFeld Studio Authors");
             ImGui::SameLine();
-            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), " | ");
+            ImGui::TextColored(darken(t.palette.text_dim, 0.15f), " | ");
             ImGui::SameLine();
-            ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Licensed under GPLv3");
+            ImGui::TextColored(t.palette.text_dim, "Licensed under GPLv3");
         }
         ImGui::End();
 
@@ -545,23 +554,24 @@ namespace lfs::vis::gui {
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(20.0f, 20.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f, 10.0f));
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.11f, 0.11f, 0.13f, 0.98f));
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.95f, 0.95f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_TitleBg, ImVec4(0.15f, 0.15f, 0.18f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_TitleBgActive, ImVec4(0.2f, 0.2f, 0.24f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.26f, 0.59f, 0.98f, 0.3f));
-        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.16f, 0.16f, 0.18f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.2f, 0.2f, 0.24f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.25f, 0.25f, 0.28f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.12f, 0.12f, 0.14f, 0.98f));
-        ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.26f, 0.59f, 0.98f, 0.3f));
-        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.26f, 0.59f, 0.98f, 0.5f));
-        ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.26f, 0.59f, 0.98f, 0.7f));
-        ImGui::PushStyleColor(ImGuiCol_TableHeaderBg, ImVec4(0.2f, 0.2f, 0.24f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_TableBorderStrong, ImVec4(0.3f, 0.3f, 0.35f, 1.0f));
+        const auto& t = theme();
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, withAlpha(t.palette.surface, 0.98f));
+        ImGui::PushStyleColor(ImGuiCol_Text, t.palette.text);
+        ImGui::PushStyleColor(ImGuiCol_TitleBg, t.palette.surface);
+        ImGui::PushStyleColor(ImGuiCol_TitleBgActive, t.palette.surface_bright);
+        ImGui::PushStyleColor(ImGuiCol_Border, withAlpha(t.palette.info, 0.3f));
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, darken(t.palette.surface, 0.05f));
+        ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, t.palette.surface_bright);
+        ImGui::PushStyleColor(ImGuiCol_FrameBgActive, lighten(t.palette.surface_bright, 0.05f));
+        ImGui::PushStyleColor(ImGuiCol_PopupBg, withAlpha(darken(t.palette.surface, 0.1f), 0.98f));
+        ImGui::PushStyleColor(ImGuiCol_Header, withAlpha(t.palette.info, 0.3f));
+        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, withAlpha(t.palette.info, 0.5f));
+        ImGui::PushStyleColor(ImGuiCol_HeaderActive, withAlpha(t.palette.info, 0.7f));
+        ImGui::PushStyleColor(ImGuiCol_TableHeaderBg, t.palette.surface_bright);
+        ImGui::PushStyleColor(ImGuiCol_TableBorderStrong, lighten(t.palette.surface_bright, 0.15f));
 
         if (ImGui::Begin("Input Settings", &show_input_settings_, WINDOW_FLAGS)) {
-            ImGui::TextColored(ImVec4(0.26f, 0.59f, 0.98f, 1.0f), "INPUT PROFILE");
+            ImGui::TextColored(t.palette.info, "INPUT PROFILE");
             ImGui::Spacing();
             ImGui::Separator();
             ImGui::Spacing();
@@ -598,8 +608,8 @@ namespace lfs::vis::gui {
                 ImGui::Spacing();
                 ImGui::Spacing();
 
-                ImGui::TextColored(ImVec4(0.26f, 0.59f, 0.98f, 1.0f), "TOOL MODE");
-                ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Select tool mode to view/edit bindings");
+                ImGui::TextColored(t.palette.info, "TOOL MODE");
+                ImGui::TextColored(t.palette.text_dim, "Select tool mode to view/edit bindings");
                 ImGui::Spacing();
 
                 // Tool mode selector
@@ -635,11 +645,11 @@ namespace lfs::vis::gui {
                 ImGui::Spacing();
                 ImGui::Spacing();
 
-                ImGui::TextColored(ImVec4(0.26f, 0.59f, 0.98f, 1.0f), "CURRENT BINDINGS");
+                ImGui::TextColored(t.palette.info, "CURRENT BINDINGS");
                 if (selected_tool_mode_ == input::ToolMode::GLOBAL) {
-                    ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Global bindings apply everywhere unless overridden");
+                    ImGui::TextColored(t.palette.text_dim, "Global bindings apply everywhere unless overridden");
                 } else {
-                    ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Tool-specific bindings override global bindings");
+                    ImGui::TextColored(t.palette.text_dim, "Tool-specific bindings override global bindings");
                 }
                 ImGui::Spacing();
 
@@ -654,10 +664,10 @@ namespace lfs::vis::gui {
                     ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 70.0f);
                     ImGui::TableHeadersRow();
 
-                    static constexpr ImU32 SECTION_BG_COLOR = IM_COL32(40, 60, 80, 255);
-                    static constexpr ImVec4 SECTION_TEXT_COLOR{0.5f, 0.8f, 1.0f, 1.0f};
+                    const ImU32 SECTION_BG_COLOR = toU32(withAlpha(t.palette.info, 0.2f));
+                    const ImVec4 SECTION_TEXT_COLOR = lighten(t.palette.info, 0.2f);
 
-                    const auto renderSectionHeader = [](const char* title) {
+                    const auto renderSectionHeader = [SECTION_BG_COLOR, SECTION_TEXT_COLOR](const char* title) {
                         ImGui::TableNextRow();
                         ImGui::TableNextColumn();
                         ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, SECTION_BG_COLOR);
@@ -756,7 +766,7 @@ namespace lfs::vis::gui {
                     ImGui::EndTable();
                 }
             } else {
-                ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 1.0f), "Input bindings not available");
+                ImGui::TextColored(lighten(t.palette.error, 0.2f), "Input bindings not available");
             }
 
             ImGui::Spacing();
@@ -764,12 +774,12 @@ namespace lfs::vis::gui {
             ImGui::Spacing();
 
             if (input_bindings_) {
-                static constexpr ImVec4 BTN_SAVE{0.2f, 0.5f, 0.2f, 1.0f};
-                static constexpr ImVec4 BTN_SAVE_HOVER{0.3f, 0.6f, 0.3f, 1.0f};
-                static constexpr ImVec4 BTN_SAVE_ACTIVE{0.25f, 0.55f, 0.25f, 1.0f};
-                static constexpr ImVec4 BTN_RESET{0.5f, 0.2f, 0.2f, 1.0f};
-                static constexpr ImVec4 BTN_RESET_HOVER{0.6f, 0.3f, 0.3f, 1.0f};
-                static constexpr ImVec4 BTN_RESET_ACTIVE{0.55f, 0.25f, 0.25f, 1.0f};
+                const ImVec4 BTN_SAVE = darken(t.palette.success, 0.3f);
+                const ImVec4 BTN_SAVE_HOVER = darken(t.palette.success, 0.15f);
+                const ImVec4 BTN_SAVE_ACTIVE = darken(t.palette.success, 0.2f);
+                const ImVec4 BTN_RESET = darken(t.palette.error, 0.3f);
+                const ImVec4 BTN_RESET_HOVER = darken(t.palette.error, 0.15f);
+                const ImVec4 BTN_RESET_ACTIVE = darken(t.palette.error, 0.2f);
 
                 ImGui::PushStyleColor(ImGuiCol_Button, BTN_SAVE);
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, BTN_SAVE_HOVER);
@@ -798,9 +808,9 @@ namespace lfs::vis::gui {
 
                 ImGui::Spacing();
 
-                static constexpr ImVec4 BTN_IO{0.3f, 0.3f, 0.5f, 1.0f};
-                static constexpr ImVec4 BTN_IO_HOVER{0.4f, 0.4f, 0.6f, 1.0f};
-                static constexpr ImVec4 BTN_IO_ACTIVE{0.35f, 0.35f, 0.55f, 1.0f};
+                const ImVec4 BTN_IO = darken(t.palette.secondary, 0.2f);
+                const ImVec4 BTN_IO_HOVER = darken(t.palette.secondary, 0.05f);
+                const ImVec4 BTN_IO_ACTIVE = darken(t.palette.secondary, 0.1f);
 
                 ImGui::PushStyleColor(ImGuiCol_Button, BTN_IO);
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, BTN_IO_HOVER);
@@ -828,8 +838,8 @@ namespace lfs::vis::gui {
                 ImGui::Spacing();
             }
 
-            ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Save to persist custom bindings");
-            ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Tip: Double-click to bind double-click action");
+            ImGui::TextColored(t.palette.text_dim, "Save to persist custom bindings");
+            ImGui::TextColored(t.palette.text_dim, "Tip: Double-click to bind double-click action");
         }
         ImGui::End();
 

@@ -7,6 +7,7 @@
 #include "gui/utils/windows_utils.hpp"
 #include "gui/windows/image_preview.hpp"
 #include "scene/scene_manager.hpp"
+#include "theme/theme.hpp"
 #include "visualizer_impl.hpp"
 
 #include <algorithm>
@@ -67,7 +68,7 @@ namespace lfs::vis::gui {
     }
 
     void ScenePanel::render(bool* p_open, const UIContext* ctx) {
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.5f, 0.5f, 0.5f, 0.8f));
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, withAlpha(theme().palette.surface_bright, 0.8f));
 
         if (!ImGui::Begin("Scene", p_open)) {
             ImGui::End();
@@ -557,9 +558,10 @@ namespace lfs::vis::gui {
                 const bool is_selected = (m_selectedImageIndex == static_cast<int>(i));
 
                 if (is_selected) {
-                    ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.3f, 0.5f, 0.8f, 1.0f));
-                    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.4f, 0.6f, 0.9f, 1.0f));
-                    ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.3f, 0.5f, 0.8f, 1.0f));
+                    const auto& t = theme();
+                    ImGui::PushStyleColor(ImGuiCol_Header, withAlpha(t.palette.info, 0.8f));
+                    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, withAlpha(t.palette.info, 0.9f));
+                    ImGui::PushStyleColor(ImGuiCol_HeaderActive, withAlpha(t.palette.info, 0.8f));
                 }
 
                 if (ImGui::Selectable(unique_id.c_str(), is_selected)) {

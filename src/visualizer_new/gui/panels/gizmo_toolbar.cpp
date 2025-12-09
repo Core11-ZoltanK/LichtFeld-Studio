@@ -8,40 +8,33 @@
 #include "core_new/image_io.hpp"
 #include "core_new/logger.hpp"
 #include "internal/resource_paths.hpp"
+#include "theme/theme.hpp"
 #include <imgui.h>
 
 namespace lfs::vis::gui::panels {
 
-    // Toolbar layout constants
-    constexpr float BUTTON_SIZE = 24.0f;
-    constexpr float PADDING = 6.0f;
-    constexpr float ITEM_SPACING = 4.0f;
-    constexpr float WINDOW_ROUNDING = 6.0f;
+    // Layout constant (not theme-dependent)
     constexpr float SUBTOOLBAR_OFFSET_Y = 8.0f;
-
-    // Button colors
-    const ImVec4 BTN_SELECTED{0.3f, 0.5f, 0.8f, 1.0f};
-    const ImVec4 BTN_NORMAL{0.2f, 0.2f, 0.2f, 1.0f};
-    const ImVec4 BTN_SELECTED_HOVER{0.4f, 0.6f, 0.9f, 1.0f};
-    const ImVec4 BTN_NORMAL_HOVER{0.3f, 0.3f, 0.3f, 1.0f};
 
     // Computes toolbar dimensions for N buttons
     static ImVec2 ComputeToolbarSize(const int num_buttons) {
-        const float width = num_buttons * BUTTON_SIZE +
-                            (num_buttons - 1) * ITEM_SPACING +
-                            2.0f * PADDING;
-        const float height = BUTTON_SIZE + 2.0f * PADDING;
+        const auto& t = theme();
+        const float width = num_buttons * t.sizes.toolbar_button_size +
+                            (num_buttons - 1) * t.sizes.toolbar_spacing +
+                            2.0f * t.sizes.toolbar_padding;
+        const float height = t.sizes.toolbar_button_size + 2.0f * t.sizes.toolbar_padding;
         return ImVec2(width, height);
     }
 
     // RAII helper for toolbar style setup
     struct ToolbarStyle {
         ToolbarStyle() {
-            ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, WINDOW_ROUNDING);
-            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(PADDING, PADDING));
-            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ITEM_SPACING, 0.0f));
+            const auto& t = theme();
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, t.sizes.window_rounding);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(t.sizes.toolbar_padding, t.sizes.toolbar_padding));
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(t.sizes.toolbar_spacing, 0.0f));
             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
-            ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.15f, 0.15f, 0.15f, 0.9f));
+            ImGui::PushStyleColor(ImGuiCol_WindowBg, t.toolbar_background());
         }
         ~ToolbarStyle() {
             ImGui::PopStyleColor();
@@ -52,11 +45,12 @@ namespace lfs::vis::gui::panels {
     // Secondary toolbar style (slightly darker)
     struct SubToolbarStyle {
         SubToolbarStyle() {
-            ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, WINDOW_ROUNDING);
-            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(PADDING, PADDING));
-            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ITEM_SPACING, 0.0f));
+            const auto& t = theme();
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, t.sizes.window_rounding);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(t.sizes.toolbar_padding, t.sizes.toolbar_padding));
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(t.sizes.toolbar_spacing, 0.0f));
             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0.0f, 0.0f));
-            ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.12f, 0.12f, 0.12f, 0.95f));
+            ImGui::PushStyleColor(ImGuiCol_WindowBg, t.subtoolbar_background());
         }
         ~SubToolbarStyle() {
             ImGui::PopStyleColor();
@@ -188,9 +182,10 @@ namespace lfs::vis::gui::panels {
         {
             const ToolbarStyle style;
             if (ImGui::Begin("##GizmoToolbar", nullptr, FLAGS)) {
-                const ImVec2 btn_size(BUTTON_SIZE, BUTTON_SIZE);
+                const auto& t = theme();
+                const ImVec2 btn_size(t.sizes.toolbar_button_size, t.sizes.toolbar_button_size);
 
-                // Helper lambda for tool buttons - uses EditorContext for availability
+                // Tool button helper
                 const auto ToolButton = [&](const char* id, unsigned int texture,
                                             ToolType tool, ImGuizmo::OPERATION op,
                                             const char* fallback, const char* tooltip) {
@@ -202,8 +197,8 @@ namespace lfs::vis::gui::panels {
                         ImGui::BeginDisabled();
                     }
 
-                    ImGui::PushStyleColor(ImGuiCol_Button, is_selected ? BTN_SELECTED : BTN_NORMAL);
-                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, is_selected ? BTN_SELECTED_HOVER : BTN_NORMAL_HOVER);
+                    ImGui::PushStyleColor(ImGuiCol_Button, is_selected ? t.button_selected() : t.button_normal());
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, is_selected ? t.button_selected_hovered() : t.button_hovered());
 
                     const bool clicked = texture
                         ? ImGui::ImageButton(id, static_cast<ImTextureID>(texture),
@@ -263,14 +258,15 @@ namespace lfs::vis::gui::panels {
             {
                 const SubToolbarStyle style;
                 if (ImGui::Begin("##SelectionModeToolbar", nullptr, FLAGS)) {
-                    const ImVec2 btn_size(BUTTON_SIZE, BUTTON_SIZE);
+                    const auto& t = theme();
+                    const ImVec2 btn_size(t.sizes.toolbar_button_size, t.sizes.toolbar_button_size);
 
                     const auto SelectionModeButton = [&](const char* id, unsigned int texture,
                                                          SelectionSubMode mode, const char* fallback,
                                                          const char* tooltip) {
                         const bool is_selected = (state.selection_mode == mode);
-                        ImGui::PushStyleColor(ImGuiCol_Button, is_selected ? BTN_SELECTED : BTN_NORMAL);
-                        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, is_selected ? BTN_SELECTED_HOVER : BTN_NORMAL_HOVER);
+                        ImGui::PushStyleColor(ImGuiCol_Button, is_selected ? t.button_selected() : t.button_normal());
+                        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, is_selected ? t.button_selected_hovered() : t.button_hovered());
 
                         const bool clicked = texture
                             ? ImGui::ImageButton(id, static_cast<ImTextureID>(texture),
@@ -316,14 +312,15 @@ namespace lfs::vis::gui::panels {
 
             const SubToolbarStyle style;
             if (ImGui::Begin("##TransformSpaceToolbar", nullptr, FLAGS)) {
-                const ImVec2 btn_size(BUTTON_SIZE, BUTTON_SIZE);
+                const auto& t = theme();
+                const ImVec2 btn_size(t.sizes.toolbar_button_size, t.sizes.toolbar_button_size);
 
                 const auto SpaceButton = [&](const char* id, unsigned int tex,
                                              TransformSpace space, const char* fallback,
                                              const char* tooltip) {
                     const bool selected = (state.transform_space == space);
-                    ImGui::PushStyleColor(ImGuiCol_Button, selected ? BTN_SELECTED : BTN_NORMAL);
-                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, selected ? BTN_SELECTED_HOVER : BTN_NORMAL_HOVER);
+                    ImGui::PushStyleColor(ImGuiCol_Button, selected ? t.button_selected() : t.button_normal());
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, selected ? t.button_selected_hovered() : t.button_hovered());
 
                     const bool clicked = tex
                         ? ImGui::ImageButton(id, static_cast<ImTextureID>(tex),
@@ -354,14 +351,15 @@ namespace lfs::vis::gui::panels {
 
             const SubToolbarStyle style;
             if (ImGui::Begin("##CropBoxToolbar", nullptr, FLAGS)) {
-                const ImVec2 btn_size(BUTTON_SIZE, BUTTON_SIZE);
+                const auto& t = theme();
+                const ImVec2 btn_size(t.sizes.toolbar_button_size, t.sizes.toolbar_button_size);
 
                 const auto CropOpButton = [&](const char* id, unsigned int tex,
                                               CropBoxOperation op, const char* fallback,
                                               const char* tooltip) {
                     const bool selected = (state.cropbox_operation == op);
-                    ImGui::PushStyleColor(ImGuiCol_Button, selected ? BTN_SELECTED : BTN_NORMAL);
-                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, selected ? BTN_SELECTED_HOVER : BTN_NORMAL_HOVER);
+                    ImGui::PushStyleColor(ImGuiCol_Button, selected ? t.button_selected() : t.button_normal());
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, selected ? t.button_selected_hovered() : t.button_hovered());
 
                     const bool clicked = tex
                         ? ImGui::ImageButton(id, static_cast<ImTextureID>(tex),
@@ -382,8 +380,8 @@ namespace lfs::vis::gui::panels {
                 CropOpButton("##crop_scale", state.scaling_texture, CropBoxOperation::Scale, "S", "Scale");
                 ImGui::SameLine();
 
-                ImGui::PushStyleColor(ImGuiCol_Button, BTN_NORMAL);
-                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, BTN_NORMAL_HOVER);
+                ImGui::PushStyleColor(ImGuiCol_Button, t.button_normal());
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, t.button_hovered());
                 const bool reset_clicked = state.reset_texture
                     ? ImGui::ImageButton("##crop_reset", static_cast<ImTextureID>(state.reset_texture),
                                          btn_size, ImVec2(0, 0), ImVec2(1, 1), ImVec4(0, 0, 0, 0))

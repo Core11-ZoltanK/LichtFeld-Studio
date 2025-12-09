@@ -30,6 +30,7 @@
 #include "rendering/rendering_manager.hpp"
 #include "scene/scene.hpp"
 #include "scene/scene_manager.hpp"
+#include "theme/theme.hpp"
 #include "visualizer_impl.hpp"
 
 #include <chrono>
@@ -162,15 +163,17 @@ namespace lfs::vis::gui {
             LOG_WARN("Could not load application icon: {}", e.what());
         }
 
-        // Load fonts - use the resource path helper
+        // Apply theme first to get font settings
+        applyDefaultStyle();
+
+        // Load fonts using theme configuration
         try {
-            auto font_path = lfs::vis::getAssetPath("JetBrainsMono-Regular.ttf");
-            io.Fonts->AddFontFromFileTTF(font_path.string().c_str(), 14.0f * xscale);
+            const auto& t = theme();
+            auto font_path = lfs::vis::getAssetPath(t.fonts.regular_path);
+            io.Fonts->AddFontFromFileTTF(font_path.string().c_str(), t.fonts.base_size * xscale);
         } catch (const std::exception& e) {
             LOG_WARN("Could not load custom font: {}", e.what());
         }
-
-        applyDefaultStyle();
 
         // Configure file browser callback
         setFileSelectedCallback([this](const std::filesystem::path& path, bool is_dataset) {
@@ -226,6 +229,16 @@ namespace lfs::vis::gui {
         bool mouse_in_viewport = isPositionInViewport(mouse_pos.x, mouse_pos.y);
 
         ImGui::NewFrame();
+
+        // Hot-reload themes (check once per second)
+        {
+            static auto last_check = std::chrono::steady_clock::now();
+            const auto now = std::chrono::steady_clock::now();
+            if (now - last_check > std::chrono::seconds(1)) {
+                checkThemeFileChanges();
+                last_check = now;
+            }
+        }
 
         // Initialize ImGuizmo for this frame
         ImGuizmo::BeginFrame();
@@ -331,7 +344,7 @@ namespace lfs::vis::gui {
 
         // Draw docked panels
         if (show_main_panel_) {
-            ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.5f, 0.5f, 0.5f, 0.8f));
+            ImGui::PushStyleColor(ImGuiCol_WindowBg, withAlpha(theme().palette.surface, 0.8f));
             if (ImGui::Begin("Rendering", nullptr)) {
                 // Draw contents without the manual sizing/positioning
                 widgets::DrawModeStatusWithContentSwitch(ctx);
@@ -705,10 +718,9 @@ namespace lfs::vis::gui {
                 const auto start = input_controller->getNodeRectStart();
                 const auto end = input_controller->getNodeRectEnd();
                 ImDrawList* draw_list = ImGui::GetForegroundDrawList();
-                constexpr ImU32 RECT_COLOR = IM_COL32(255, 200, 100, 220);
-                constexpr ImU32 FILL_COLOR = IM_COL32(255, 200, 100, 40);
-                draw_list->AddRectFilled(ImVec2(start.x, start.y), ImVec2(end.x, end.y), FILL_COLOR);
-                draw_list->AddRect(ImVec2(start.x, start.y), ImVec2(end.x, end.y), RECT_COLOR, 0.0f, 0, 2.0f);
+                const auto& t = theme();
+                draw_list->AddRectFilled(ImVec2(start.x, start.y), ImVec2(end.x, end.y), toU32WithAlpha(t.palette.warning, 0.15f));
+                draw_list->AddRect(ImVec2(start.x, start.y), ImVec2(end.x, end.y), toU32WithAlpha(t.palette.warning, 0.85f), 0.0f, 0, 2.0f);
             }
         }
 
@@ -748,8 +760,9 @@ namespace lfs::vis::gui {
                     ImGuiWindowFlags_NoInputs |
                     ImGuiWindowFlags_NoFocusOnAppearing;
 
-                ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.8f));
-                ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1.0f, 1.0f, 0.0f, 0.5f));
+                const auto& t = theme();
+                ImGui::PushStyleColor(ImGuiCol_WindowBg, withAlpha(t.palette.surface, 0.8f));
+                ImGui::PushStyleColor(ImGuiCol_Border, withAlpha(t.palette.warning, 0.5f));
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 5.0f);
 
@@ -761,13 +774,13 @@ namespace lfs::vis::gui {
                     if (settings.split_view_mode == SplitViewMode::GTComparison) {
                         // GT comparison mode
                         int cam_id = rendering_manager->getCurrentCameraId();
-                        ImGui::TextColored(ImVec4(1.0f, 1.0f, 1.0f, 1.0f),
+                        ImGui::TextColored(t.palette.text,
                                            "GT Comparison - Camera %d", cam_id);
                         ImGui::SameLine();
                         ImGui::TextDisabled(" (G: toggle, V: cycle modes, arrows: change camera)");
                     } else {
                         // PLY comparison mode
-                        ImGui::TextColored(ImVec4(1.0f, 1.0f, 1.0f, 1.0f),
+                        ImGui::TextColored(t.palette.text,
                                            "Split View: %s | %s",
                                            split_info.left_name.c_str(),
                                            split_info.right_name.c_str());
@@ -943,8 +956,9 @@ namespace lfs::vis::gui {
             ImGuiWindowFlags_NoBringToFrontOnFocus;
 
         // Apply semi-transparent background
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.7f));
-        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1.0f, 1.0f, 1.0f, 0.3f));
+        const auto& t = theme();
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, withAlpha(t.palette.surface, 0.7f));
+        ImGui::PushStyleColor(ImGuiCol_Border, withAlpha(t.palette.border, 0.3f));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f);
 
@@ -970,7 +984,7 @@ namespace lfs::vis::gui {
                 (window_size.x - speed_text_size.x) * 0.5f,
                 window_size.y * 0.3f));
 
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, fade_alpha));
+            ImGui::PushStyleColor(ImGuiCol_Text, withAlpha(t.palette.text, fade_alpha));
             ImGui::Text("%s", speed_text.c_str());
             ImGui::PopStyleColor();
 
@@ -981,7 +995,7 @@ namespace lfs::vis::gui {
                 (window_size.x - max_text_size.x) * 0.5f,
                 window_size.y * 0.6f));
 
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.8f, 0.8f, 0.8f, fade_alpha * 0.8f));
+            ImGui::PushStyleColor(ImGuiCol_Text, withAlpha(t.palette.text_dim, fade_alpha * 0.8f));
             ImGui::Text("%s", max_text.c_str());
             ImGui::PopStyleColor();
         }
@@ -1036,8 +1050,9 @@ namespace lfs::vis::gui {
             ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoFocusOnAppearing |
             ImGuiWindowFlags_NoBringToFrontOnFocus;
 
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.7f));
-        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1.0f, 1.0f, 1.0f, 0.3f));
+        const auto& t = theme();
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, withAlpha(t.palette.surface, 0.7f));
+        ImGui::PushStyleColor(ImGuiCol_Border, withAlpha(t.palette.border, 0.3f));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f);
 
@@ -1057,14 +1072,14 @@ namespace lfs::vis::gui {
             const std::string speed_text = std::format("Zoom Speed: {:.0f}", zoom_speed_ * 10.0f);
             const ImVec2 speed_text_size = ImGui::CalcTextSize(speed_text.c_str());
             ImGui::SetCursorPos(ImVec2((window_size.x - speed_text_size.x) * 0.5f, window_size.y * 0.3f));
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, fade_alpha));
+            ImGui::PushStyleColor(ImGuiCol_Text, withAlpha(t.palette.text, fade_alpha));
             ImGui::Text("%s", speed_text.c_str());
             ImGui::PopStyleColor();
 
             const std::string max_text = std::format("Max: {:.0f}", max_zoom_speed_ * 10.0f);
             const ImVec2 max_text_size = ImGui::CalcTextSize(max_text.c_str());
             ImGui::SetCursorPos(ImVec2((window_size.x - max_text_size.x) * 0.5f, window_size.y * 0.6f));
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.8f, 0.8f, 0.8f, fade_alpha * 0.8f));
+            ImGui::PushStyleColor(ImGuiCol_Text, withAlpha(t.palette.text_dim, fade_alpha * 0.8f));
             ImGui::Text("%s", max_text.c_str());
             ImGui::PopStyleColor();
         }
@@ -1298,14 +1313,8 @@ namespace lfs::vis::gui {
     }
 
     void GuiManager::applyDefaultStyle() {
-        ImGuiStyle& style = ImGui::GetStyle();
-        style.WindowTitleAlign = ImVec2(0.5f, 0.5f);
-        style.WindowPadding = ImVec2(6.0f, 6.0f);
-        style.WindowRounding = 6.0f;
-        style.WindowBorderSize = 0.0f;
-        style.FrameRounding = 2.0f;
-
-        ImGui::StyleColorsLight();
+        // Initialize theme system and apply to ImGui
+        setTheme(darkTheme());
     }
 
     void GuiManager::showWindow(const std::string& name, bool show) {
