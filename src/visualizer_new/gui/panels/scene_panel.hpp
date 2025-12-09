@@ -31,6 +31,7 @@ namespace lfs::vis {
             ~ScenePanel();
 
             void render(bool* p_open, const UIContext* ctx);
+            void renderContent(const UIContext* ctx);
             void setOnDatasetLoad(std::function<void(const std::filesystem::path&)> callback);
 
         private:

@@ -105,14 +105,12 @@ namespace lfs::vis {
             bool speed_overlay_visible_ = false;
             std::chrono::steady_clock::time_point speed_overlay_start_time_;
             std::chrono::milliseconds speed_overlay_duration_;
-            float current_speed_;
-            float max_speed_;
+            float current_speed_ = 0.0f;
 
             // Zoom speed overlay state
             bool zoom_speed_overlay_visible_ = false;
             std::chrono::steady_clock::time_point zoom_speed_overlay_start_time_;
             float zoom_speed_ = 5.0f;
-            float max_zoom_speed_ = 10.0f;
 
             // Viewport region tracking
             ImVec2 viewport_pos_;
@@ -120,14 +118,19 @@ namespace lfs::vis {
             bool viewport_has_focus_;
             bool force_exit_ = false;
 
+            // Right panel state
+            float right_panel_width_ = 300.0f;
+            float scene_panel_ratio_ = 0.4f;  // Scene 40%, Rendering 60%
+            static constexpr float RIGHT_PANEL_MIN_WIDTH = 200.0f;
+            static constexpr float RIGHT_PANEL_MAX_WIDTH = 600.0f;
+
             // Crop box gizmo state (shared between panel and rendering)
             ImGuizmo::OPERATION crop_gizmo_operation_ = ImGuizmo::TRANSLATE;
             ImGuizmo::MODE crop_gizmo_mode_ = ImGuizmo::WORLD;
 
             // Method declarations
-            void renderSpeedOverlay();
+            void renderStatusBar(const UIContext& ctx);
             void showSpeedOverlay(float current_speed, float max_speed);
-            void renderZoomSpeedOverlay();
             void showZoomSpeedOverlay(float zoom_speed, float max_zoom_speed);
             void renderCropBoxGizmo(const UIContext& ctx);
             void renderNodeTransformGizmo(const UIContext& ctx);

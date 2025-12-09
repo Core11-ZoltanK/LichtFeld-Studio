@@ -33,6 +33,7 @@
 #include "theme/theme.hpp"
 #include "visualizer_impl.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdarg>
 #include <format>
@@ -310,24 +311,6 @@ namespace lfs::vis::gui {
         ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_PassthruCentralNode;
         ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags);
 
-        // Set up default layout on first run
-        static bool first_time = true;
-        if (first_time) {
-            first_time = false;
-            ImGui::DockBuilderRemoveNode(dockspace_id);
-            ImGui::DockBuilderAddNode(dockspace_id, dockspace_flags | ImGuiDockNodeFlags_DockSpace);
-            ImGui::DockBuilderSetNodeSize(dockspace_id, main_viewport->WorkSize);
-
-            const ImGuiID dock_id_right = ImGui::DockBuilderSplitNode(
-                dockspace_id, ImGuiDir_Right, 0.25f, nullptr, &dockspace_id);
-
-            ImGui::DockBuilderDockWindow("Scene", dock_id_right);
-            ImGui::DockBuilderDockWindow("Rendering", dock_id_right);
-            ImGui::DockBuilderDockWindow("Training", dock_id_right);
-
-            ImGui::DockBuilderFinish(dockspace_id);
-        }
-
         ImGui::End();
 
         // Update editor context state for this frame
@@ -341,53 +324,89 @@ namespace lfs::vis::gui {
             .window_states = &window_states_,
             .editor = &editor_ctx};
 
-        // Draw docked panels
+        // Right panel with vertical split
         if (show_main_panel_ && !ui_hidden_) {
-            ImGui::PushStyleColor(ImGuiCol_WindowBg, withAlpha(theme().palette.surface, 0.8f));
-            if (ImGui::Begin("Rendering", nullptr)) {
-                // Draw contents without the manual sizing/positioning
-                widgets::DrawModeStatusWithContentSwitch(ctx);
-                ImGui::Separator();
-                panels::DrawRenderingSettings(ctx);
-                ImGui::Separator();
-                panels::DrawSelectionGroups(ctx);
-                ImGui::Separator();
-                panels::DrawToolsPanel(ctx);
-                panels::DrawSystemConsoleButton(ctx);
+            const auto* const vp = ImGui::GetMainViewport();
+            const float panel_h = vp->WorkSize.y;
+            right_panel_width_ = std::clamp(right_panel_width_, RIGHT_PANEL_MIN_WIDTH, RIGHT_PANEL_MAX_WIDTH);
+
+            ImGui::SetNextWindowPos({vp->WorkPos.x + vp->WorkSize.x - right_panel_width_, vp->WorkPos.y}, ImGuiCond_Always);
+            ImGui::SetNextWindowSizeConstraints({RIGHT_PANEL_MIN_WIDTH, panel_h}, {RIGHT_PANEL_MAX_WIDTH, panel_h});
+
+            constexpr ImGuiWindowFlags PANEL_FLAGS =
+                ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
+                ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoTitleBar;
+
+            const auto& t = theme();
+            ImGui::PushStyleColor(ImGuiCol_WindowBg, withAlpha(t.palette.surface, 0.95f));
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {8.0f, 8.0f});
+
+            if (ImGui::Begin("##RightPanel", nullptr, PANEL_FLAGS)) {
+                right_panel_width_ = ImGui::GetWindowSize().x;
+                const float avail_h = ImGui::GetContentRegionAvail().y;
+                constexpr float SPLITTER_H = 6.0f, MIN_H = 80.0f;
+
+                // Scene panel
+                const float scene_h = std::max(MIN_H, avail_h * scene_panel_ratio_ - SPLITTER_H * 0.5f);
+                ImGui::PushStyleColor(ImGuiCol_ChildBg, {0, 0, 0, 0});
+                if (ImGui::BeginChild("##ScenePanel", {0, scene_h}, ImGuiChildFlags_None, ImGuiWindowFlags_NoBackground)) {
+                    ImGui::TextColored(t.palette.text_dim, "Scene");
+                    ImGui::Separator();
+                    scene_panel_->renderContent(&ctx);
+                }
+                ImGui::EndChild();
+                ImGui::PopStyleColor();
+
+                // Splitter
+                ImGui::PushStyleColor(ImGuiCol_Button, withAlpha(t.palette.border, 0.4f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, withAlpha(t.palette.info, 0.6f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, withAlpha(t.palette.info, 0.8f));
+                ImGui::Button("##Splitter", {-1, SPLITTER_H});
+                if (ImGui::IsItemActive())
+                    scene_panel_ratio_ = std::clamp(scene_panel_ratio_ + ImGui::GetIO().MouseDelta.y / avail_h, 0.15f, 0.85f);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);
+                ImGui::PopStyleColor(3);
+
+                // Rendering content helper
+                const auto draw_rendering = [&ctx] {
+                    panels::DrawRenderingSettings(ctx);
+                    ImGui::Separator();
+                    panels::DrawSelectionGroups(ctx);
+                    ImGui::Separator();
+                    panels::DrawToolsPanel(ctx);
+                    panels::DrawSystemConsoleButton(ctx);
+                };
+
+                // Rendering panel
+                ImGui::PushStyleColor(ImGuiCol_ChildBg, {0, 0, 0, 0});
+                if (ImGui::BeginChild("##RenderingPanel", {0, 0}, ImGuiChildFlags_None, ImGuiWindowFlags_NoBackground)) {
+                    if (viewer_->getTrainer()) {
+                        if (ImGui::BeginTabBar("##BottomTabs")) {
+                            if (ImGui::BeginTabItem("Rendering")) { draw_rendering(); ImGui::EndTabItem(); }
+                            const ImGuiTabItemFlags flags = focus_training_panel_
+                                ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
+                            if (focus_training_panel_) focus_training_panel_ = false;
+                            if (ImGui::BeginTabItem("Training", nullptr, flags)) {
+                                panels::DrawTrainingControls(ctx);
+                                ImGui::Separator();
+                                panels::DrawProgressInfo(ctx);
+                                ImGui::EndTabItem();
+                            }
+                            ImGui::EndTabBar();
+                        }
+                    } else {
+                        ImGui::TextColored(t.palette.text_dim, "Rendering");
+                        ImGui::Separator();
+                        draw_rendering();
+                    }
+                }
+                ImGui::EndChild();
+                ImGui::PopStyleColor();
             }
             ImGui::End();
-
-            if (viewer_->getTrainer() && !window_states_["training_tab"]) {
-                if (!focus_training_panel_) {
-                    ImGui::SetWindowFocus("Rendering");
-                }
-                window_states_["training_tab"] = true;
-            }
-
-            if (!viewer_->getTrainer()) {
-                window_states_["training_tab"] = false;
-            }
-
-            if (window_states_["training_tab"]) {
-                if (ImGui::Begin("Training", nullptr)) {
-                    panels::DrawTrainingControls(ctx);
-                    ImGui::Separator();
-                    panels::DrawProgressInfo(ctx);
-                }
-                ImGui::End();
-
-                if (focus_training_panel_) {
-                    ImGui::SetWindowFocus("Training");
-                    focus_training_panel_ = false;
-                }
-            }
-
+            ImGui::PopStyleVar();
             ImGui::PopStyleColor();
-        }
-
-        // Draw Scene panel
-        if (window_states_["scene_panel"] && !ui_hidden_) {
-            scene_panel_->render(&window_states_["scene_panel"], &ctx);
         }
 
         // Render floating windows (these remain movable)
@@ -731,78 +750,18 @@ namespace lfs::vis::gui {
         // Render node transform gizmo (for translating selected PLY nodes)
         renderNodeTransformGizmo(ctx);
 
-        // Render overlays
-        if (!ui_hidden_) {
-            renderSpeedOverlay();
-            renderZoomSpeedOverlay();
-        }
         updateCropFlash();
-
-        // Render split view indicator if enabled
-        if (rendering_manager && !ui_hidden_) {
-            auto split_info = rendering_manager->getSplitViewInfo();
-            if (split_info.enabled) {
-                // Create a small overlay showing what is being compared
-                const ImGuiViewport* viewport = ImGui::GetMainViewport();
-
-                // Position at top center
-                ImVec2 overlay_pos(
-                    viewport->WorkPos.x + (viewport->WorkSize.x - 400.0f) * 0.5f,
-                    viewport->WorkPos.y + 10.0f);
-
-                ImGui::SetNextWindowPos(overlay_pos, ImGuiCond_Always);
-                ImGui::SetNextWindowSize(ImVec2(400.0f, 40.0f), ImGuiCond_Always);
-
-                ImGuiWindowFlags overlay_flags =
-                    ImGuiWindowFlags_NoTitleBar |
-                    ImGuiWindowFlags_NoResize |
-                    ImGuiWindowFlags_NoMove |
-                    ImGuiWindowFlags_NoScrollbar |
-                    ImGuiWindowFlags_NoCollapse |
-                    ImGuiWindowFlags_NoSavedSettings |
-                    ImGuiWindowFlags_NoInputs |
-                    ImGuiWindowFlags_NoFocusOnAppearing;
-
-                const auto& t = theme();
-                ImGui::PushStyleColor(ImGuiCol_WindowBg, withAlpha(t.palette.surface, 0.8f));
-                ImGui::PushStyleColor(ImGuiCol_Border, withAlpha(t.palette.warning, 0.5f));
-                ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
-                ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 5.0f);
-
-                if (ImGui::Begin("##SplitViewIndicator", nullptr, overlay_flags)) {
-                    ImGui::SetCursorPos(ImVec2(10, 10));
-
-                    // Draw the split view info - check mode
-                    const auto& settings = rendering_manager->getSettings();
-                    if (settings.split_view_mode == SplitViewMode::GTComparison) {
-                        // GT comparison mode
-                        int cam_id = rendering_manager->getCurrentCameraId();
-                        ImGui::TextColored(t.palette.text,
-                                           "GT Comparison - Camera %d", cam_id);
-                        ImGui::SameLine();
-                        ImGui::TextDisabled(" (G: toggle, V: cycle modes, arrows: change camera)");
-                    } else {
-                        // PLY comparison mode
-                        ImGui::TextColored(t.palette.text,
-                                           "Split View: %s | %s",
-                                           split_info.left_name.c_str(),
-                                           split_info.right_name.c_str());
-                        ImGui::SameLine();
-                        ImGui::TextDisabled(" (T: cycle, V: exit)");
-                    }
-                }
-                ImGui::End();
-
-                ImGui::PopStyleVar(2);
-                ImGui::PopStyleColor(2);
-            }
-        }
 
         // Get the viewport region for 3D rendering
         updateViewportRegion();
 
         // Update viewport focus based on mouse position
         updateViewportFocus();
+
+        // Render status bar at bottom of viewport
+        if (!ui_hidden_) {
+            renderStatusBar(ctx);
+        }
 
         // Render viewport gizmo BEFORE focus indicator - always render regardless of focus
         if (show_viewport_gizmo_ && !ui_hidden_ && viewport_size_.x > 0 && viewport_size_.y > 0) {
@@ -847,32 +806,11 @@ namespace lfs::vis::gui {
     }
 
     void GuiManager::updateViewportRegion() {
-        const ImGuiViewport* vp = ImGui::GetMainViewport();
-
-        float left = 0.0f;
-        float right = vp->WorkSize.x;
-        const float center_x = vp->WorkSize.x * 0.5f;
-
-        const auto adjustForPanel = [&, vp, center_x](const char* name) {
-            const ImGuiWindow* w = ImGui::FindWindowByName(name);
-            if (!w || !w->DockNode || !w->Active) return;
-
-            const float panel_left = w->Pos.x - vp->WorkPos.x;
-            const float panel_right = panel_left + w->Size.x;
-
-            if (panel_right < center_x) {
-                left = std::max(left, panel_right);
-            } else if (panel_left > center_x) {
-                right = std::min(right, panel_left);
-            }
-        };
-
-        adjustForPanel("Rendering");
-        adjustForPanel("Training");
-        adjustForPanel("Scene");
-
-        viewport_pos_ = ImVec2(left + vp->WorkPos.x, vp->WorkPos.y);
-        viewport_size_ = ImVec2(right - left, vp->WorkSize.y);
+        const auto* const vp = ImGui::GetMainViewport();
+        const float w = (show_main_panel_ && !ui_hidden_)
+            ? vp->WorkSize.x - right_panel_width_ : vp->WorkSize.x;
+        viewport_pos_ = {vp->WorkPos.x, vp->WorkPos.y};
+        viewport_size_ = {w, vp->WorkSize.y};
     }
 
     void GuiManager::updateViewportFocus() {
@@ -914,174 +852,156 @@ namespace lfs::vis::gui {
                 rel_y < viewport_pos_.y + viewport_size_.y);
     }
 
-    void GuiManager::renderSpeedOverlay() {
-        // Check if overlay should be hidden
-        if (speed_overlay_visible_) {
-            auto now = std::chrono::steady_clock::now();
-            if (now - speed_overlay_start_time_ >= speed_overlay_duration_) {
-                speed_overlay_visible_ = false;
-            }
-        } else {
-            return;
-        }
+    void GuiManager::renderStatusBar(const UIContext& ctx) {
+        auto* const rm = ctx.viewer->getRenderingManager();
+        auto* const sm = ctx.viewer->getSceneManager();
+        if (!rm) return;
 
-        // Position overlay centered in viewport, below all possible toolbars
-        constexpr float OVERLAY_WIDTH = 300.0f;
-        constexpr float OVERLAY_HEIGHT = 80.0f;
-        constexpr float TOOLBAR_CLEARANCE = 100.0f;
-
-        const ImVec2 overlay_pos(
-            viewport_pos_.x + (viewport_size_.x - OVERLAY_WIDTH) * 0.5f,
-            viewport_pos_.y + TOOLBAR_CLEARANCE);
-
-        ImGui::SetNextWindowPos(overlay_pos, ImGuiCond_Always);
-        ImGui::SetNextWindowSize(ImVec2(OVERLAY_WIDTH, OVERLAY_HEIGHT), ImGuiCond_Always);
-
-        // Window flags to make it non-interactive and styled nicely
-        ImGuiWindowFlags overlay_flags =
-            ImGuiWindowFlags_NoTitleBar |
-            ImGuiWindowFlags_NoResize |
-            ImGuiWindowFlags_NoMove |
-            ImGuiWindowFlags_NoScrollbar |
-            ImGuiWindowFlags_NoScrollWithMouse |
-            ImGuiWindowFlags_NoCollapse |
-            ImGuiWindowFlags_NoSavedSettings |
-            ImGuiWindowFlags_NoInputs |
-            ImGuiWindowFlags_NoFocusOnAppearing |
-            ImGuiWindowFlags_NoBringToFrontOnFocus;
-
-        // Apply semi-transparent background
         const auto& t = theme();
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, withAlpha(t.palette.surface, 0.7f));
-        ImGui::PushStyleColor(ImGuiCol_Border, withAlpha(t.palette.border, 0.3f));
+        constexpr float HEIGHT = 22.0f, PADDING = 8.0f, SPACING = 20.0f, FADE_MS = 500.0f;
+        const ImVec2 pos{viewport_pos_.x, viewport_pos_.y + viewport_size_.y - HEIGHT};
+        const ImVec2 size{viewport_size_.x, HEIGHT};
+        const auto now = std::chrono::steady_clock::now();
+
+        // Fade alpha helper
+        const auto fade_alpha = [&](auto start_time) {
+            const auto remaining = speed_overlay_duration_ -
+                std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time);
+            return (remaining.count() < FADE_MS) ? remaining.count() / FADE_MS : 1.0f;
+        };
+
+        // Update overlay timers
+        if (speed_overlay_visible_ && now - speed_overlay_start_time_ >= speed_overlay_duration_)
+            speed_overlay_visible_ = false;
+        if (zoom_speed_overlay_visible_ && now - zoom_speed_overlay_start_time_ >= speed_overlay_duration_)
+            zoom_speed_overlay_visible_ = false;
+
+        ImGui::SetNextWindowPos(pos, ImGuiCond_Always);
+        ImGui::SetNextWindowSize(size, ImGuiCond_Always);
+
+        constexpr ImGuiWindowFlags FLAGS =
+            ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+            ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar |
+            ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings |
+            ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoFocusOnAppearing;
+
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, withAlpha(t.palette.background, 0.95f));
+        ImGui::PushStyleColor(ImGuiCol_Border, withAlpha(t.palette.border, 0.6f));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {PADDING, 3.0f});
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {6.0f, 0.0f});
         ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f);
 
-        if (ImGui::Begin("##SpeedOverlay", nullptr, overlay_flags)) {
-            // Calculate fade effect based on remaining time
-            auto now = std::chrono::steady_clock::now();
-            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - speed_overlay_start_time_);
-            auto remaining = speed_overlay_duration_ - elapsed;
+        if (ImGui::Begin("##StatusBar", nullptr, FLAGS)) {
+            ImGui::GetWindowDrawList()->AddLine(pos, {pos.x + size.x, pos.y},
+                toU32(withAlpha(t.palette.surface_bright, 0.4f)), 1.0f);
 
-            float fade_alpha = 1.0f;
-            if (remaining < std::chrono::milliseconds(500)) {
-                // Fade out in the last 500ms
-                fade_alpha = static_cast<float>(remaining.count()) / 500.0f;
+            // Mode
+            const char* mode = "Empty";
+            ImVec4 color = t.palette.text_dim;
+            if (sm) {
+                switch (sm->getContentType()) {
+                case SceneManager::ContentType::SplatFiles:
+                    mode = "Viewer"; color = t.palette.info; break;
+                case SceneManager::ContentType::Dataset:
+                    if (auto* tm = sm->getTrainerManager(); tm && tm->hasTrainer()) {
+                        switch (tm->getState()) {
+                        case TrainerManager::State::Running:   mode = "Training"; color = t.palette.warning; break;
+                        case TrainerManager::State::Paused:    mode = "Paused";   color = t.palette.text_dim; break;
+                        case TrainerManager::State::Ready:     mode = "Ready";    color = t.palette.success; break;
+                        case TrainerManager::State::Completed: mode = "Complete"; color = t.palette.success; break;
+                        case TrainerManager::State::Error:     mode = "Error";    color = t.palette.error; break;
+                        default: mode = "Dataset"; break;
+                        }
+                    } else { mode = "Dataset"; }
+                    break;
+                default: break;
+                }
+            }
+            ImGui::TextColored(color, "%s", mode);
+
+            // Splat count (visible / total)
+            if (sm) {
+                size_t total = 0, visible = 0;
+                for (const auto* n : sm->getScene().getNodes()) {
+                    if (n->type == NodeType::SPLAT) {
+                        total += n->gaussian_count;
+                        if (n->visible.get()) visible += n->gaussian_count;
+                    }
+                }
+                if (total > 0) {
+                    ImGui::SameLine(0.0f, SPACING);
+                    ImGui::TextColored(t.palette.text_dim, "|");
+                    ImGui::SameLine();
+                    const auto fmt = [](const size_t n) -> std::string {
+                        if (n >= 1'000'000) return std::format("{:.2f}M", n / 1e6);
+                        if (n >= 1'000) return std::format("{:.1f}K", n / 1e3);
+                        return std::to_string(n);
+                    };
+                    const auto total_s = fmt(total);
+                    if (visible == total) ImGui::Text("%s splats", total_s.c_str());
+                    else ImGui::Text("%s / %s splats", fmt(visible).c_str(), total_s.c_str());
+                }
             }
 
-            // Center the text
-            ImVec2 window_size = ImGui::GetWindowSize();
+            // Split view
+            if (const auto info = rm->getSplitViewInfo(); info.enabled) {
+                ImGui::SameLine(0.0f, SPACING);
+                ImGui::TextColored(t.palette.text_dim, "|");
+                ImGui::SameLine();
+                if (rm->getSettings().split_view_mode == SplitViewMode::GTComparison) {
+                    ImGui::TextColored(t.palette.warning, "GT Compare");
+                    ImGui::SameLine(0.0f, 4.0f);
+                    ImGui::TextColored(t.palette.text_dim, "Cam %d", rm->getCurrentCameraId());
+                } else {
+                    ImGui::TextColored(t.palette.warning, "Split:");
+                    ImGui::SameLine(0.0f, 4.0f);
+                    ImGui::Text("%s | %s", info.left_name.c_str(), info.right_name.c_str());
+                }
+            }
 
-            // Speed text
-            std::string speed_text = std::format("WASD Speed: {:.0f}", current_speed_);
-            ImVec2 speed_text_size = ImGui::CalcTextSize(speed_text.c_str());
-            ImGui::SetCursorPos(ImVec2(
-                (window_size.x - speed_text_size.x) * 0.5f,
-                window_size.y * 0.3f));
+            // WASD speed
+            if (speed_overlay_visible_) {
+                const float a = fade_alpha(speed_overlay_start_time_);
+                ImGui::SameLine(0.0f, SPACING);
+                ImGui::TextColored(withAlpha(t.palette.text_dim, a), "|");
+                ImGui::SameLine();
+                ImGui::TextColored(withAlpha(t.palette.info, a), "WASD: %.0f", current_speed_);
+            }
 
-            ImGui::PushStyleColor(ImGuiCol_Text, withAlpha(t.palette.text, fade_alpha));
-            ImGui::Text("%s", speed_text.c_str());
-            ImGui::PopStyleColor();
+            // Zoom speed
+            if (zoom_speed_overlay_visible_) {
+                const float a = fade_alpha(zoom_speed_overlay_start_time_);
+                ImGui::SameLine(0.0f, SPACING);
+                ImGui::TextColored(withAlpha(t.palette.text_dim, a), "|");
+                ImGui::SameLine();
+                ImGui::TextColored(withAlpha(t.palette.info, a), "Zoom: %.0f", zoom_speed_ * 10.0f);
+            }
 
-            // Max speed text
-            std::string max_text = std::format("Max: {:.0f}", max_speed_);
-            ImVec2 max_text_size = ImGui::CalcTextSize(max_text.c_str());
-            ImGui::SetCursorPos(ImVec2(
-                (window_size.x - max_text_size.x) * 0.5f,
-                window_size.y * 0.6f));
-
-            ImGui::PushStyleColor(ImGuiCol_Text, withAlpha(t.palette.text_dim, fade_alpha * 0.8f));
-            ImGui::Text("%s", max_text.c_str());
-            ImGui::PopStyleColor();
+            // FPS (right-aligned)
+            const float fps = rm->getAverageFPS();
+            char buf[16];
+            snprintf(buf, sizeof(buf), "%.0f FPS", fps);
+            ImGui::SameLine(size.x - ImGui::CalcTextSize(buf).x - PADDING * 2);
+            ImGui::TextColored(fps >= 30.0f ? t.palette.success
+                             : fps >= 15.0f ? t.palette.warning
+                             : t.palette.error, "%s", buf);
         }
         ImGui::End();
 
-        ImGui::PopStyleVar(2);
+        ImGui::PopStyleVar(3);
         ImGui::PopStyleColor(2);
     }
 
-    void GuiManager::showSpeedOverlay(float current_speed, float max_speed) {
+    void GuiManager::showSpeedOverlay(const float current_speed, float /*max_speed*/) {
         current_speed_ = current_speed;
-        max_speed_ = max_speed;
         speed_overlay_visible_ = true;
         speed_overlay_start_time_ = std::chrono::steady_clock::now();
     }
 
-    void GuiManager::showZoomSpeedOverlay(const float zoom_speed, const float max_zoom_speed) {
+    void GuiManager::showZoomSpeedOverlay(const float zoom_speed, float /*max_zoom_speed*/) {
         zoom_speed_ = zoom_speed;
-        max_zoom_speed_ = max_zoom_speed;
         zoom_speed_overlay_visible_ = true;
         zoom_speed_overlay_start_time_ = std::chrono::steady_clock::now();
-    }
-
-    void GuiManager::renderZoomSpeedOverlay() {
-        if (zoom_speed_overlay_visible_) {
-            const auto now = std::chrono::steady_clock::now();
-            if (now - zoom_speed_overlay_start_time_ >= speed_overlay_duration_) {
-                zoom_speed_overlay_visible_ = false;
-            }
-        } else {
-            return;
-        }
-
-        constexpr float OVERLAY_WIDTH = 300.0f;
-        constexpr float OVERLAY_HEIGHT = 80.0f;
-        constexpr float FADE_DURATION = 500.0f;
-        constexpr float TOOLBAR_CLEARANCE = 100.0f;
-        constexpr float WASD_OVERLAY_HEIGHT = 90.0f;
-
-        const float y_offset = speed_overlay_visible_ ? (TOOLBAR_CLEARANCE + WASD_OVERLAY_HEIGHT) : TOOLBAR_CLEARANCE;
-        const ImVec2 overlay_pos(
-            viewport_pos_.x + (viewport_size_.x - OVERLAY_WIDTH) * 0.5f,
-            viewport_pos_.y + y_offset);
-
-        ImGui::SetNextWindowPos(overlay_pos, ImGuiCond_Always);
-        ImGui::SetNextWindowSize(ImVec2(OVERLAY_WIDTH, OVERLAY_HEIGHT), ImGuiCond_Always);
-
-        constexpr ImGuiWindowFlags kOverlayFlags =
-            ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
-            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
-            ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings |
-            ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoFocusOnAppearing |
-            ImGuiWindowFlags_NoBringToFrontOnFocus;
-
-        const auto& t = theme();
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, withAlpha(t.palette.surface, 0.7f));
-        ImGui::PushStyleColor(ImGuiCol_Border, withAlpha(t.palette.border, 0.3f));
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f);
-
-        if (ImGui::Begin("##ZoomSpeedOverlay", nullptr, kOverlayFlags)) {
-            const auto now = std::chrono::steady_clock::now();
-            const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - zoom_speed_overlay_start_time_);
-            const auto remaining = speed_overlay_duration_ - elapsed;
-
-            float fade_alpha = 1.0f;
-            if (remaining < std::chrono::milliseconds(500)) {
-                fade_alpha = static_cast<float>(remaining.count()) / FADE_DURATION;
-            }
-
-            const ImVec2 window_size = ImGui::GetWindowSize();
-
-            // Display as 1-100 scale (internal is 0.1-10)
-            const std::string speed_text = std::format("Zoom Speed: {:.0f}", zoom_speed_ * 10.0f);
-            const ImVec2 speed_text_size = ImGui::CalcTextSize(speed_text.c_str());
-            ImGui::SetCursorPos(ImVec2((window_size.x - speed_text_size.x) * 0.5f, window_size.y * 0.3f));
-            ImGui::PushStyleColor(ImGuiCol_Text, withAlpha(t.palette.text, fade_alpha));
-            ImGui::Text("%s", speed_text.c_str());
-            ImGui::PopStyleColor();
-
-            const std::string max_text = std::format("Max: {:.0f}", max_zoom_speed_ * 10.0f);
-            const ImVec2 max_text_size = ImGui::CalcTextSize(max_text.c_str());
-            ImGui::SetCursorPos(ImVec2((window_size.x - max_text_size.x) * 0.5f, window_size.y * 0.6f));
-            ImGui::PushStyleColor(ImGuiCol_Text, withAlpha(t.palette.text_dim, fade_alpha * 0.8f));
-            ImGui::Text("%s", max_text.c_str());
-            ImGui::PopStyleColor();
-        }
-        ImGui::End();
-
-        ImGui::PopStyleVar(2);
-        ImGui::PopStyleColor(2);
     }
 
     void GuiManager::triggerCropFlash() {

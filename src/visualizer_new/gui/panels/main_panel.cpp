@@ -383,18 +383,6 @@ namespace lfs::vis::gui::panels {
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Enable for fisheye, distorted, or equirectangular cameras.\nRequired for viewing PLYs trained with --gut flag.");
         }
-
-        // Display current FPS
-        float average_fps = ctx.viewer->getAverageFPS();
-        if (average_fps > 0.0f) {
-            ImGui::Text("FPS: %6.1f", average_fps);
-        }
-
-#ifdef CUDA_GL_INTEROP_ENABLED
-        ImGui::Text("Render Mode: GPU Direct (Interop)");
-#else
-        ImGui::Text("Render Mode: CPU Copy");
-#endif
     }
 
     void DrawSelectionGroups(const UIContext& ctx) {

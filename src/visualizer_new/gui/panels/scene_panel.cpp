@@ -145,61 +145,22 @@ namespace lfs::vis::gui {
             return;
         }
 
-        const float button_width = ImGui::GetContentRegionAvail().x;
-
-        if (ImGui::Button("Import dataset", ImVec2(button_width, 0))) {
-            LOG_DEBUG("Opening file browser from scene panel");
-            if (m_onDatasetLoad) {
-                m_onDatasetLoad(std::filesystem::path(""));
-            }
-#ifdef WIN32
-            OpenDatasetFolderDialog();
-            cmd::ShowWindow{.window_name = "file_browser", .show = false}.emit();
-#endif
-        }
-
-        if (ImGui::Button("Open .ply", ImVec2(button_width, 0))) {
-            LOG_DEBUG("Opening file browser from scene panel");
-            if (m_onDatasetLoad) {
-                m_onDatasetLoad(std::filesystem::path(""));
-            }
-#ifdef WIN32
-            OpenPlyFileDialog();
-            cmd::ShowWindow{.window_name = "file_browser", .show = false}.emit();
-#endif
-        }
-
-        if (ImGui::Button("Refresh", ImVec2(button_width * 0.48f, 0))) {
-            if (!m_currentDatasetPath.empty()) {
-                LOG_DEBUG("Refreshing dataset images");
-                loadImageCams(m_currentDatasetPath);
-            }
-        }
-
-        ImGui::SameLine();
-
-        if (ImGui::Button("Clear", ImVec2(button_width * 0.48f, 0))) {
-            LOG_INFO("Clearing scene from panel");
-            m_imagePaths.clear();
-            m_selectedImageIndex = -1;
-            cmd::ClearScene{}.emit();
-        }
-
-        ImGui::Separator();
-
-        const bool has_plys = hasPLYs(ctx);
-
-        if (has_plys) {
-            renderPLYSceneGraph(ctx);
-        } else {
-            ImGui::Text("No data loaded.");
-        }
+        renderContent(ctx);
 
         ImGui::End();
         ImGui::PopStyleColor();
 
         if (m_showImagePreview && m_imagePreview) {
             m_imagePreview->render(&m_showImagePreview);
+        }
+    }
+
+    void ScenePanel::renderContent(const UIContext* ctx) {
+        if (hasPLYs(ctx)) {
+            renderPLYSceneGraph(ctx);
+        } else {
+            ImGui::TextDisabled("No data loaded");
+            ImGui::TextDisabled("Use File menu to import");
         }
     }
 
@@ -235,10 +196,8 @@ namespace lfs::vis::gui {
         ImGui::PushStyleColor(ImGuiCol_HeaderHovered, withAlpha(t.palette.primary, 0.4f));
         ImGui::PushStyleColor(ImGuiCol_HeaderActive, withAlpha(t.palette.primary, 0.5f));
 
-        const float footer_h = ImGui::GetTextLineHeightWithSpacing() + 4;
-        ImGui::BeginChild("SceneGraph", ImVec2(0, -footer_h), ImGuiChildFlags_None);
+        ImGui::BeginChild("SceneGraph", {0, 0}, ImGuiChildFlags_None);
 
-        // Reset row index for alternating backgrounds
         m_rowIndex = 0;
 
         // Keyboard shortcuts
@@ -258,21 +217,6 @@ namespace lfs::vis::gui {
 
         ImGui::PopStyleColor(3);
         ImGui::PopStyleVar(3);
-
-        // Footer with stats
-        ImGui::Separator();
-        if (scene.hasNodes()) {
-            size_t total = 0, visible = 0;
-            for (const auto* node : scene.getNodes()) {
-                if (node->type == NodeType::SPLAT) {
-                    total += node->gaussian_count;
-                    if (node->visible.get()) visible += node->gaussian_count;
-                }
-            }
-            ImGui::TextDisabled("%zu / %zu gaussians", visible, total);
-        } else {
-            ImGui::TextDisabled("No models");
-        }
     }
 
     void ScenePanel::renderModelsFolder(const Scene& scene, const std::unordered_set<std::string>& selected_names) {
