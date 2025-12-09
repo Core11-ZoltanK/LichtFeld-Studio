@@ -7,7 +7,6 @@
 #include "core_new/point_cloud.hpp"
 #include "core_new/splat_data.hpp"
 #include "gs_rasterizer_tensor.hpp"
-#include "training_new/rasterization/gsplat_rasterizer.hpp"
 
 #include <cstring>
 #include <print>
@@ -131,12 +130,12 @@ namespace lfs::rendering {
                 RenderResult result;
 
                 if (request.gut) {
-                    // Use gsplat rasterizer for GUT mode (simpler, no brush/selection features)
-                    LOG_TRACE("Using gsplat rasterizer for GUT mode (sh_degree temporarily changed from {} to {})",
+                    // Use local forward-only GUT rasterizer (no training module dependency)
+                    LOG_TRACE("Using GUT rasterizer (sh_degree temporarily changed from {} to {})",
                              original_sh_degree, request.sh_degree);
-                    auto render_output = lfs::training::gsplat_rasterize(
+                    auto render_output = gut_rasterize_tensor(
                         cam, const_cast<lfs::core::SplatData&>(model), background_,
-                        request.scaling_modifier, request.antialiasing);
+                        request.scaling_modifier);
                     result.image = std::move(render_output.image);
                     result.depth = std::move(render_output.depth);
                 } else {
@@ -181,11 +180,11 @@ namespace lfs::rendering {
             RenderResult result;
 
             if (request.gut) {
-                // Use gsplat rasterizer for GUT mode (simpler, no brush/selection features)
-                LOG_TRACE("Using gsplat rasterizer for GUT mode");
-                auto render_output = lfs::training::gsplat_rasterize(
+                // Use local forward-only GUT rasterizer (no training module dependency)
+                LOG_TRACE("Using GUT rasterizer");
+                auto render_output = gut_rasterize_tensor(
                     cam, mutable_model, background_,
-                    request.scaling_modifier, request.antialiasing);
+                    request.scaling_modifier);
                 result.image = std::move(render_output.image);
                 result.depth = std::move(render_output.depth);
                 result.valid = true;

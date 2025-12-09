@@ -140,6 +140,16 @@ namespace lfs::vis {
         // Training commands
         cmd::StartTraining::when([this](const auto&) {
             if (trainer_manager_) {
+                // Sync viewer GUT mode with training GUT setting
+                if (trainer_manager_->getProject()) {
+                    const bool training_gut = trainer_manager_->getProject()->getOptimizationParams().gut;
+                    auto settings = rendering_manager_->getSettings();
+                    if (settings.gut != training_gut) {
+                        settings.gut = training_gut;
+                        rendering_manager_->updateSettings(settings);
+                        LOG_INFO("Viewer GUT mode synced with training: {}", training_gut);
+                    }
+                }
                 trainer_manager_->startTraining();
             }
         });

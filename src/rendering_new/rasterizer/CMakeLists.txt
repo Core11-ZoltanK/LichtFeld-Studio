@@ -2,8 +2,12 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+# Add forward-only gsplat backend subdirectory
+add_subdirectory(gsplat_fwd)
+
 set(RASTERIZER_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/rasterization/src/forward.cu
+        ${CMAKE_CURRENT_SOURCE_DIR}/rasterization/src/gsplat_forward.cu
         ${CMAKE_CURRENT_SOURCE_DIR}/rasterization/src/rasterization_api_tensor.cu
 )
 
@@ -22,6 +26,7 @@ target_include_directories(lfs_rasterizer
         ${CMAKE_CURRENT_SOURCE_DIR}/utils
         PRIVATE
         ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}  # For gsplat_fwd headers (gsplat_fwd/Ops.h, gsplat_fwd/Common.h)
         ${CUDAToolkit_INCLUDE_DIRS}
 )
 
@@ -32,8 +37,8 @@ target_link_libraries(lfs_rasterizer
         CUDA::cublas
         CUDA::cuda_driver
         spdlog::spdlog
-        lfs_core_cuda  # Required for shared memory arena
-        # gs_core  # Temporarily disabled - requires LibTorch
+        lfs_core_cuda       # Required for shared memory arena
+        gsplat_fwd          # Forward-only GUT rasterization backend (no training dependency)
 )
 
 target_compile_options(lfs_rasterizer PRIVATE

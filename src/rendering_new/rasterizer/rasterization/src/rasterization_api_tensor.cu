@@ -606,4 +606,98 @@ namespace lfs::rendering {
             num_nodes);
     }
 
+    std::tuple<Tensor, Tensor, Tensor>
+    forward_gut_tensor(
+        const Tensor& means,
+        const Tensor& scales_raw,
+        const Tensor& rotations_raw,
+        const Tensor& opacities_raw,
+        const Tensor& sh0,
+        const Tensor& sh_rest,
+        const Tensor& w2c,
+        const Tensor& K,
+        const int sh_degree,
+        const int width,
+        const int height,
+        const GutCameraModel camera_model,
+        const Tensor* radial_coeffs,
+        const Tensor* tangential_coeffs,
+        const Tensor* background) {
+
+        constexpr float QUAT_NORM_EPS = 1e-8f;
+
+        check_tensor_input(config::debug, means, "means");
+        check_tensor_input(config::debug, scales_raw, "scales_raw");
+        check_tensor_input(config::debug, rotations_raw, "rotations_raw");
+        check_tensor_input(config::debug, opacities_raw, "opacities_raw");
+        check_tensor_input(config::debug, sh0, "sh0");
+        check_tensor_input(config::debug, sh_rest, "sh_rest");
+
+        const int N = static_cast<int>(means.size(0));
+        const size_t H = static_cast<size_t>(height);
+        const size_t W = static_cast<size_t>(width);
+        const int num_sh_coeffs = 1 + static_cast<int>(sh_rest.size(1));
+
+        // Output tensors
+        Tensor image = Tensor::empty({3, H, W}, lfs::core::Device::CUDA, lfs::core::DataType::Float32);
+        Tensor alpha = Tensor::empty({1, H, W}, lfs::core::Device::CUDA, lfs::core::DataType::Float32);
+        Tensor depth = Tensor::empty({1, H, W}, lfs::core::Device::CUDA, lfs::core::DataType::Float32);
+
+        // Activate parameters
+        const Tensor scales = scales_raw.exp();
+        const Tensor rotations = rotations_raw / rotations_raw.norm(2, -1, true).clamp_min(QUAT_NORM_EPS);
+        const Tensor opacities = opacities_raw.sigmoid().squeeze(-1);
+
+        // Concatenate SH coefficients [N, K, 3]
+        const Tensor sh_coeffs = (sh_rest.numel() > 0 && num_sh_coeffs > 1)
+            ? Tensor::cat({sh0, sh_rest}, 1).contiguous()
+            : sh0.contiguous();
+
+        // Contiguous copies
+        const Tensor means_c = means.contiguous();
+        const Tensor scales_c = scales.contiguous();
+        const Tensor rotations_c = rotations.contiguous();
+        const Tensor opacities_c = opacities.contiguous();
+        const Tensor w2c_c = w2c.contiguous();
+        const Tensor K_c = K.contiguous();
+
+        const float* const radial_ptr = (radial_coeffs && radial_coeffs->is_valid()) ? radial_coeffs->ptr<float>() : nullptr;
+        const float* const tangential_ptr = (tangential_coeffs && tangential_coeffs->is_valid()) ? tangential_coeffs->ptr<float>() : nullptr;
+        const float* const bg_ptr = (background && background->is_valid()) ? background->ptr<float>() : nullptr;
+
+        // Render buffers in HWC format (gsplat output format)
+        Tensor render_hwc = Tensor::empty({H, W, 3}, lfs::core::Device::CUDA, lfs::core::DataType::Float32);
+        Tensor alpha_hw = Tensor::empty({H, W}, lfs::core::Device::CUDA, lfs::core::DataType::Float32);
+
+        gsplat_forward_gut(
+            means_c.ptr<float>(),
+            rotations_c.ptr<float>(),
+            scales_c.ptr<float>(),
+            opacities_c.ptr<float>(),
+            sh_coeffs.ptr<float>(),
+            static_cast<uint32_t>(sh_degree),
+            static_cast<uint32_t>(N),
+            static_cast<uint32_t>(num_sh_coeffs),
+            static_cast<uint32_t>(width),
+            static_cast<uint32_t>(height),
+            w2c_c.ptr<float>(),
+            K_c.ptr<float>(),
+            camera_model,
+            radial_ptr,
+            tangential_ptr,
+            bg_ptr,
+            GutRenderMode::RGB,
+            1.0f,
+            render_hwc.ptr<float>(),
+            alpha_hw.ptr<float>(),
+            depth.ptr<float>(),
+            nullptr);
+
+        // Convert HWC to CHW
+        image = render_hwc.permute({2, 0, 1}).contiguous().clamp(0.0f, 1.0f);
+        alpha = alpha_hw.unsqueeze(0);
+
+        return {image, alpha, depth};
+    }
+
 } // namespace lfs::rendering

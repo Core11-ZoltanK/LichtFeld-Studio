@@ -326,6 +326,15 @@ namespace lfs::vis::gui::panels {
                 .emit();
         }
 
+        // GUT (Gaussian Unscented Transform) for non-pinhole cameras
+        if (ImGui::Checkbox("GUT (3DGUT)", &settings.gut)) {
+            settings_changed = true;
+            render_manager->updateSettings(settings);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Enable for fisheye, distorted, or equirectangular cameras.\nRequired for viewing PLYs trained with --gut flag.");
+        }
+
         // Display current FPS
         float average_fps = ctx.viewer->getAverageFPS();
         if (average_fps > 0.0f) {

@@ -172,4 +172,53 @@ namespace lfs::rendering {
         return {std::move(blended_image), std::move(depth)};
     }
 
+    GutRenderOutput gut_rasterize_tensor(
+        const lfs::core::Camera& camera,
+        const lfs::core::SplatData& model,
+        const Tensor& bg_color,
+        const float scaling_modifier) {
+
+        const int width = camera.camera_width();
+        const int height = camera.camera_height();
+        const int sh_degree = model.get_active_sh_degree();
+
+        // Build w2c matrix [4,4] = [R|t; 0|1]
+        const auto R_cpu = camera.R().cpu();
+        const auto T_cpu = camera.T().cpu();
+        const float* R_ptr = R_cpu.ptr<float>();
+        const float* T_ptr = T_cpu.ptr<float>();
+
+        std::vector<float> w2c_data(16, 0.0f);
+        for (int i = 0; i < 3; ++i) {
+            for (int j = 0; j < 3; ++j) {
+                w2c_data[i * 4 + j] = R_ptr[i * 3 + j];
+            }
+            w2c_data[i * 4 + 3] = T_ptr[i];
+        }
+        w2c_data[15] = 1.0f;
+        const Tensor w2c = Tensor::from_vector(w2c_data, {4, 4}, lfs::core::Device::CPU).cuda();
+
+        // Build intrinsics [3,3]
+        const std::vector<float> K_data = {
+            camera.focal_x(), 0.0f, camera.center_x(),
+            0.0f, camera.focal_y(), camera.center_y(),
+            0.0f, 0.0f, 1.0f
+        };
+        const Tensor K = Tensor::from_vector(K_data, {3, 3}, lfs::core::Device::CPU).cuda();
+
+        auto [image, alpha, depth] = forward_gut_tensor(
+            model.means_raw(),
+            model.scaling_raw(),
+            model.rotation_raw(),
+            model.opacity_raw(),
+            model.sh0_raw(),
+            model.shN_raw(),
+            w2c, K,
+            sh_degree, width, height,
+            GutCameraModel::PINHOLE,
+            nullptr, nullptr, &bg_color);
+
+        return {std::move(image), std::move(depth)};
+    }
+
 } // namespace lfs::rendering

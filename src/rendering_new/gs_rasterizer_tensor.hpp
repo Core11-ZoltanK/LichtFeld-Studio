@@ -47,4 +47,16 @@ namespace lfs::rendering {
         float far_plane = 1e10f,
         const std::vector<bool>& selected_node_mask = {});
 
+    // GUT rasterization for viewer (forward-only, no training dependency)
+    struct GutRenderOutput {
+        Tensor image;  // [3, H, W]
+        Tensor depth;  // [1, H, W]
+    };
+
+    GutRenderOutput gut_rasterize_tensor(
+        const lfs::core::Camera& camera,
+        const lfs::core::SplatData& model,
+        const Tensor& bg_color,
+        float scaling_modifier = 1.0f);
+
 } // namespace lfs::rendering

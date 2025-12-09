@@ -240,6 +240,11 @@ namespace {
                     }
                 }
 
+                // Capture viewer-relevant flags for PLY viewing mode
+                if (gut) {
+                    params.optimization.gut = true;
+                }
+
                 return std::make_tuple(ParseResult::Success, std::function<void()>{});
             }
 

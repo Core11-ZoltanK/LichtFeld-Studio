@@ -5,6 +5,7 @@
 #pragma once
 
 #include "core_new/tensor.hpp"
+#include "gsplat_forward.h"
 #include <tuple>
 #include <vector>
 
@@ -178,5 +179,24 @@ namespace lfs::rendering {
         Tensor& selection,
         const Tensor& transform_indices,
         const std::vector<bool>& valid_nodes);
+
+    // GUT forward rasterization - returns (image [3,H,W], alpha [1,H,W], depth [1,H,W])
+    std::tuple<Tensor, Tensor, Tensor>
+    forward_gut_tensor(
+        const Tensor& means,              // [N, 3]
+        const Tensor& scales_raw,         // [N, 3] log-space
+        const Tensor& rotations_raw,      // [N, 4] unnormalized
+        const Tensor& opacities_raw,      // [N, 1] logit-space
+        const Tensor& sh0,                // [N, 1, 3]
+        const Tensor& sh_rest,            // [N, K-1, 3]
+        const Tensor& w2c,                // [4, 4]
+        const Tensor& K,                  // [3, 3]
+        int sh_degree,
+        int width,
+        int height,
+        GutCameraModel camera_model = GutCameraModel::PINHOLE,
+        const Tensor* radial_coeffs = nullptr,
+        const Tensor* tangential_coeffs = nullptr,
+        const Tensor* background = nullptr);
 
 } // namespace lfs::rendering
