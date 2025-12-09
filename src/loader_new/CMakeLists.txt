@@ -22,6 +22,8 @@ add_library(lfs_loader STATIC
         formats/transforms.cpp
         formats/sogs.hpp
         formats/sogs.cpp
+        formats/compressed_ply.hpp
+        formats/compressed_ply.cpp
 
         # Concrete loader implementations
         loaders/ply_loader.hpp

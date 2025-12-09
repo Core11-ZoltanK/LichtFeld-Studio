@@ -23,6 +23,8 @@
 #include <nlohmann/json.hpp>
 #include <vector>
 #include <webp/encode.h>
+#include <tbb/parallel_for.h>
+#include <tbb/blocked_range.h>
 
 namespace lfs::core {
 
@@ -318,19 +320,32 @@ namespace lfs::core {
         const SogWriteOptions& options) {
 
         try {
-            LOG_INFO("Writing SOG format (new) to: {}", options.output_path.string());
+            LOG_INFO("SOG write: {}", options.output_path.string());
+
+            // Returns false if cancelled
+            const auto report_progress = [&](float progress, const std::string& stage) -> bool {
+                return !options.progress_callback || options.progress_callback(progress, stage);
+            };
+
+            if (!report_progress(0.0f, "Initializing")) {
+                return std::unexpected("Export cancelled");
+            }
 
             const int64_t num_splats = splat_data.size();
             if (num_splats == 0) {
                 return std::unexpected("No splats to write");
             }
 
-            // Calculate texture dimensions (multiple of 4) - matches TypeScript
+            // Texture dimensions (multiple of 4)
+            constexpr int CHANNELS = 4;
             const int width = ((int)std::ceil(std::sqrt(num_splats) / 4.0)) * 4;
             const int height = ((int)std::ceil(num_splats / (float)width / 4.0)) * 4;
-            const int channels = 4; // Always use RGBA
 
-            LOG_DEBUG("SOG texture dimensions: {}x{} for {} splats", width, height, num_splats);
+            LOG_DEBUG("SOG: {}x{} for {} splats", width, height, num_splats);
+
+            if (!report_progress(0.02f, "Loading data")) {
+                return std::unexpected("Export cancelled");
+            }
 
             // Get data tensors - already on CUDA
             auto means = splat_data.means_raw().cuda();
@@ -344,12 +359,16 @@ namespace lfs::core {
             int sh_degree = splat_data.get_max_sh_degree();
             LOG_DEBUG("Detected SH degree: {}", sh_degree);
 
+            if (!report_progress(0.05f, "Morton sort")) {
+                return std::unexpected("Export cancelled");
+            }
+
             // Morton encoding for spatial coherence
             auto morton_codes = morton_encode_new(means);
-            auto indices = morton_sort_indices_new(morton_codes).cpu();
+            auto indices_tensor = morton_sort_indices_new(morton_codes).cpu();
+            const int64_t* indices = indices_tensor.ptr<int64_t>();
 
-            // Check if output is .sog bundle or individual files
-            bool is_bundle = options.output_path.extension() == ".sog";
+            const bool is_bundle = options.output_path.extension() == ".sog";
             std::unique_ptr<SogArchive> archive;
             std::filesystem::path base_path;
 
@@ -377,7 +396,7 @@ namespace lfs::core {
 
                 if (archive) {
                     LOG_DEBUG("Adding {} to archive ({}x{})", filename, w, h);
-                    return archive->add_webp(filename, data, w, h, channels);
+                    return archive->add_webp(filename, data, w, h, CHANNELS);
                 } else {
                     auto file_path = base_path / filename;
                     auto webp_path = file_path;
@@ -385,56 +404,80 @@ namespace lfs::core {
                         webp_path.replace_extension(".webp");
                     }
                     LOG_DEBUG("Writing {} ({}x{})", webp_path.string(), w, h);
-                    return write_webp_image(webp_path, data, w, h, channels);
+                    return write_webp_image(webp_path, data, w, h, CHANNELS);
                 }
             };
 
-            LOG_DEBUG("Processing positions with log transform");
+            if (!report_progress(0.10f, "Positions")) {
+                return std::unexpected("Export cancelled");
+            }
 
             // 1. Process positions with log transform
-            std::vector<uint8_t> means_l(width * height * channels, 255);
-            std::vector<uint8_t> means_u(width * height * channels, 255);
+            std::vector<uint8_t> means_l(width * height * CHANNELS, 255);
+            std::vector<uint8_t> means_u(width * height * CHANNELS, 255);
 
-            // Apply log transform and find min/max
+            // Get raw pointer for means data
             auto means_cpu = means.cpu();
-            Tensor means_log = Tensor::empty(means.shape(), Device::CPU, DataType::Float32);
+            const float* means_ptr = means_cpu.ptr<float>();
 
-            // Manual log transform
+            // Apply log transform and find min/max in parallel
+            std::vector<float> means_log_data(num_splats * 3);
+            float min_x = std::numeric_limits<float>::max();
+            float max_x = std::numeric_limits<float>::lowest();
+            float min_y = std::numeric_limits<float>::max();
+            float max_y = std::numeric_limits<float>::lowest();
+            float min_z = std::numeric_limits<float>::max();
+            float max_z = std::numeric_limits<float>::lowest();
+
+            // First pass: log transform (parallel)
+            tbb::parallel_for(tbb::blocked_range<int64_t>(0, num_splats),
+                [&](const tbb::blocked_range<int64_t>& range) {
+                    for (int64_t i = range.begin(); i < range.end(); ++i) {
+                        means_log_data[i * 3 + 0] = log_transform(means_ptr[i * 3 + 0]);
+                        means_log_data[i * 3 + 1] = log_transform(means_ptr[i * 3 + 1]);
+                        means_log_data[i * 3 + 2] = log_transform(means_ptr[i * 3 + 2]);
+                    }
+                });
+
+            // Find min/max (sequential but fast)
             for (int64_t i = 0; i < num_splats; ++i) {
-                for (int j = 0; j < 3; ++j) {
-                    float val = means_cpu[i][j]; // Already returns float for 2D access
-                    means_log[i][j] = log_transform(val);
-                }
+                min_x = std::min(min_x, means_log_data[i * 3 + 0]);
+                max_x = std::max(max_x, means_log_data[i * 3 + 0]);
+                min_y = std::min(min_y, means_log_data[i * 3 + 1]);
+                max_y = std::max(max_y, means_log_data[i * 3 + 1]);
+                min_z = std::min(min_z, means_log_data[i * 3 + 2]);
+                max_z = std::max(max_z, means_log_data[i * 3 + 2]);
             }
 
-            // Find min/max per dimension
-            auto means_min = means_log.min(0, true);
-            auto means_max = means_log.max(0, true);
+            // Precompute scale factors
+            const float scale_x = 1.0f / (max_x - min_x + 1e-10f);
+            const float scale_y = 1.0f / (max_y - min_y + 1e-10f);
+            const float scale_z = 1.0f / (max_z - min_z + 1e-10f);
 
-            // Quantize to 16-bit
-            for (int64_t i = 0; i < num_splats; ++i) {
-                int64_t idx = indices[i].item_as<int64_t>();
-                int ti = identity_layout(i, width);
+            // Quantize to 16-bit (parallel)
+            tbb::parallel_for(tbb::blocked_range<int64_t>(0, num_splats),
+                [&](const tbb::blocked_range<int64_t>& range) {
+                    for (int64_t i = range.begin(); i < range.end(); ++i) {
+                        const int64_t idx = indices[i];
+                        const int ti = i;  // identity_layout
 
-                float x = (means_log[idx][0] - means_min[0].item()) /
-                          (means_max[0].item() - means_min[0].item() + 1e-10f);
-                float y = (means_log[idx][1] - means_min[1].item()) /
-                          (means_max[1].item() - means_min[1].item() + 1e-10f);
-                float z = (means_log[idx][2] - means_min[2].item()) /
-                          (means_max[2].item() - means_min[2].item() + 1e-10f);
+                        float x = (means_log_data[idx * 3 + 0] - min_x) * scale_x;
+                        float y = (means_log_data[idx * 3 + 1] - min_y) * scale_y;
+                        float z = (means_log_data[idx * 3 + 2] - min_z) * scale_z;
 
-                uint16_t x16 = static_cast<uint16_t>(65535 * std::clamp(x, 0.0f, 1.0f));
-                uint16_t y16 = static_cast<uint16_t>(65535 * std::clamp(y, 0.0f, 1.0f));
-                uint16_t z16 = static_cast<uint16_t>(65535 * std::clamp(z, 0.0f, 1.0f));
+                        uint16_t x16 = static_cast<uint16_t>(65535 * std::clamp(x, 0.0f, 1.0f));
+                        uint16_t y16 = static_cast<uint16_t>(65535 * std::clamp(y, 0.0f, 1.0f));
+                        uint16_t z16 = static_cast<uint16_t>(65535 * std::clamp(z, 0.0f, 1.0f));
 
-                means_l[ti * 4 + 0] = x16 & 0xff;
-                means_l[ti * 4 + 1] = y16 & 0xff;
-                means_l[ti * 4 + 2] = z16 & 0xff;
+                        means_l[ti * 4 + 0] = x16 & 0xff;
+                        means_l[ti * 4 + 1] = y16 & 0xff;
+                        means_l[ti * 4 + 2] = z16 & 0xff;
 
-                means_u[ti * 4 + 0] = (x16 >> 8) & 0xff;
-                means_u[ti * 4 + 1] = (y16 >> 8) & 0xff;
-                means_u[ti * 4 + 2] = (z16 >> 8) & 0xff;
-            }
+                        means_u[ti * 4 + 0] = (x16 >> 8) & 0xff;
+                        means_u[ti * 4 + 1] = (y16 >> 8) & 0xff;
+                        means_u[ti * 4 + 2] = (z16 >> 8) & 0xff;
+                    }
+                });
 
             if (!write_image("means_l.webp", means_l.data())) {
                 return std::unexpected("Failed to write means_l.webp");
@@ -443,97 +486,129 @@ namespace lfs::core {
                 return std::unexpected("Failed to write means_u.webp");
             }
 
-            LOG_DEBUG("Processing quaternions");
-
-            // 2. Process quaternions
-            std::vector<uint8_t> quats(width * height * channels, 255);
-            auto rotations_cpu = rotations.cpu();
-
-            for (int64_t i = 0; i < num_splats; ++i) {
-                int64_t idx = indices[i].item_as<int64_t>();
-                int ti = identity_layout(i, width);
-
-                auto quat = pack_quaternion(
-                    rotations_cpu[idx][0],
-                    rotations_cpu[idx][1],
-                    rotations_cpu[idx][2],
-                    rotations_cpu[idx][3]);
-
-                quats[ti * 4 + 0] = quat[0];
-                quats[ti * 4 + 1] = quat[1];
-                quats[ti * 4 + 2] = quat[2];
-                quats[ti * 4 + 3] = quat[3];
+            if (!report_progress(0.25f, "Rotations")) {
+                return std::unexpected("Export cancelled");
             }
+
+            // 2. Process quaternions (parallel)
+            std::vector<uint8_t> quats(width * height * CHANNELS, 255);
+            auto rotations_cpu = rotations.cpu();
+            const float* rotations_ptr = rotations_cpu.ptr<float>();
+
+            tbb::parallel_for(tbb::blocked_range<int64_t>(0, num_splats),
+                [&](const tbb::blocked_range<int64_t>& range) {
+                    for (int64_t i = range.begin(); i < range.end(); ++i) {
+                        const int64_t idx = indices[i];
+                        const int ti = i;
+
+                        auto quat = pack_quaternion(
+                            rotations_ptr[idx * 4 + 0],
+                            rotations_ptr[idx * 4 + 1],
+                            rotations_ptr[idx * 4 + 2],
+                            rotations_ptr[idx * 4 + 3]);
+
+                        quats[ti * 4 + 0] = quat[0];
+                        quats[ti * 4 + 1] = quat[1];
+                        quats[ti * 4 + 2] = quat[2];
+                        quats[ti * 4 + 3] = quat[3];
+                    }
+                });
 
             if (!write_image("quats.webp", quats.data())) {
                 return std::unexpected("Failed to write quats.webp");
             }
 
             // 3. Cluster scales using k-means
-            LOG_DEBUG("Clustering scales with k=256, iterations={}", options.iterations);
-
-            // Flatten scales in column-major order
-            auto scales_flat = Tensor::empty({static_cast<size_t>(num_splats * 3)}, Device::CUDA, DataType::Float32);
-            auto scales_cpu = scales.cpu();
-
-            for (int64_t i = 0; i < num_splats; ++i) {
-                scales_flat[i] = scales_cpu[i][0];
-                scales_flat[num_splats + i] = scales_cpu[i][1];
-                scales_flat[2 * num_splats + i] = scales_cpu[i][2];
+            if (!report_progress(0.35f, "Scales k-means")) {
+                return std::unexpected("Export cancelled");
             }
+
+            // Flatten scales in column-major order using raw pointers (parallel)
+            auto scales_cpu = scales.cpu();
+            const float* scales_ptr = scales_cpu.ptr<float>();
+            std::vector<float> scales_flat_data(num_splats * 3);
+
+            tbb::parallel_for(tbb::blocked_range<int64_t>(0, num_splats),
+                [&](const tbb::blocked_range<int64_t>& range) {
+                    for (int64_t i = range.begin(); i < range.end(); ++i) {
+                        scales_flat_data[i] = scales_ptr[i * 3 + 0];
+                        scales_flat_data[num_splats + i] = scales_ptr[i * 3 + 1];
+                        scales_flat_data[2 * num_splats + i] = scales_ptr[i * 3 + 2];
+                    }
+                });
+
+            auto scales_flat = Tensor::from_vector(scales_flat_data, {static_cast<size_t>(num_splats * 3)}, Device::CUDA);
 
             auto [scales_centroids, scales_labels] = cuda::kmeans_1d_new(
                 scales_flat, 256, options.iterations);
 
-            std::vector<uint8_t> scales_data(width * height * channels, 255);
+            std::vector<uint8_t> scales_data(width * height * CHANNELS, 255);
             auto scales_labels_cpu = scales_labels.cpu();
+            const int32_t* scales_labels_ptr = scales_labels_cpu.ptr<int32_t>();
 
-            for (int64_t i = 0; i < num_splats; ++i) {
-                int64_t idx = indices[i].item_as<int64_t>();
-                int ti = identity_layout(i, width);
+            tbb::parallel_for(tbb::blocked_range<int64_t>(0, num_splats),
+                [&](const tbb::blocked_range<int64_t>& range) {
+                    for (int64_t i = range.begin(); i < range.end(); ++i) {
+                        const int64_t idx = indices[i];
+                        const int ti = i;
 
-                scales_data[ti * 4 + 0] = static_cast<uint8_t>(scales_labels_cpu[idx].item_as<int>());
-                scales_data[ti * 4 + 1] = static_cast<uint8_t>(scales_labels_cpu[num_splats + idx].item_as<int>());
-                scales_data[ti * 4 + 2] = static_cast<uint8_t>(scales_labels_cpu[2 * num_splats + idx].item_as<int>());
-            }
+                        scales_data[ti * 4 + 0] = static_cast<uint8_t>(scales_labels_ptr[idx]);
+                        scales_data[ti * 4 + 1] = static_cast<uint8_t>(scales_labels_ptr[num_splats + idx]);
+                        scales_data[ti * 4 + 2] = static_cast<uint8_t>(scales_labels_ptr[2 * num_splats + idx]);
+                    }
+                });
 
             if (!write_image("scales.webp", scales_data.data())) {
                 return std::unexpected("Failed to write scales.webp");
             }
 
             // 4. Cluster colors using k-means
-            LOG_DEBUG("Clustering colors with k=256, iterations={}", options.iterations);
+            if (!report_progress(0.50f, "Colors k-means")) {
+                return std::unexpected("Export cancelled");
+            }
 
             auto sh0_reshaped = sh0.reshape({static_cast<int>(num_splats), 3});
-
-            // Create concatenated 1D tensor in column-major order
-            Tensor colors_1d = Tensor::empty({static_cast<size_t>(num_splats * 3)}, Device::CUDA, DataType::Float32);
             auto sh0_cpu = sh0_reshaped.cpu();
+            const float* sh0_ptr = sh0_cpu.ptr<float>();
 
-            for (int64_t i = 0; i < num_splats; ++i) {
-                colors_1d[i] = sh0_cpu[i][0];
-                colors_1d[num_splats + i] = sh0_cpu[i][1];
-                colors_1d[2 * num_splats + i] = sh0_cpu[i][2];
-            }
+            // Flatten in column-major order (parallel)
+            std::vector<float> colors_flat_data(num_splats * 3);
+            tbb::parallel_for(tbb::blocked_range<int64_t>(0, num_splats),
+                [&](const tbb::blocked_range<int64_t>& range) {
+                    for (int64_t i = range.begin(); i < range.end(); ++i) {
+                        colors_flat_data[i] = sh0_ptr[i * 3 + 0];
+                        colors_flat_data[num_splats + i] = sh0_ptr[i * 3 + 1];
+                        colors_flat_data[2 * num_splats + i] = sh0_ptr[i * 3 + 2];
+                    }
+                });
+
+            auto colors_1d = Tensor::from_vector(colors_flat_data, {static_cast<size_t>(num_splats * 3)}, Device::CUDA);
 
             auto [colors_centroids, colors_labels] = cuda::kmeans_1d_new(
                 colors_1d, 256, options.iterations);
 
-            std::vector<uint8_t> sh0_data(width * height * channels, 0);
+            std::vector<uint8_t> sh0_data(width * height * CHANNELS, 0);
             auto colors_labels_cpu = colors_labels.cpu();
+            const int32_t* colors_labels_ptr = colors_labels_cpu.ptr<int32_t>();
             auto opacities_cpu = opacities.cpu();
+            const float* opacities_ptr = opacities_cpu.ptr<float>();
 
-            for (int64_t i = 0; i < num_splats; ++i) {
-                int64_t idx = indices[i].item_as<int64_t>();
-                int ti = identity_layout(i, width);
+            tbb::parallel_for(tbb::blocked_range<int64_t>(0, num_splats),
+                [&](const tbb::blocked_range<int64_t>& range) {
+                    for (int64_t i = range.begin(); i < range.end(); ++i) {
+                        const int64_t idx = indices[i];
+                        const int ti = i;
 
-                sh0_data[ti * 4 + 0] = static_cast<uint8_t>(colors_labels_cpu[idx].item_as<int>());
-                sh0_data[ti * 4 + 1] = static_cast<uint8_t>(colors_labels_cpu[num_splats + idx].item_as<int>());
-                sh0_data[ti * 4 + 2] = static_cast<uint8_t>(colors_labels_cpu[2 * num_splats + idx].item_as<int>());
+                        sh0_data[ti * 4 + 0] = static_cast<uint8_t>(colors_labels_ptr[idx]);
+                        sh0_data[ti * 4 + 1] = static_cast<uint8_t>(colors_labels_ptr[num_splats + idx]);
+                        sh0_data[ti * 4 + 2] = static_cast<uint8_t>(colors_labels_ptr[2 * num_splats + idx]);
 
-                float opacity = opacities_cpu[idx].item();
-                sh0_data[ti * 4 + 3] = static_cast<uint8_t>(255 * opacity);
-            }
+                        // IMPORTANT: Never use alpha=0 because WebP "lossless" discards RGB values
+                        // for fully transparent pixels. Clamp to at least 1/255 to preserve indices.
+                        float opacity = opacities_ptr[idx];
+                        sh0_data[ti * 4 + 3] = static_cast<uint8_t>(std::max(1.0f, 255.0f * opacity));
+                    }
+                });
 
             if (!write_image("sh0.webp", sh0_data.data())) {
                 return std::unexpected("Failed to write sh0.webp");
@@ -546,44 +621,44 @@ namespace lfs::core {
             meta["width"] = width;
             meta["height"] = height;
 
-            // Store means min/max
-            meta["means"]["mins"] = {
-                means_min[0].item(),
-                means_min[1].item(),
-                means_min[2].item()};
-            meta["means"]["maxs"] = {
-                means_max[0].item(),
-                means_max[1].item(),
-                means_max[2].item()};
+            // Store means min/max (already cached above)
+            meta["means"]["mins"] = {min_x, min_y, min_z};
+            meta["means"]["maxs"] = {max_x, max_y, max_z};
             meta["means"]["files"] = {"means_l.webp", "means_u.webp"};
 
-            // Convert scale centroids to vector
-            std::vector<float> scale_codebook;
+            // Convert scale centroids to vector using raw pointers
             auto scales_centroids_cpu = scales_centroids.cpu();
-            for (int i = 0; i < scales_centroids.size(0); ++i) {
-                scale_codebook.push_back(scales_centroids_cpu[i][0]);
+            const float* scales_centroids_ptr = scales_centroids_cpu.ptr<float>();
+            std::vector<float> scale_codebook(scales_centroids.size(0));
+            for (size_t i = 0; i < scales_centroids.size(0); ++i) {
+                scale_codebook[i] = scales_centroids_ptr[i];
             }
             meta["scales"]["codebook"] = scale_codebook;
             meta["scales"]["files"] = {"scales.webp"};
 
             meta["quats"]["files"] = {"quats.webp"};
 
-            // Convert color centroids to vector
-            std::vector<float> color_codebook;
+            // Convert color centroids to vector using raw pointers
             auto colors_centroids_cpu = colors_centroids.cpu();
-            for (int i = 0; i < colors_centroids.size(0); ++i) {
-                color_codebook.push_back(colors_centroids_cpu[i][0]);
+            const float* colors_centroids_ptr = colors_centroids_cpu.ptr<float>();
+            std::vector<float> color_codebook(colors_centroids.size(0));
+            for (size_t i = 0; i < colors_centroids.size(0); ++i) {
+                color_codebook[i] = colors_centroids_ptr[i];
             }
+
             meta["sh0"]["codebook"] = color_codebook;
             meta["sh0"]["files"] = {"sh0.webp"};
 
             // Handle higher-order spherical harmonics if present
             if (sh_degree > 0 && shN.is_valid() && shN.numel() > 0) {
-                LOG_DEBUG("Processing spherical harmonics bands (degree {})", sh_degree);
+                if (!report_progress(0.65f, "SH k-means")) {
+                    return std::unexpected("Export cancelled");
+                }
 
-                const int sh_coeffs = shN.size(2);
+                // shN shape is [N, sh_coeffs, 3] where sh_coeffs is number of SH coefficients
+                const int sh_coeffs = shN.size(1);
 
-                // Flatten SH coefficients for clustering
+                // Flatten SH coefficients for clustering: [N, sh_coeffs, 3] -> [N, sh_coeffs * 3]
                 auto shN_reshaped = shN.reshape({static_cast<int>(num_splats), sh_coeffs * 3});
 
                 // Calculate palette size
@@ -591,17 +666,14 @@ namespace lfs::core {
                                             std::max(1, static_cast<int>(std::pow(2, std::floor(std::log2(num_splats / 1024.0)))) * 1024));
                 palette_size = std::min(palette_size, static_cast<int>(num_splats));
 
-                LOG_DEBUG("Clustering SH with palette_size={}, sh_coeffs={}", palette_size, sh_coeffs);
-
                 // Cluster SH coefficients
                 auto [sh_centroids, sh_labels] = cuda::kmeans_new(
                     shN_reshaped, palette_size, options.iterations);
 
                 if (sh_centroids.size(0) == 0) {
-                    LOG_WARN("SH clustering returned empty centroids, skipping SH compression");
+                    LOG_WARN("SH clustering empty, skipping");
                 } else {
-                    int actual_palette_size = sh_centroids.size(0);
-                    LOG_DEBUG("SH clustering complete, actual_palette_size={}", actual_palette_size);
+                    const int actual_palette_size = sh_centroids.size(0);
 
                     // Further cluster the centroids to create codebook
                     auto [codebook_centroids, codebook_labels] = cuda::kmeans_1d_new(
@@ -611,61 +683,66 @@ namespace lfs::core {
                     const int centroids_width = 64 * sh_coeffs;
                     const int centroids_height = (actual_palette_size + 63) / 64;
 
-                    LOG_DEBUG("Writing SH centroids with dimensions {}x{}",
-                              centroids_width, centroids_height);
-
-                    // Write centroids with proper band-major ordering
-                    std::vector<uint8_t> centroids_buf(centroids_width * centroids_height * channels, 255);
+                    // Write centroids with proper band-major ordering (parallel)
+                    std::vector<uint8_t> centroids_buf(centroids_width * centroids_height * CHANNELS, 255);
                     auto codebook_labels_cpu = codebook_labels.cpu();
+                    const int32_t* codebook_labels_ptr = codebook_labels_cpu.ptr<int32_t>();
+                    const int64_t codebook_labels_size = codebook_labels.size(0);
 
-                    for (int i = 0; i < actual_palette_size; ++i) {
-                        for (int j = 0; j < sh_coeffs; ++j) {
-                            int pixel_idx = i * sh_coeffs + j;
+                    tbb::parallel_for(tbb::blocked_range<int>(0, actual_palette_size),
+                        [&](const tbb::blocked_range<int>& range) {
+                            for (int i = range.begin(); i < range.end(); ++i) {
+                                for (int j = 0; j < sh_coeffs; ++j) {
+                                    int pixel_idx = i * sh_coeffs + j;
 
-                            if (pixel_idx < centroids_width * centroids_height) {
-                                for (int c = 0; c < 3; ++c) {
-                                    int coeff_idx = j + c * sh_coeffs;
-                                    int centroid_idx = i * (sh_coeffs * 3) + coeff_idx;
+                                    if (pixel_idx < centroids_width * centroids_height) {
+                                        for (int c = 0; c < 3; ++c) {
+                                            int coeff_idx = j + c * sh_coeffs;
+                                            int centroid_idx = i * (sh_coeffs * 3) + coeff_idx;
 
-                                    if (centroid_idx < codebook_labels.size(0)) {
-                                        centroids_buf[pixel_idx * 4 + c] =
-                                            static_cast<uint8_t>(codebook_labels_cpu[centroid_idx].item_as<int>());
+                                            if (centroid_idx < codebook_labels_size) {
+                                                centroids_buf[pixel_idx * 4 + c] =
+                                                    static_cast<uint8_t>(codebook_labels_ptr[centroid_idx]);
+                                            }
+                                        }
                                     }
                                 }
                             }
-                        }
-                    }
+                        });
 
                     if (!write_image("shN_centroids.webp", centroids_buf.data(), centroids_width, centroids_height)) {
                         return std::unexpected("Failed to write shN_centroids.webp");
                     }
 
-                    LOG_DEBUG("Writing SH labels");
-
-                    // Write labels
-                    std::vector<uint8_t> labels_buf(width * height * channels, 255);
+                    // Write labels (parallel)
+                    std::vector<uint8_t> labels_buf(width * height * CHANNELS, 255);
                     auto sh_labels_cpu = sh_labels.cpu();
+                    const int32_t* sh_labels_ptr = sh_labels_cpu.ptr<int32_t>();
 
-                    for (int64_t i = 0; i < num_splats; ++i) {
-                        int64_t idx = indices[i].item_as<int64_t>();
-                        int32_t label = sh_labels_cpu[idx].item_as<int>();
-                        int ti = identity_layout(i, width);
+                    tbb::parallel_for(tbb::blocked_range<int64_t>(0, num_splats),
+                        [&](const tbb::blocked_range<int64_t>& range) {
+                            for (int64_t i = range.begin(); i < range.end(); ++i) {
+                                const int64_t idx = indices[i];
+                                const int32_t label = sh_labels_ptr[idx];
+                                const int ti = i;
 
-                        labels_buf[ti * 4 + 0] = label & 0xff;
-                        labels_buf[ti * 4 + 1] = (label >> 8) & 0xff;
-                        labels_buf[ti * 4 + 2] = 0;
-                    }
+                                labels_buf[ti * 4 + 0] = label & 0xff;
+                                labels_buf[ti * 4 + 1] = (label >> 8) & 0xff;
+                                labels_buf[ti * 4 + 2] = 0;
+                            }
+                        });
 
                     if (!write_image("shN_labels.webp", labels_buf.data())) {
                         return std::unexpected("Failed to write shN_labels.webp");
                     }
 
-                    // Add to meta.json
-                    std::vector<float> sh_codebook;
+                    // Add to meta.json (use raw pointers)
                     auto codebook_centroids_cpu = codebook_centroids.cpu();
+                    const float* codebook_centroids_ptr = codebook_centroids_cpu.ptr<float>();
                     int codebook_size = std::min(256, static_cast<int>(codebook_centroids.size(0)));
+                    std::vector<float> sh_codebook(codebook_size);
                     for (int i = 0; i < codebook_size; ++i) {
-                        sh_codebook.push_back(codebook_centroids_cpu[i][0]);
+                        sh_codebook[i] = codebook_centroids_ptr[i];
                     }
 
                     meta["shN"]["codebook"] = sh_codebook;
@@ -673,51 +750,41 @@ namespace lfs::core {
                     meta["shN"]["bands"] = sh_degree;
                     meta["shN"]["coeffs"] = sh_coeffs;
                     meta["shN"]["files"] = {"shN_centroids.webp", "shN_labels.webp"};
-
-                    LOG_DEBUG("SH processing complete - codebook size: {}, palette: {}, bands: {}, coeffs: {}",
-                              sh_codebook.size(), actual_palette_size, sh_degree, sh_coeffs);
                 }
             }
 
             // Write meta.json
-            std::string meta_json = meta.dump(2);
+            if (!report_progress(0.90f, "Writing")) {
+                return std::unexpected("Export cancelled");
+            }
+            const std::string meta_json = meta.dump(2);
 
             if (archive) {
-                LOG_INFO("Writing meta.json to archive");
                 if (!archive->add_file("meta.json", meta_json.c_str(), meta_json.size())) {
                     return std::unexpected("Failed to write meta.json to archive");
                 }
-                LOG_INFO("Successfully wrote SOG bundle: {}", options.output_path.string());
             } else {
                 auto meta_path = options.output_path;
                 if (meta_path.extension() != ".json") {
                     meta_path = base_path / "meta.json";
                 }
 
-                LOG_INFO("Writing meta.json to: {}", meta_path.string());
                 std::ofstream meta_file(meta_path);
                 if (!meta_file) {
-                    LOG_ERROR("Failed to open meta.json for writing at: {}", meta_path.string());
-                    return std::unexpected("Failed to open meta.json for writing");
+                    return std::unexpected("Failed to open meta.json");
                 }
                 meta_file << meta_json;
-                meta_file.close();
-
                 if (!meta_file) {
-                    LOG_ERROR("Failed to write meta.json");
                     return std::unexpected("Failed to write meta.json");
                 }
-
-                LOG_INFO("Successfully wrote SOG format as individual files to: {}", base_path.string());
             }
 
-            LOG_INFO("Successfully completed SOG write with {} splats", num_splats);
-
+            LOG_INFO("SOG export: {} splats to {}", num_splats, options.output_path.string());
+            report_progress(1.0f, "Complete");
             return {};
 
         } catch (const std::exception& e) {
-            LOG_ERROR("Exception in write_sog: {}", e.what());
-            return std::unexpected(std::format("Failed to write SOG: {}", e.what()));
+            return std::unexpected(std::format("SOG export failed: {}", e.what()));
         }
     }
 } // namespace lfs::core

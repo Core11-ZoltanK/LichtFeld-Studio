@@ -16,6 +16,9 @@ namespace lfs::core {
     // Forward declarations
     class Scene;
 
+    // Export format enum
+    enum class ExportFormat { PLY, COMPRESSED_PLY, SOG };
+
 // Clean event macro - uses lfs::core::event::bus()
 #define EVENT(Name, ...)                                   \
     struct Name {                                          \
@@ -57,8 +60,8 @@ namespace lfs::core {
             EVENT(RemovePLY, std::string name; bool keep_children = false;);
             EVENT(RenamePLY, std::string old_name; std::string new_name;);
             EVENT(SetPLYVisibility, std::string name; bool visible;);
-            EVENT(SavePLYAs, std::string name;);
-            EVENT(SaveAllMergedAs, );
+            EVENT(ExportNodeAs, std::string name; ExportFormat format;);
+            EVENT(ExportAllMergedAs, ExportFormat format;);
             EVENT(ReparentNode, std::string node_name; std::string new_parent_name;);  // Empty parent = root
             EVENT(AddGroup, std::string name; std::string parent_name;);  // Create empty group node
             EVENT(DuplicateNode, std::string name;);  // Duplicate node (and children if group)

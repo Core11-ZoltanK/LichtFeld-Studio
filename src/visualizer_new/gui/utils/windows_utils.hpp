@@ -49,12 +49,12 @@ namespace lfs::vis::gui {
     void OpenPlyFileDialog();
     // in windows- open file browser that search directories
     void OpenDatasetFolderDialog();
-    // in windows- save file dialog for PLY, returns selected path or empty if cancelled
-    std::filesystem::path SavePlyFileDialog(const std::string& defaultName);
 #endif
 
-    // Cross-platform JSON file dialogs
+    // Cross-platform file dialogs
+    std::filesystem::path SavePlyFileDialog(const std::string& defaultName);
     std::filesystem::path SaveJsonFileDialog(const std::string& defaultName);
     std::filesystem::path OpenJsonFileDialog();
+    std::filesystem::path SaveSogFileDialog(const std::string& defaultName);
 
 } // namespace lfs::vis::gui

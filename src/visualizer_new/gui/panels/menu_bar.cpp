@@ -44,6 +44,19 @@ namespace lfs::vis::gui {
                     on_save_project_();
                 }
                 ImGui::Separator();
+                if (ImGui::BeginMenu("Export")) {
+                    if (ImGui::MenuItem("PLY (Standard)") && on_export_ply_) {
+                        on_export_ply_();
+                    }
+                    if (ImGui::MenuItem("Compressed PLY") && on_export_compressed_ply_) {
+                        on_export_compressed_ply_();
+                    }
+                    if (ImGui::MenuItem("SOG (SuperSplat)") && on_export_sog_) {
+                        on_export_sog_();
+                    }
+                    ImGui::EndMenu();
+                }
+                ImGui::Separator();
                 if (ImGui::MenuItem("Exit") && on_exit_) {
                     on_exit_();
                 }
@@ -383,6 +396,18 @@ namespace lfs::vis::gui {
 
     void MenuBar::setOnSaveProject(std::function<void()> callback) {
         on_save_project_ = std::move(callback);
+    }
+
+    void MenuBar::setOnExportPLY(std::function<void()> callback) {
+        on_export_ply_ = std::move(callback);
+    }
+
+    void MenuBar::setOnExportCompressedPLY(std::function<void()> callback) {
+        on_export_compressed_ply_ = std::move(callback);
+    }
+
+    void MenuBar::setOnExportSOG(std::function<void()> callback) {
+        on_export_sog_ = std::move(callback);
     }
 
     void MenuBar::setOnExit(std::function<void()> callback) {

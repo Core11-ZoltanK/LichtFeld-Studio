@@ -11,7 +11,9 @@
 #include "command/command_history.hpp"
 #include "core_new/image_io.hpp"
 #include "core_new/logger.hpp"
+#include "core_new/sogs.hpp"
 #include "core_new/splat_data_export.hpp"
+#include "loader_new/formats/compressed_ply.hpp"
 #include "project_new/project.hpp"
 #include "gui/panels/main_panel.hpp"
 #include "gui/panels/scene_panel.hpp"
@@ -80,7 +82,14 @@ namespace lfs::vis::gui {
     }
 
     GuiManager::~GuiManager() {
-        // Cleanup handled automatically
+        // Cancel and wait for export thread if running
+        if (export_state_.active.load()) {
+            cancelExport();
+            if (export_state_.thread && export_state_.thread->joinable()) {
+                export_state_.thread->join();
+            }
+        }
+        export_state_.thread.reset();
     }
 
     void GuiManager::initMenuBar() {
@@ -125,6 +134,56 @@ namespace lfs::vis::gui {
             if (viewer_->project_) {
                 lfs::core::events::cmd::SaveProject{viewer_->project_->getProjectOutputFolder().string()}.emit();
             }
+        });
+
+        menu_bar_->setOnExportPLY([this]() {
+            auto* const scene_manager = viewer_->getSceneManager();
+            if (!scene_manager) return;
+
+            auto merged = scene_manager->getScene().createMergedModelWithTransforms();
+            if (!merged) return;
+
+#ifdef WIN32
+            const auto path = SavePlyFileDialog("export");
+            if (path.empty()) return;
+#else
+            const std::filesystem::path path = "export.ply";
+#endif
+            lfs::core::save_ply(*merged, path.parent_path(), 0, true, path.stem().string());
+            LOG_INFO("Exported PLY: {}", path.string());
+        });
+
+        menu_bar_->setOnExportCompressedPLY([this]() {
+            auto* const scene_manager = viewer_->getSceneManager();
+            if (!scene_manager) return;
+
+            auto merged = scene_manager->getScene().createMergedModelWithTransforms();
+            if (!merged) return;
+
+#ifdef WIN32
+            const auto path = SavePlyFileDialog("export.compressed");
+            if (path.empty()) return;
+#else
+            const std::filesystem::path path = "export.compressed.ply";
+#endif
+            const lfs::loader::CompressedPlyWriteOptions options{
+                .output_path = path,
+                .include_sh = true
+            };
+            if (auto result = lfs::loader::write_compressed_ply(*merged, options); result) {
+                LOG_INFO("Exported compressed PLY: {}", path.string());
+            } else {
+                LOG_ERROR("Compressed PLY export failed: {}", result.error());
+            }
+        });
+
+        menu_bar_->setOnExportSOG([this]() {
+            if (isExporting()) return;
+
+            const auto path = SaveSogFileDialog("export");
+            if (path.empty()) return;
+
+            startAsyncSOGExport(path);
         });
 
         menu_bar_->setOnExit([this]() {
@@ -439,125 +498,6 @@ namespace lfs::vis::gui {
 #endif
         }
 
-        // Save PLY dialog
-        if (show_save_ply_dialog_) {
-            // Materialize deletions before saving
-            if (auto* sm = viewer_->getSceneManager()) {
-                sm->applyDeleted();
-            }
-
-#ifdef WIN32
-            // Use native Windows file dialog
-            std::filesystem::path save_path = SavePlyFileDialog(save_ply_node_name_);
-            if (!save_path.empty()) {
-                if (auto* sm = viewer_->getSceneManager()) {
-                    const auto* node = sm->getScene().getNode(save_ply_node_name_);
-                    if (node && node->model) {
-                        lfs::core::save_ply(*node->model, save_path.parent_path(), 0, true, save_path.stem().string());
-                        LOG_INFO("Saved PLY to: {}", save_path.string());
-                    }
-                }
-            }
-            show_save_ply_dialog_ = false;
-#else
-            ImGui::OpenPopup("Save PLY As");
-#endif
-        }
-
-#ifndef WIN32
-        // ImGui fallback dialog for non-Windows platforms
-        if (ImGui::BeginPopupModal("Save PLY As", &show_save_ply_dialog_, ImGuiWindowFlags_AlwaysAutoResize)) {
-            ImGui::Text("Save \"%s\" as:", save_ply_node_name_.c_str());
-            ImGui::Separator();
-
-            char path_buf[512];
-            strncpy(path_buf, save_ply_path_.c_str(), sizeof(path_buf) - 1);
-            path_buf[sizeof(path_buf) - 1] = '\0';
-
-            ImGui::SetNextItemWidth(400);
-            if (ImGui::InputText("##path", path_buf, sizeof(path_buf))) {
-                save_ply_path_ = path_buf;
-            }
-
-            ImGui::Separator();
-
-            if (ImGui::Button("Save", ImVec2(120, 0))) {
-                if (auto* sm = viewer_->getSceneManager()) {
-                    const auto* node = sm->getScene().getNode(save_ply_node_name_);
-                    if (node && node->model) {
-                        std::filesystem::path save_path(save_ply_path_);
-                        lfs::core::save_ply(*node->model, save_path.parent_path(), 0, true, save_path.stem().string());
-                        LOG_INFO("Saved PLY to: {}", save_ply_path_);
-                    }
-                }
-                show_save_ply_dialog_ = false;
-                ImGui::CloseCurrentPopup();
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Cancel", ImVec2(120, 0))) {
-                show_save_ply_dialog_ = false;
-                ImGui::CloseCurrentPopup();
-            }
-            ImGui::EndPopup();
-        }
-#endif
-
-        // Save All Merged dialog
-        if (show_save_merged_dialog_) {
-            if (auto* const sm = viewer_->getSceneManager()) {
-                sm->applyDeleted();
-            }
-
-#ifdef WIN32
-            const std::filesystem::path save_path = SavePlyFileDialog("merged");
-            if (!save_path.empty()) {
-                if (auto* const sm = viewer_->getSceneManager()) {
-                    if (const auto merged = sm->getScene().createMergedModelWithTransforms()) {
-                        lfs::core::save_ply(*merged, save_path.parent_path(), 0, true, save_path.stem().string());
-                    }
-                }
-            }
-            show_save_merged_dialog_ = false;
-#else
-            ImGui::OpenPopup("Save All Merged");
-#endif
-        }
-
-#ifndef WIN32
-        if (ImGui::BeginPopupModal("Save All Merged", &show_save_merged_dialog_, ImGuiWindowFlags_AlwaysAutoResize)) {
-            ImGui::Text("Save all models merged as:");
-            ImGui::Separator();
-
-            char path_buf[512];
-            strncpy(path_buf, save_ply_path_.c_str(), sizeof(path_buf) - 1);
-            path_buf[sizeof(path_buf) - 1] = '\0';
-
-            ImGui::SetNextItemWidth(400);
-            if (ImGui::InputText("##path", path_buf, sizeof(path_buf))) {
-                save_ply_path_ = path_buf;
-            }
-
-            ImGui::Separator();
-
-            if (ImGui::Button("Save", ImVec2(120, 0))) {
-                if (auto* const sm = viewer_->getSceneManager()) {
-                    if (const auto merged = sm->getScene().createMergedModelWithTransforms()) {
-                        const std::filesystem::path save_path(save_ply_path_);
-                        lfs::core::save_ply(*merged, save_path.parent_path(), 0, true, save_path.stem().string());
-                    }
-                }
-                show_save_merged_dialog_ = false;
-                ImGui::CloseCurrentPopup();
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Cancel", ImVec2(120, 0))) {
-                show_save_merged_dialog_ = false;
-                ImGui::CloseCurrentPopup();
-            }
-            ImGui::EndPopup();
-        }
-#endif
-
         if (menu_bar_ && viewer_) {
             auto project = viewer_->getProject();
             menu_bar_->setIsProjectTemp(project ? project->getIsTempProject() : false);
@@ -778,6 +718,9 @@ namespace lfs::vis::gui {
                 }
             }
         }
+
+        // Render export progress overlay (blocking overlay on top of everything)
+        renderExportOverlay();
 
         // End frame
         ImGui::Render();
@@ -1067,6 +1010,7 @@ namespace lfs::vis::gui {
 
     void GuiManager::setupEventHandlers() {
         using namespace lfs::core::events;
+        using lfs::core::ExportFormat;
 
         cmd::ShowWindow::when([this](const auto& e) {
             showWindow(e.window_name, e.show);
@@ -1165,16 +1109,85 @@ namespace lfs::vis::gui {
             viewer_->getCommandHistory().execute(std::move(cmd));
         });
 
-        // Handle Save PLY As command
-        cmd::SavePLYAs::when([this](const auto& e) {
-            save_ply_node_name_ = e.name;
-            save_ply_path_ = (std::filesystem::current_path() / (e.name + ".ply")).string();
-            show_save_ply_dialog_ = true;
+        cmd::ExportNodeAs::when([this](const auto& e) {
+            auto* const scene_manager = viewer_->getSceneManager();
+            if (!scene_manager) return;
+
+            const Scene::Node* node = nullptr;
+            for (const auto* n : scene_manager->getScene().getNodes()) {
+                if (n->name == e.name) { node = n; break; }
+            }
+            if (!node || !node->model) return;
+
+            switch (e.format) {
+            case ExportFormat::PLY: {
+                const auto path = SavePlyFileDialog(e.name);
+                if (path.empty()) return;
+                lfs::core::save_ply(*node->model, path.parent_path(), 0, true, path.stem().string());
+                LOG_INFO("Exported PLY: {}", path.string());
+                break;
+            }
+            case ExportFormat::COMPRESSED_PLY: {
+                const auto path = SavePlyFileDialog(e.name + ".compressed");
+                if (path.empty()) return;
+                const lfs::loader::CompressedPlyWriteOptions options{.output_path = path, .include_sh = true};
+                if (auto result = lfs::loader::write_compressed_ply(*node->model, options); result) {
+                    LOG_INFO("Exported compressed PLY: {}", path.string());
+                } else {
+                    LOG_ERROR("Compressed PLY export failed: {}", result.error());
+                }
+                break;
+            }
+            case ExportFormat::SOG: {
+                if (isExporting()) return;
+                const auto path = SaveSogFileDialog(e.name);
+                if (path.empty()) return;
+                // Single node export runs synchronously (SplatData can't be copied)
+                const lfs::core::SogWriteOptions options{.iterations = 10, .output_path = path};
+                if (auto result = lfs::core::write_sog(*node->model, options); result) {
+                    LOG_INFO("Exported SOG: {}", path.string());
+                } else {
+                    LOG_ERROR("SOG export failed: {}", result.error());
+                }
+                break;
+            }
+            }
         });
 
-        cmd::SaveAllMergedAs::when([this](const auto&) {
-            save_ply_path_ = (std::filesystem::current_path() / "merged.ply").string();
-            show_save_merged_dialog_ = true;
+        cmd::ExportAllMergedAs::when([this](const auto& e) {
+            auto* const scene_manager = viewer_->getSceneManager();
+            if (!scene_manager) return;
+
+            auto merged = scene_manager->getScene().createMergedModelWithTransforms();
+            if (!merged) return;
+
+            switch (e.format) {
+            case ExportFormat::PLY: {
+                const auto path = SavePlyFileDialog("merged");
+                if (path.empty()) return;
+                lfs::core::save_ply(*merged, path.parent_path(), 0, true, path.stem().string());
+                LOG_INFO("Exported PLY: {}", path.string());
+                break;
+            }
+            case ExportFormat::COMPRESSED_PLY: {
+                const auto path = SavePlyFileDialog("merged.compressed");
+                if (path.empty()) return;
+                const lfs::loader::CompressedPlyWriteOptions options{.output_path = path, .include_sh = true};
+                if (auto result = lfs::loader::write_compressed_ply(*merged, options); result) {
+                    LOG_INFO("Exported compressed PLY: {}", path.string());
+                } else {
+                    LOG_ERROR("Compressed PLY export failed: {}", result.error());
+                }
+                break;
+            }
+            case ExportFormat::SOG: {
+                if (isExporting()) return;
+                const auto path = SaveSogFileDialog("merged");
+                if (path.empty()) return;
+                startAsyncSOGExport(path);
+                break;
+            }
+            }
         });
 
         // Cycle: normal -> center markers -> rings -> normal
@@ -1251,11 +1264,19 @@ namespace lfs::vis::gui {
     }
 
     bool GuiManager::wantsInput() const {
+        // Block all input while exporting
+        if (export_state_.active.load()) {
+            return true;
+        }
         ImGuiIO& io = ImGui::GetIO();
         return io.WantCaptureMouse || io.WantCaptureKeyboard;
     }
 
     bool GuiManager::isAnyWindowActive() const {
+        // Block all interaction while exporting
+        if (export_state_.active.load()) {
+            return true;
+        }
         return ImGui::IsAnyItemActive() ||
                ImGui::IsWindowHovered(ImGuiHoveredFlags_AnyWindow) ||
                ImGui::GetIO().WantCaptureMouse ||
@@ -1646,6 +1667,152 @@ namespace lfs::vis::gui {
         }
 
         overlay_drawlist->PopClipRect();
+    }
+
+    void GuiManager::startAsyncSOGExport(const std::filesystem::path& path) {
+        auto* const scene_manager = viewer_->getSceneManager();
+        if (!scene_manager) {
+            LOG_ERROR("No scene manager for export");
+            return;
+        }
+
+        auto merged = scene_manager->getScene().createMergedModelWithTransforms();
+        if (!merged) {
+            LOG_ERROR("No splat data to export");
+            return;
+        }
+
+        export_state_.active.store(true);
+        export_state_.cancel_requested.store(false);
+        export_state_.progress.store(0.0f);
+        {
+            const std::lock_guard lock(export_state_.mutex);
+            export_state_.stage = "Starting";
+            export_state_.error.clear();
+        }
+
+        auto splat_data = std::make_shared<lfs::core::SplatData>(std::move(*merged));
+        LOG_INFO("SOG export started: {}", path.string());
+
+        export_state_.thread = std::make_unique<std::jthread>(
+            [this, path, splat_data](std::stop_token stop_token) {
+                const lfs::core::SogWriteOptions options{
+                    .iterations = 10,
+                    .output_path = path,
+                    .progress_callback = [this, &stop_token](float progress, const std::string& stage) -> bool {
+                        export_state_.progress.store(progress);
+                        {
+                            const std::lock_guard lock(export_state_.mutex);
+                            export_state_.stage = stage;
+                        }
+                        if (stop_token.stop_requested() || export_state_.cancel_requested.load()) {
+                            LOG_INFO("Export cancelled");
+                            return false;
+                        }
+                        return true;
+                    }
+                };
+
+                auto result = lfs::core::write_sog(*splat_data, options);
+
+                if (result) {
+                    LOG_INFO("SOG export completed: {}", path.string());
+                    const std::lock_guard lock(export_state_.mutex);
+                    export_state_.stage = "Complete";
+                } else {
+                    LOG_ERROR("SOG export failed: {}", result.error());
+                    const std::lock_guard lock(export_state_.mutex);
+                    export_state_.error = result.error();
+                    export_state_.stage = "Failed";
+                }
+
+                export_state_.active.store(false);
+            });
+    }
+
+    void GuiManager::cancelExport() {
+        if (!export_state_.active.load()) return;
+
+        LOG_INFO("Cancelling export");
+        export_state_.cancel_requested.store(true);
+        if (export_state_.thread && export_state_.thread->joinable()) {
+            export_state_.thread->request_stop();
+        }
+    }
+
+    void GuiManager::renderExportOverlay() {
+        if (!export_state_.active.load()) {
+            if (export_state_.thread && export_state_.thread->joinable()) {
+                export_state_.thread->join();
+                export_state_.thread.reset();
+            }
+            return;
+        }
+
+        constexpr float OVERLAY_WIDTH = 350.0f;
+        constexpr float OVERLAY_HEIGHT = 100.0f;
+        constexpr float BUTTON_WIDTH = 100.0f;
+        constexpr float BUTTON_HEIGHT = 30.0f;
+        constexpr float PROGRESS_BAR_HEIGHT = 20.0f;
+
+        const ImGuiViewport* const viewport = ImGui::GetMainViewport();
+        const ImVec2 overlay_pos(
+            viewport->WorkPos.x + (viewport->WorkSize.x - OVERLAY_WIDTH) * 0.5f,
+            viewport->WorkPos.y + (viewport->WorkSize.y - OVERLAY_HEIGHT) * 0.5f
+        );
+
+        ImGui::SetNextWindowPos(overlay_pos, ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(OVERLAY_WIDTH, 0), ImGuiCond_Always);
+
+        constexpr ImGuiWindowFlags FLAGS = ImGuiWindowFlags_NoTitleBar |
+                                           ImGuiWindowFlags_NoResize |
+                                           ImGuiWindowFlags_NoMove |
+                                           ImGuiWindowFlags_NoScrollbar |
+                                           ImGuiWindowFlags_NoCollapse |
+                                           ImGuiWindowFlags_AlwaysAutoResize;
+
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.1f, 0.1f, 0.1f, 0.95f));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(20, 15));
+
+        if (ImGui::Begin("##ExportProgress", nullptr, FLAGS)) {
+            ImGui::PushFont(ImGui::GetIO().Fonts->Fonts[0]);
+            ImGui::TextUnformatted("Exporting SOG...");
+            ImGui::PopFont();
+
+            ImGui::Spacing();
+
+            const float progress = export_state_.progress.load();
+            ImGui::ProgressBar(progress, ImVec2(-1, PROGRESS_BAR_HEIGHT), "");
+
+            ImGui::Text("%.0f%%", progress * 100.0f);
+            ImGui::SameLine();
+
+            {
+                const std::lock_guard lock(export_state_.mutex);
+                ImGui::TextUnformatted(export_state_.stage.c_str());
+            }
+
+            ImGui::Spacing();
+
+            ImGui::SetCursorPosX((OVERLAY_WIDTH - BUTTON_WIDTH) * 0.5f - ImGui::GetStyle().WindowPadding.x);
+            if (ImGui::Button("Cancel", ImVec2(BUTTON_WIDTH, BUTTON_HEIGHT))) {
+                cancelExport();
+            }
+
+            ImGui::End();
+        }
+
+        ImGui::PopStyleVar(2);
+        ImGui::PopStyleColor();
+
+        ImDrawList* const draw_list = ImGui::GetBackgroundDrawList();
+        draw_list->AddRectFilled(
+            viewport->WorkPos,
+            ImVec2(viewport->WorkPos.x + viewport->WorkSize.x,
+                   viewport->WorkPos.y + viewport->WorkSize.y),
+            IM_COL32(0, 0, 0, 100)
+        );
     }
 
 } // namespace lfs::vis::gui

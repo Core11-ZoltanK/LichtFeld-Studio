@@ -15,12 +15,15 @@
 #include "gui/windows/save_project_browser.hpp"
 #include "windows/project_changed_dialog_box.hpp"
 #include <GLFW/glfw3.h>
+#include <atomic>
 #include <filesystem>
 #include <imgui.h>
 #include <ImGuizmo.h>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 #include <unordered_map>
 
 namespace lfs::vis {
@@ -172,14 +175,25 @@ namespace lfs::vis {
             void triggerCropFlash();
             void updateCropFlash();
 
-            // Save PLY dialog state
-            bool show_save_ply_dialog_ = false;
-            bool show_save_merged_dialog_ = false;
-            std::string save_ply_node_name_;
-            std::string save_ply_path_;
-
             bool focus_training_panel_ = false;
             bool ui_hidden_ = false;
+
+            // Async export state
+            struct ExportState {
+                std::atomic<bool> active{false};
+                std::atomic<bool> cancel_requested{false};
+                std::atomic<float> progress{0.0f};
+                std::string stage;  // Protected by mutex
+                std::string error;  // Protected by mutex
+                std::mutex mutex;
+                std::unique_ptr<std::jthread> thread;
+            };
+            ExportState export_state_;
+
+            void renderExportOverlay();
+            void startAsyncSOGExport(const std::filesystem::path& path);
+            void cancelExport();
+            bool isExporting() const { return export_state_.active.load(); }
         };
     } // namespace gui
 } // namespace lfs::vis

@@ -23,6 +23,9 @@ namespace lfs::vis::gui {
         void setOnImportPLY(std::function<void()> callback);
         void setOnSaveProjectAs(std::function<void()> callback);
         void setOnSaveProject(std::function<void()> callback);
+        void setOnExportPLY(std::function<void()> callback);
+        void setOnExportCompressedPLY(std::function<void()> callback);
+        void setOnExportSOG(std::function<void()> callback);
         void setOnExit(std::function<void()> callback);
 
         void renderGettingStartedWindow();
@@ -52,6 +55,9 @@ namespace lfs::vis::gui {
         std::function<void()> on_import_ply_;
         std::function<void()> on_save_project_as_;
         std::function<void()> on_save_project_;
+        std::function<void()> on_export_ply_;
+        std::function<void()> on_export_compressed_ply_;
+        std::function<void()> on_export_sog_;
         std::function<void()> on_exit_;
 
         bool show_about_window_ = false;

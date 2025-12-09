@@ -22,6 +22,7 @@
 namespace lfs::vis::gui {
 
     using namespace lfs::core::events;
+    using lfs::core::ExportFormat;
 
     namespace {
         unsigned int loadSceneIcon(const std::string& name) {
@@ -247,8 +248,17 @@ namespace lfs::vis::gui {
                 cmd::AddGroup{.name = "New Group", .parent_name = ""}.emit();
             }
             ImGui::Separator();
-            if (ImGui::MenuItem("Save All Merged...", nullptr, false, splat_count > 0)) {
-                cmd::SaveAllMergedAs{}.emit();
+            if (ImGui::BeginMenu("Export All", splat_count > 0)) {
+                if (ImGui::MenuItem("PLY (Standard)")) {
+                    cmd::ExportAllMergedAs{.format = ExportFormat::PLY}.emit();
+                }
+                if (ImGui::MenuItem("Compressed PLY")) {
+                    cmd::ExportAllMergedAs{.format = ExportFormat::COMPRESSED_PLY}.emit();
+                }
+                if (ImGui::MenuItem("SOG (SuperSplat)")) {
+                    cmd::ExportAllMergedAs{.format = ExportFormat::SOG}.emit();
+                }
+                ImGui::EndMenu();
             }
             ImGui::EndPopup();
         }
@@ -535,8 +545,17 @@ namespace lfs::vis::gui {
                     }
                     ImGui::Separator();
                 }
-                if (!is_group && ImGui::MenuItem("Save As...")) {
-                    cmd::SavePLYAs{.name = node.name}.emit();
+                if (!is_group && ImGui::BeginMenu("Export As")) {
+                    if (ImGui::MenuItem("PLY (Standard)")) {
+                        cmd::ExportNodeAs{.name = node.name, .format = ExportFormat::PLY}.emit();
+                    }
+                    if (ImGui::MenuItem("Compressed PLY")) {
+                        cmd::ExportNodeAs{.name = node.name, .format = ExportFormat::COMPRESSED_PLY}.emit();
+                    }
+                    if (ImGui::MenuItem("SOG (SuperSplat)")) {
+                        cmd::ExportNodeAs{.name = node.name, .format = ExportFormat::SOG}.emit();
+                    }
+                    ImGui::EndMenu();
                 }
                 if (ImGui::MenuItem("Rename")) startRenaming(node.name);
                 if (ImGui::MenuItem("Duplicate")) cmd::DuplicateNode{.name = node.name}.emit();

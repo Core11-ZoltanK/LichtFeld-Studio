@@ -179,22 +179,6 @@ namespace lfs::vis::gui {
         }
     } // namespace utils
 
-    std::filesystem::path SavePlyFileDialog(const std::string& defaultName) {
-        PWSTR filePath = nullptr;
-        COMDLG_FILTERSPEC rgSpec[] = {
-            {L"PLY Point Cloud", L"*.ply"},
-        };
-
-        std::wstring wDefaultName(defaultName.begin(), defaultName.end());
-
-        if (SUCCEEDED(utils::saveFileNative(filePath, rgSpec, 1, wDefaultName.c_str()))) {
-            std::filesystem::path result(filePath);
-            CoTaskMemFree(filePath);
-            return result;
-        }
-        return {};
-    }
-
 #endif // WIN32
 
     namespace {
@@ -272,6 +256,70 @@ namespace lfs::vis::gui {
         const std::string result = runDialogCommand(primary, fallback);
         if (result.empty()) return {};
         return std::filesystem::path(result);
+#endif
+    }
+
+    std::filesystem::path SavePlyFileDialog(const std::string& defaultName) {
+#ifdef _WIN32
+        PWSTR filePath = nullptr;
+        COMDLG_FILTERSPEC rgSpec[] = {{L"PLY Point Cloud", L"*.ply"}};
+        const std::wstring wDefaultName(defaultName.begin(), defaultName.end());
+
+        if (SUCCEEDED(utils::saveFileNative(filePath, rgSpec, 1, wDefaultName.c_str()))) {
+            std::filesystem::path result(filePath);
+            CoTaskMemFree(filePath);
+            if (result.extension() != ".ply") {
+                result += ".ply";
+            }
+            return result;
+        }
+        return {};
+#else
+        const std::string primary = "zenity --file-selection --save --confirm-overwrite "
+                                    "--file-filter='PLY files|*.ply' "
+                                    "--filename='" + defaultName + ".ply' 2>/dev/null";
+        const std::string fallback = "kdialog --getsavefilename . 'PLY files (*.ply)' 2>/dev/null";
+
+        const std::string result = runDialogCommand(primary, fallback);
+        if (result.empty()) return {};
+
+        std::filesystem::path path(result);
+        if (path.extension() != ".ply") {
+            path += ".ply";
+        }
+        return path;
+#endif
+    }
+
+    std::filesystem::path SaveSogFileDialog(const std::string& defaultName) {
+#ifdef _WIN32
+        PWSTR filePath = nullptr;
+        COMDLG_FILTERSPEC rgSpec[] = {{L"SOG File (SuperSplat)", L"*.sog"}};
+        const std::wstring wDefaultName(defaultName.begin(), defaultName.end());
+
+        if (SUCCEEDED(utils::saveFileNative(filePath, rgSpec, 1, wDefaultName.c_str()))) {
+            std::filesystem::path result(filePath);
+            CoTaskMemFree(filePath);
+            if (result.extension() != ".sog") {
+                result += ".sog";
+            }
+            return result;
+        }
+        return {};
+#else
+        const std::string primary = "zenity --file-selection --save --confirm-overwrite "
+                                    "--file-filter='SOG files (SuperSplat)|*.sog' "
+                                    "--filename='" + defaultName + ".sog' 2>/dev/null";
+        const std::string fallback = "kdialog --getsavefilename . 'SOG files (*.sog)' 2>/dev/null";
+
+        const std::string result = runDialogCommand(primary, fallback);
+        if (result.empty()) return {};
+
+        std::filesystem::path path(result);
+        if (path.extension() != ".sog") {
+            path += ".sog";
+        }
+        return path;
 #endif
     }
 

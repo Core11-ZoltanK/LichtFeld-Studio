@@ -397,8 +397,9 @@ namespace lfs::loader {
                     host_sh0[i * sh0_dim1 * sh0_dim2 + 2] = meta.sh0_codebook[idx2];
 
                     // Decode opacity (inverse sigmoid)
-                    float opacity_norm = sh0_img[ti + 3] / 255.0f;
-                    // Clamp with a safer epsilon to prevent infinity
+                    // Alpha=1 encodes opacity=0 (prevents WebP discarding RGB)
+                    const uint8_t alpha = sh0_img[ti + 3];
+                    float opacity_norm = (alpha <= 1) ? 1e-5f : alpha / 255.0f;
                     opacity_norm = std::clamp(opacity_norm, 1e-5f, 1.0f - 1e-5f);
                     host_opacity[i] = std::log(opacity_norm / (1.0f - opacity_norm));
                 }
