@@ -318,13 +318,12 @@ namespace lfs::vis::gui {
             ImGui::DockBuilderAddNode(dockspace_id, dockspace_flags | ImGuiDockNodeFlags_DockSpace);
             ImGui::DockBuilderSetNodeSize(dockspace_id, main_viewport->WorkSize);
 
-            ImGuiID dock_id_left = ImGui::DockBuilderSplitNode(dockspace_id, ImGuiDir_Left, 0.25f, nullptr, &dockspace_id);
-            ImGuiID dock_id_right = ImGui::DockBuilderSplitNode(dockspace_id, ImGuiDir_Right, 0.2f, nullptr, &dockspace_id);
+            const ImGuiID dock_id_right = ImGui::DockBuilderSplitNode(
+                dockspace_id, ImGuiDir_Right, 0.25f, nullptr, &dockspace_id);
 
-            // Dock windows
-            ImGui::DockBuilderDockWindow("Rendering", dock_id_left);
             ImGui::DockBuilderDockWindow("Scene", dock_id_right);
-            ImGui::DockBuilderDockWindow("Training", dock_id_left);
+            ImGui::DockBuilderDockWindow("Rendering", dock_id_right);
+            ImGui::DockBuilderDockWindow("Training", dock_id_right);
 
             ImGui::DockBuilderFinish(dockspace_id);
         }
@@ -844,40 +843,32 @@ namespace lfs::vis::gui {
     }
 
     void GuiManager::updateViewportRegion() {
-        const ImGuiViewport* main_viewport = ImGui::GetMainViewport();
+        const ImGuiViewport* vp = ImGui::GetMainViewport();
 
-        // Start with full window
-        float left = 0;
-        float top = 0;
-        float right = main_viewport->WorkSize.x;
-        float bottom = main_viewport->WorkSize.y;
+        float left = 0.0f;
+        float right = vp->WorkSize.x;
+        const float center_x = vp->WorkSize.x * 0.5f;
 
-        // Find our docked windows and calculate the remaining space
-        ImGuiWindow* rendering_window = ImGui::FindWindowByName("Rendering");
-        ImGuiWindow* training_window = ImGui::FindWindowByName("Training");
-        ImGuiWindow* scene_window = ImGui::FindWindowByName("Scene");
+        const auto adjustForPanel = [&, vp, center_x](const char* name) {
+            const ImGuiWindow* w = ImGui::FindWindowByName(name);
+            if (!w || !w->DockNode || !w->Active) return;
 
-        // Check both left-side panels
-        if (rendering_window && rendering_window->DockNode && rendering_window->Active) {
-            float panel_right = rendering_window->Pos.x + rendering_window->Size.x - main_viewport->WorkPos.x;
-            left = std::max(left, panel_right);
-        }
+            const float panel_left = w->Pos.x - vp->WorkPos.x;
+            const float panel_right = panel_left + w->Size.x;
 
-        if (training_window && training_window->DockNode && training_window->Active) {
-            float panel_right = training_window->Pos.x + training_window->Size.x - main_viewport->WorkPos.x;
-            left = std::max(left, panel_right);
-        }
+            if (panel_right < center_x) {
+                left = std::max(left, panel_right);
+            } else if (panel_left > center_x) {
+                right = std::min(right, panel_left);
+            }
+        };
 
-        if (scene_window && scene_window->DockNode && scene_window->Active) {
-            // Scene panel is on the right
-            float panel_left = scene_window->Pos.x - main_viewport->WorkPos.x;
-            right = std::min(right, panel_left);
-        }
+        adjustForPanel("Rendering");
+        adjustForPanel("Training");
+        adjustForPanel("Scene");
 
-        // Store in actual window coordinates (not relative to work area)
-        // WorkPos accounts for the menu bar offset
-        viewport_pos_ = ImVec2(left + main_viewport->WorkPos.x, top + main_viewport->WorkPos.y);
-        viewport_size_ = ImVec2(right - left, bottom - top);
+        viewport_pos_ = ImVec2(left + vp->WorkPos.x, vp->WorkPos.y);
+        viewport_size_ = ImVec2(right - left, vp->WorkSize.y);
     }
 
     void GuiManager::updateViewportFocus() {
