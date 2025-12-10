@@ -69,6 +69,13 @@ namespace lfs::rendering {
             const glm::vec2& viewport_pos,
             const glm::vec2& viewport_size) override;
 
+        int hitTestViewportGizmo(
+            const glm::vec2& click_pos,
+            const glm::vec2& viewport_pos,
+            const glm::vec2& viewport_size) const override;
+
+        void setViewportGizmoHover(int axis) override;
+
         Result<void> renderTranslationGizmo(
             const glm::vec3& position,
             const ViewportData& viewport,

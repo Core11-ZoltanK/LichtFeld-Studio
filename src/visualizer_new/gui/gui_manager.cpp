@@ -31,6 +31,7 @@
 #include "tools/brush_tool.hpp"
 #include "tools/selection_tool.hpp"
 #include "rendering/rendering_manager.hpp"
+#include "rendering_new/rendering.hpp"
 #include "scene/scene.hpp"
 #include "scene/scene_manager.hpp"
 #include "theme/theme.hpp"
@@ -717,18 +718,58 @@ namespace lfs::vis::gui {
             renderStatusBar(ctx);
         }
 
-        // Render viewport gizmo BEFORE focus indicator - always render regardless of focus
+        // Render viewport gizmo and handle drag-to-orbit
         if (show_viewport_gizmo_ && !ui_hidden_ && viewport_size_.x > 0 && viewport_size_.y > 0) {
             if (rendering_manager) {
-                auto* engine = rendering_manager->getRenderingEngine();
-                if (engine) {
-                    const auto& viewport = viewer_->getViewport();
-                    glm::mat3 camera_rotation = viewport.getRotationMatrix();
+                if (auto* const engine = rendering_manager->getRenderingEngine()) {
+                    auto& viewport = viewer_->getViewport();
+                    const glm::vec2 vp_pos(viewport_pos_.x, viewport_pos_.y);
+                    const glm::vec2 vp_size(viewport_size_.x, viewport_size_.y);
 
-                    engine->renderViewportGizmo(
-                        camera_rotation,
-                        glm::vec2(viewport_pos_.x, viewport_pos_.y),
-                        glm::vec2(viewport_size_.x, viewport_size_.y));
+                    // Gizmo bounds (lower-right corner)
+                    const float gizmo_x = vp_pos.x + vp_size.x - VIEWPORT_GIZMO_SIZE - VIEWPORT_GIZMO_MARGIN_X;
+                    const float gizmo_y = vp_pos.y + vp_size.y - VIEWPORT_GIZMO_SIZE - VIEWPORT_GIZMO_MARGIN_Y;
+
+                    const ImVec2 mouse = ImGui::GetMousePos();
+                    const bool mouse_in_gizmo = mouse.x >= gizmo_x && mouse.x <= gizmo_x + VIEWPORT_GIZMO_SIZE &&
+                                                mouse.y >= gizmo_y && mouse.y <= gizmo_y + VIEWPORT_GIZMO_SIZE;
+
+                    // Update hover highlighting
+                    const int hovered_axis = engine->hitTestViewportGizmo(glm::vec2(mouse.x, mouse.y), vp_pos, vp_size);
+                    engine->setViewportGizmoHover(hovered_axis);
+
+                    // Handle drag-to-orbit
+                    if (!ImGui::GetIO().WantCaptureMouse) {
+                        const glm::vec2 mouse_pos(mouse.x, mouse.y);
+                        const float time = static_cast<float>(ImGui::GetTime());
+
+                        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && mouse_in_gizmo) {
+                            viewport_gizmo_dragging_ = true;
+                            viewport.camera.startRotateAroundCenter(mouse_pos, time);
+                        }
+
+                        if (viewport_gizmo_dragging_) {
+                            if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+                                viewport.camera.updateRotateAroundCenter(mouse_pos, time);
+                                rendering_manager->markDirty();
+                            } else {
+                                viewport.camera.endRotateAroundCenter();
+                                viewport_gizmo_dragging_ = false;
+                            }
+                        }
+                    }
+
+                    engine->renderViewportGizmo(viewport.getRotationMatrix(), vp_pos, vp_size);
+
+                    // Drag feedback overlay
+                    if (viewport_gizmo_dragging_) {
+                        const float center_x = gizmo_x + VIEWPORT_GIZMO_SIZE * 0.5f;
+                        const float center_y = gizmo_y + VIEWPORT_GIZMO_SIZE * 0.5f;
+                        constexpr float OVERLAY_RADIUS_SCALE = 0.48f;
+                        ImGui::GetBackgroundDrawList()->AddCircleFilled(
+                            ImVec2(center_x, center_y), VIEWPORT_GIZMO_SIZE * OVERLAY_RADIUS_SCALE,
+                            IM_COL32(180, 180, 180, 51), 32);
+                    }
                 }
             }
         }
@@ -807,6 +848,16 @@ namespace lfs::vis::gui {
                 rel_x < viewport_pos_.x + viewport_size_.x &&
                 rel_y >= viewport_pos_.y &&
                 rel_y < viewport_pos_.y + viewport_size_.y);
+    }
+
+    bool GuiManager::isPositionInViewportGizmo(const double x, const double y) const {
+        if (!show_viewport_gizmo_ || ui_hidden_) return false;
+
+        const float gizmo_x = viewport_pos_.x + viewport_size_.x - VIEWPORT_GIZMO_SIZE - VIEWPORT_GIZMO_MARGIN_X;
+        const float gizmo_y = viewport_pos_.y + viewport_size_.y - VIEWPORT_GIZMO_SIZE - VIEWPORT_GIZMO_MARGIN_Y;
+
+        return x >= gizmo_x && x <= gizmo_x + VIEWPORT_GIZMO_SIZE &&
+               y >= gizmo_y && y <= gizmo_y + VIEWPORT_GIZMO_SIZE;
     }
 
     void GuiManager::renderStatusBar(const UIContext& ctx) {

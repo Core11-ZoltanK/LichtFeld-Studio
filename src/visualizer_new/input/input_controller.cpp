@@ -260,6 +260,7 @@ namespace lfs::vis {
         }
 
         const bool over_gui = ImGui::GetIO().WantCaptureMouse;
+        const bool over_gizmo = gui_manager_ && gui_manager_->isPositionInViewportGizmo(x, y);
 
         // Single binding lookup with current tool mode
         const int mods = getModifierKeys();
@@ -334,7 +335,8 @@ namespace lfs::vis {
             case input::Action::SELECTION_REPLACE:
             case input::Action::SELECTION_ADD:
             case input::Action::SELECTION_REMOVE:
-                if (!over_gui && tool_context_) {
+                // Skip selection if clicking on viewport gizmo
+                if (!over_gui && !over_gizmo && tool_context_) {
                     if (selection_tool_ && selection_tool_->isEnabled()) {
                         if (selection_tool_->handleMouseButton(button, action, mods, x, y, *tool_context_)) {
                             drag_mode_ = DragMode::Brush;
@@ -366,7 +368,7 @@ namespace lfs::vis {
                 const bool has_node_binding = (pick_action == input::Action::NODE_PICK ||
                                                drag_action == input::Action::NODE_RECT_SELECT);
 
-                if (!over_gui && button == GLFW_MOUSE_BUTTON_LEFT && tool_context_ &&
+                if (!over_gui && !over_gizmo && button == GLFW_MOUSE_BUTTON_LEFT && tool_context_ &&
                     !ImGuizmo::IsOver() && !ImGuizmo::IsUsing() && has_node_binding) {
                     is_node_rect_dragging_ = true;
                     node_rect_start_ = glm::vec2(static_cast<float>(x), static_cast<float>(y));
@@ -557,7 +559,9 @@ namespace lfs::vis {
             }
         }
 
-        if (selection_tool_ && selection_tool_->isEnabled() && tool_context_) {
+        // Skip selection if viewport gizmo is being dragged
+        const bool gizmo_dragging = gui_manager_ && gui_manager_->isViewportGizmoDragging();
+        if (selection_tool_ && selection_tool_->isEnabled() && tool_context_ && !gizmo_dragging) {
             if (drag_mode_ == DragMode::Brush) {
                 selection_tool_->handleMouseMove(x, y, *tool_context_);
                 last_mouse_pos_ = {x, y};

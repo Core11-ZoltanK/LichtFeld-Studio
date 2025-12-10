@@ -70,6 +70,7 @@ namespace lfs::vis {
         RenderingManager* getRenderingManager() { return rendering_manager_.get(); }
         gui::GuiManager* getGuiManager() { return gui_manager_.get(); }
         const Viewport& getViewport() const { return viewport_; }
+        Viewport& getViewport() { return viewport_; }
 
         // FPS monitoring
         [[nodiscard]] float getCurrentFPS() const {

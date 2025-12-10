@@ -311,6 +311,18 @@ namespace lfs::rendering {
             const glm::vec2& viewport_pos,
             const glm::vec2& viewport_size) = 0;
 
+        // Hit-test viewport gizmo spheres (returns 0=X, 1=Y, 2=Z, or -1)
+        virtual int hitTestViewportGizmo(
+            const glm::vec2& click_pos,
+            const glm::vec2& viewport_pos,
+            const glm::vec2& viewport_size) const = 0;
+
+        // Set hovered axis for highlighting (-1 for none)
+        virtual void setViewportGizmoHover(int axis) = 0;
+
+        // Get camera rotation matrix to view along axis
+        [[nodiscard]] static glm::mat3 getAxisViewRotation(int axis, bool negative = false);
+
         // Translation gizmo rendering
         virtual Result<void> renderTranslationGizmo(
             const glm::vec3& position,

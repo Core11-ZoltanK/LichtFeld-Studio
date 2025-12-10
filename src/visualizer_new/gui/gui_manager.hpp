@@ -67,6 +67,8 @@ namespace lfs::vis {
             bool isMouseInViewport() const;
             bool isViewportFocused() const;
             bool isPositionInViewport(double x, double y) const;
+            bool isViewportGizmoDragging() const { return viewport_gizmo_dragging_; }
+            bool isPositionInViewportGizmo(double x, double y) const;
 
             // Crop box gizmo state access
             void setCropGizmoOperation(ImGuizmo::OPERATION op) { crop_gizmo_operation_ = op; }
@@ -129,9 +131,14 @@ namespace lfs::vis {
 
             // Right panel state
             float right_panel_width_ = 300.0f;
-            float scene_panel_ratio_ = 0.4f;  // Scene 40%, Rendering 60%
+            float scene_panel_ratio_ = 0.4f;
             static constexpr float RIGHT_PANEL_MIN_WIDTH = 200.0f;
             static constexpr float RIGHT_PANEL_MAX_WIDTH = 600.0f;
+
+            // Viewport gizmo layout (must match ViewportGizmo settings)
+            static constexpr float VIEWPORT_GIZMO_SIZE = 95.0f;
+            static constexpr float VIEWPORT_GIZMO_MARGIN_X = 10.0f;
+            static constexpr float VIEWPORT_GIZMO_MARGIN_Y = 35.0f;
 
             // Crop box gizmo state (shared between panel and rendering)
             ImGuizmo::OPERATION crop_gizmo_operation_ = ImGuizmo::TRANSLATE;
@@ -183,6 +190,9 @@ namespace lfs::vis {
 
             bool focus_training_panel_ = false;
             bool ui_hidden_ = false;
+
+            // Viewport gizmo drag-to-orbit state
+            bool viewport_gizmo_dragging_ = false;
 
             // Async export state
             struct ExportState {

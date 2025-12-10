@@ -477,6 +477,25 @@ namespace lfs::rendering {
         return viewport_gizmo_.render(camera_rotation, viewport_pos, viewport_size);
     }
 
+    int RenderingEngineImpl::hitTestViewportGizmo(
+        const glm::vec2& click_pos,
+        const glm::vec2& viewport_pos,
+        const glm::vec2& viewport_size) const {
+
+        if (const auto axis = viewport_gizmo_.hitTest(click_pos, viewport_pos, viewport_size)) {
+            return static_cast<int>(*axis);
+        }
+        return -1;
+    }
+
+    void RenderingEngineImpl::setViewportGizmoHover(const int axis) {
+        if (axis >= 0 && axis <= 2) {
+            viewport_gizmo_.setHoveredAxis(static_cast<GizmoAxis>(axis));
+        } else {
+            viewport_gizmo_.setHoveredAxis(std::nullopt);
+        }
+    }
+
     Result<void> RenderingEngineImpl::renderTranslationGizmo(
         [[maybe_unused]] const glm::vec3& position,
         [[maybe_unused]] const ViewportData& viewport,

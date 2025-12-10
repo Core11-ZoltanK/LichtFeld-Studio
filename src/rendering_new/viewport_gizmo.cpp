@@ -16,7 +16,7 @@
 
 namespace lfs::rendering {
 
-    constexpr glm::vec3 ViewportGizmo::colors_[];
+    constexpr glm::vec3 ViewportGizmo::AXIS_COLORS[];
 
     ViewportGizmo::ViewportGizmo() = default;
     ViewportGizmo::~ViewportGizmo() = default;
@@ -203,9 +203,10 @@ namespace lfs::rendering {
         // Use RAII for OpenGL state management
         GLStateGuard state_guard;
 
-        // Calculate gizmo position (upper right of viewport)
-        int gizmo_x = static_cast<int>(viewport_pos.x + viewport_size.x - size_ - margin_);
-        int gizmo_y = static_cast<int>(viewport_pos.y + margin_);
+        // Calculate gizmo position (lower right of viewport)
+        // GL uses Y=0 at bottom, so gizmo_y is margin_y_ from bottom of window
+        const int gizmo_x = static_cast<int>(viewport_pos.x + viewport_size.x - size_ - margin_x_);
+        const int gizmo_y = static_cast<int>(margin_y_);
 
         // Set gizmo viewport
         glViewport(gizmo_x, gizmo_y, size_, size_);
@@ -260,7 +261,7 @@ namespace lfs::rendering {
                 return result;
             if (auto result = s->set("uModel", model); !result)
                 return result;
-            if (auto result = s->set("uColor", colors_[i]); !result)
+            if (auto result = s->set("uColor", AXIS_COLORS[i]); !result)
                 return result;
             if (auto result = s->set("uAlpha", 1.0f); !result)
                 return result;
@@ -292,14 +293,20 @@ namespace lfs::rendering {
             float dist = glm::length(camSpacePos);
             float scaleFactor = dist / refDist;
 
+            // Highlight hovered sphere (scale up slightly and brighten)
+            const bool is_hovered = hovered_axis_.has_value() && static_cast<int>(*hovered_axis_) == i;
+            const float hover_scale = is_hovered ? 1.2f : 1.0f;
+            const float hover_brightness = is_hovered ? 1.3f : 1.0f;
+
             glm::mat4 model = glm::translate(glm::mat4(1), labelPos) *
-                              glm::scale(glm::mat4(1), glm::vec3(sphereRadius * scaleFactor));
+                              glm::scale(glm::mat4(1), glm::vec3(sphereRadius * scaleFactor * hover_scale));
             glm::mat4 mvp = proj * view * model;
             if (auto result = s->set("uMVP", mvp); !result)
                 return result;
             if (auto result = s->set("uModel", glm::mat4(1.0f)); !result)
                 return result;
-            if (auto result = s->set("uColor", colors_[i]); !result)
+            const glm::vec3 color = glm::min(AXIS_COLORS[i] * hover_brightness, glm::vec3(1.0f));
+            if (auto result = s->set("uColor", color); !result)
                 return result;
             if (auto result = s->set("uAlpha", 1.0f); !result)
                 return result;
@@ -319,8 +326,16 @@ namespace lfs::rendering {
                 sphereInfo[i].depth = clipPos.z / clipPos.w;
                 sphereInfo[i].index = i;
                 sphereInfo[i].visible = true;
+
+                // Store for hit-testing (convert GL coords to ImGui coords: imgui_y = window_height - gl_y)
+                sphere_hits_[i].screen_pos = glm::vec2(
+                    sphereInfo[i].screenPos.x,
+                    viewport_pos.y + viewport_size.y - sphereInfo[i].screenPos.y);
+                sphere_hits_[i].radius = sphereRadius * scaleFactor * size_ * 0.5f;
+                sphere_hits_[i].visible = true;
             } else {
                 sphereInfo[i].visible = false;
+                sphere_hits_[i].visible = false;
             }
         }
 
@@ -382,7 +397,7 @@ namespace lfs::rendering {
                             glm::mat4 jMvp = proj * view * jModel;
                             s->set("uMVP", jMvp);
                             s->set("uModel", glm::mat4(1.0f));
-                            s->set("uColor", colors_[jdx]);
+                            s->set("uColor", AXIS_COLORS[jdx]);
                             s->set("uAlpha", 1.0f);
                             s->set("uUseLighting", 0);
                             glDrawArrays(GL_TRIANGLES, sphere_vertex_start_, sphere_vertex_count_);
@@ -431,6 +446,56 @@ namespace lfs::rendering {
 
         // State automatically restored by GLStateGuard destructor
         return {};
+    }
+
+    std::optional<GizmoAxis> ViewportGizmo::hitTest(const glm::vec2& click_pos,
+                                                     const glm::vec2& viewport_pos,
+                                                     const glm::vec2& viewport_size) const {
+        if (!initialized_) return std::nullopt;
+
+        // Gizmo bounds (lower-right corner in ImGui coords)
+        const float gizmo_x = viewport_pos.x + viewport_size.x - size_ - margin_x_;
+        const float gizmo_y = viewport_pos.y + viewport_size.y - size_ - margin_y_;
+
+        // Early out if outside gizmo bounds
+        if (click_pos.x < gizmo_x || click_pos.x > gizmo_x + size_ ||
+            click_pos.y < gizmo_y || click_pos.y > gizmo_y + size_) {
+            return std::nullopt;
+        }
+
+        // Check sphere hits with expanded radius for easier clicking
+        constexpr float HIT_RADIUS_SCALE = 2.5f;
+        for (int i = 0; i < 3; ++i) {
+            if (!sphere_hits_[i].visible) continue;
+
+            const float dx = click_pos.x - sphere_hits_[i].screen_pos.x;
+            const float dy = click_pos.y - sphere_hits_[i].screen_pos.y;
+            const float hit_radius = sphere_hits_[i].radius * HIT_RADIUS_SCALE;
+
+            if (dx * dx + dy * dy <= hit_radius * hit_radius) {
+                return static_cast<GizmoAxis>(i);
+            }
+        }
+
+        return std::nullopt;
+    }
+
+    glm::mat3 ViewportGizmo::getAxisViewRotation(const GizmoAxis axis, const bool negative) {
+        const float sign = negative ? -1.0f : 1.0f;
+        const glm::vec3 origin{0.0f};
+        const glm::vec3 up_y{0.0f, 1.0f, 0.0f};
+
+        switch (axis) {
+            case GizmoAxis::X:
+                return glm::mat3(glm::lookAt(glm::vec3(sign, 0.0f, 0.0f), origin, up_y));
+            case GizmoAxis::Y:
+                return glm::mat3(glm::lookAt(glm::vec3(0.0f, sign, 0.0f), origin,
+                                             glm::vec3(0.0f, 0.0f, negative ? 1.0f : -1.0f)));
+            case GizmoAxis::Z:
+                return glm::mat3(glm::lookAt(glm::vec3(0.0f, 0.0f, sign), origin, up_y));
+            default:
+                return glm::mat3(1.0f);
+        }
     }
 
 } // namespace lfs::rendering
