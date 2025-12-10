@@ -22,6 +22,7 @@ add_library(lfs_visualizer STATIC
 
         # GUI system
         gui/gui_manager.cpp
+        gui/html_viewer_export.cpp
         gui/ui_widgets.cpp
         gui/panels/main_panel.cpp
         gui/panels/training_panel.cpp

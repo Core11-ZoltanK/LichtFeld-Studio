@@ -54,6 +54,9 @@ namespace lfs::vis::gui {
                     if (ImGui::MenuItem("SOG (SuperSplat)") && on_export_sog_) {
                         on_export_sog_();
                     }
+                    if (ImGui::MenuItem("HTML Viewer") && on_export_html_) {
+                        on_export_html_();
+                    }
                     ImGui::EndMenu();
                 }
                 ImGui::Separator();
@@ -408,6 +411,10 @@ namespace lfs::vis::gui {
 
     void MenuBar::setOnExportSOG(std::function<void()> callback) {
         on_export_sog_ = std::move(callback);
+    }
+
+    void MenuBar::setOnExportHtml(std::function<void()> callback) {
+        on_export_html_ = std::move(callback);
     }
 
     void MenuBar::setOnExit(std::function<void()> callback) {

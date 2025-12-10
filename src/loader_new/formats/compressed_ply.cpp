@@ -542,12 +542,11 @@ namespace lfs::loader {
                                 max_scale[j] = std::max(max_scale[j], scales[orig_idx * 3 + j]);
                             }
 
-                            // Convert SH0 to RGB [0,1]
+                            // Use raw f_dc (SH0) values - viewer does the conversion
                             for (int j = 0; j < 3; ++j) {
-                                float rgb = sh0[orig_idx * 3 + j] * SH_C0 + 0.5f;
-                                rgb = std::clamp(rgb, 0.0f, 1.0f);
-                                min_color[j] = std::min(min_color[j], rgb);
-                                max_color[j] = std::max(max_color[j], rgb);
+                                float f_dc = sh0[orig_idx * 3 + j];
+                                min_color[j] = std::min(min_color[j], f_dc);
+                                max_color[j] = std::max(max_color[j], f_dc);
                             }
                         }
 
@@ -583,13 +582,10 @@ namespace lfs::loader {
                             float sy = (scales[orig_idx * 3 + 1] - min_scale[1]) / (max_scale[1] - min_scale[1]);
                             float sz = (scales[orig_idx * 3 + 2] - min_scale[2]) / (max_scale[2] - min_scale[2]);
 
-                            // Convert SH0 to RGB and normalize
-                            float cr = sh0[orig_idx * 3 + 0] * SH_C0 + 0.5f;
-                            float cg = sh0[orig_idx * 3 + 1] * SH_C0 + 0.5f;
-                            float cb = sh0[orig_idx * 3 + 2] * SH_C0 + 0.5f;
-                            cr = (std::clamp(cr, 0.0f, 1.0f) - min_color[0]) / (max_color[0] - min_color[0]);
-                            cg = (std::clamp(cg, 0.0f, 1.0f) - min_color[1]) / (max_color[1] - min_color[1]);
-                            cb = (std::clamp(cb, 0.0f, 1.0f) - min_color[2]) / (max_color[2] - min_color[2]);
+                            // Use raw f_dc values normalized to chunk range
+                            float cr = (sh0[orig_idx * 3 + 0] - min_color[0]) / (max_color[0] - min_color[0]);
+                            float cg = (sh0[orig_idx * 3 + 1] - min_color[1]) / (max_color[1] - min_color[1]);
+                            float cb = (sh0[orig_idx * 3 + 2] - min_color[2]) / (max_color[2] - min_color[2]);
 
                             // Get opacity (already sigmoid)
                             float op = std::clamp(opacity[orig_idx], 0.0f, 1.0f);
@@ -658,9 +654,10 @@ namespace lfs::loader {
             header << "property uint packed_color\n";
 
             if (!sh_data.empty()) {
-                header << "element sh " << (shN_coeffs * 3) << "\n";
+                // Element count is number of splats, not coefficient count!
+                header << "element sh " << N << "\n";
                 for (int j = 0; j < shN_coeffs * 3; ++j) {
-                    header << "property uchar sh_" << j << "\n";
+                    header << "property uchar f_rest_" << j << "\n";
                 }
             }
 

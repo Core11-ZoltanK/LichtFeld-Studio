@@ -258,6 +258,9 @@ namespace lfs::vis::gui {
                 if (ImGui::MenuItem("SOG (SuperSplat)")) {
                     cmd::ExportAllMergedAs{.format = ExportFormat::SOG}.emit();
                 }
+                if (ImGui::MenuItem("HTML Viewer")) {
+                    cmd::ExportAllMergedAs{.format = ExportFormat::HTML_VIEWER}.emit();
+                }
                 ImGui::EndMenu();
             }
             ImGui::EndPopup();
@@ -554,6 +557,9 @@ namespace lfs::vis::gui {
                     }
                     if (ImGui::MenuItem("SOG (SuperSplat)")) {
                         cmd::ExportNodeAs{.name = node.name, .format = ExportFormat::SOG}.emit();
+                    }
+                    if (ImGui::MenuItem("HTML Viewer")) {
+                        cmd::ExportNodeAs{.name = node.name, .format = ExportFormat::HTML_VIEWER}.emit();
                     }
                     ImGui::EndMenu();
                 }

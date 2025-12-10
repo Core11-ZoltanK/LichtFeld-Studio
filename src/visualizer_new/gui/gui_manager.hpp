@@ -192,6 +192,7 @@ namespace lfs::vis {
 
             void renderExportOverlay();
             void startAsyncSOGExport(const std::filesystem::path& path);
+            void startAsyncHtmlExport(const std::filesystem::path& path);
             void cancelExport();
             bool isExporting() const { return export_state_.active.load(); }
         };

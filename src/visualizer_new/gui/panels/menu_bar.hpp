@@ -26,6 +26,7 @@ namespace lfs::vis::gui {
         void setOnExportPLY(std::function<void()> callback);
         void setOnExportCompressedPLY(std::function<void()> callback);
         void setOnExportSOG(std::function<void()> callback);
+        void setOnExportHtml(std::function<void()> callback);
         void setOnExit(std::function<void()> callback);
 
         void renderGettingStartedWindow();
@@ -58,6 +59,7 @@ namespace lfs::vis::gui {
         std::function<void()> on_export_ply_;
         std::function<void()> on_export_compressed_ply_;
         std::function<void()> on_export_sog_;
+        std::function<void()> on_export_html_;
         std::function<void()> on_exit_;
 
         bool show_about_window_ = false;

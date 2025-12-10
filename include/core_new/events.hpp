@@ -17,7 +17,7 @@ namespace lfs::core {
     class Scene;
 
     // Export format enum
-    enum class ExportFormat { PLY, COMPRESSED_PLY, SOG };
+    enum class ExportFormat { PLY, COMPRESSED_PLY, SOG, HTML_VIEWER };
 
 // Clean event macro - uses lfs::core::event::bus()
 #define EVENT(Name, ...)                                   \

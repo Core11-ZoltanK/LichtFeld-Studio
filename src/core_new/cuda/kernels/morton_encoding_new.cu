@@ -16,23 +16,29 @@
 
 namespace lfs::core {
 
-    __device__ __forceinline__ uint64_t splitBy3(uint32_t a) {
-        uint64_t x = a & 0x1fffff;
-        x = (x | x << 32) & 0x1f00000000ffff;
-        x = (x | x << 16) & 0x1f0000ff0000ff;
-        x = (x | x << 8) & 0x100f00f00f00f00f;
-        x = (x | x << 4) & 0x10c30c30c30c30c3;
-        x = (x | x << 2) & 0x1249249249249249;
+    // Part1By2 from splat-transform - spreads bits for 10-bit input
+    // https://fgiesen.wordpress.com/2009/12/13/decoding-morton-codes/
+    __device__ __forceinline__ uint32_t Part1By2(uint32_t x) {
+        x &= 0x000003ff;                  // x = ---- ---- ---- ---- ---- --98 7654 3210
+        x = (x ^ (x << 16)) & 0xff0000ff; // x = ---- --98 ---- ---- ---- ---- 7654 3210
+        x = (x ^ (x <<  8)) & 0x0300f00f; // x = ---- --98 ---- ---- 7654 ---- ---- 3210
+        x = (x ^ (x <<  4)) & 0x030c30c3; // x = ---- --98 ---- 76-- --54 ---- 32-- --10
+        x = (x ^ (x <<  2)) & 0x09249249; // x = ---- 9--8 --7- -6-- 5--4 --3- -2-- 1--0
         return x;
     }
 
-    // Combined kernel that computes Morton codes given bbox parameters
+    // Morton encoding matching splat-transform exactly: Z-major order
+    __device__ __forceinline__ uint32_t encodeMorton3(uint32_t x, uint32_t y, uint32_t z) {
+        return (Part1By2(z) << 2) + (Part1By2(y) << 1) + Part1By2(x);
+    }
+
+    // Kernel that computes Morton codes matching splat-transform behavior
     __global__ void morton_encode_kernel(
         const float* __restrict__ positions,
         int64_t* __restrict__ morton_codes,
         const int n_positions,
         float min_x, float min_y, float min_z,
-        float cube_size) {
+        float xmul, float ymul, float zmul) {
 
         const int idx = blockIdx.x * blockDim.x + threadIdx.x;
         if (idx >= n_positions)
@@ -43,24 +49,16 @@ namespace lfs::core {
         const float y = positions[idx * 3 + 1];
         const float z = positions[idx * 3 + 2];
 
-        // Normalize to [0, 1] range
-        const double size = double(cube_size);
-        const double normalized_x = double(x - min_x) / size;
-        const double normalized_y = double(y - min_y) / size;
-        const double normalized_z = double(z - min_z) / size;
+        // Normalize to [0, 1023] range per-axis (matching splat-transform)
+        const uint32_t ix = min(1023u, static_cast<uint32_t>((x - min_x) * xmul));
+        const uint32_t iy = min(1023u, static_cast<uint32_t>((y - min_y) * ymul));
+        const uint32_t iz = min(1023u, static_cast<uint32_t>((z - min_z) * zmul));
 
-        // Scale to 21-bit integers (2^21 - 1 = 2097151)
-        constexpr double factor = 2097151.0;
-        const uint32_t ix = static_cast<uint32_t>(normalized_x * factor);
-        const uint32_t iy = static_cast<uint32_t>(normalized_y * factor);
-        const uint32_t iz = static_cast<uint32_t>(normalized_z * factor);
+        // Compute Morton code with Z-major order (matching splat-transform)
+        const uint32_t morton_code = encodeMorton3(ix, iy, iz);
 
-        // Compute Morton code by interleaving bits
-        const uint64_t morton_code = splitBy3(ix) | (splitBy3(iy) << 1) | (splitBy3(iz) << 2);
-
-        // Convert to signed int64 by adding int64_min for compatibility
-        constexpr int64_t int64_min = std::numeric_limits<int64_t>::min();
-        morton_codes[idx] = static_cast<int64_t>(morton_code) + int64_min;
+        // Store as int64 for sorting compatibility
+        morton_codes[idx] = static_cast<int64_t>(morton_code);
     }
 
     // Struct for computing min/max in a single pass using thrust
@@ -147,32 +145,32 @@ namespace lfs::core {
             init,
             minmax_op());
 
-        // Compute cube size (maximum range across all dimensions)
-        float range_x = bbox.max_val.x - bbox.min_val.x;
-        float range_y = bbox.max_val.y - bbox.min_val.y;
-        float range_z = bbox.max_val.z - bbox.min_val.z;
-        float cube_size = fmaxf(fmaxf(range_x, range_y), range_z);
+        // Compute per-axis multipliers (matching splat-transform)
+        float xlen = bbox.max_val.x - bbox.min_val.x;
+        float ylen = bbox.max_val.y - bbox.min_val.y;
+        float zlen = bbox.max_val.z - bbox.min_val.z;
 
-        // Add small epsilon to avoid division by zero
-        cube_size = fmaxf(cube_size, 1e-7f);
+        // Handle degenerate cases (matching splat-transform)
+        float xmul = (xlen == 0.0f) ? 0.0f : 1024.0f / xlen;
+        float ymul = (ylen == 0.0f) ? 0.0f : 1024.0f / ylen;
+        float zmul = (zlen == 0.0f) ? 0.0f : 1024.0f / zlen;
 
         // Allocate output tensor for Morton codes
         auto morton_codes = Tensor::empty({static_cast<size_t>(n_positions)},
                                           Device::CUDA,
                                           DataType::Int64);
 
-        // Launch kernel
-        constexpr int block_size = 256;
-        const int grid_size = (n_positions + block_size - 1) / block_size;
+        constexpr int BLOCK_SIZE = 256;
+        const int grid_size = (n_positions + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
-        morton_encode_kernel<<<grid_size, block_size>>>(
+        morton_encode_kernel<<<grid_size, BLOCK_SIZE>>>(
             positions.ptr<float>(),
             morton_codes.ptr<int64_t>(),
             n_positions,
             bbox.min_val.x,
             bbox.min_val.y,
             bbox.min_val.z,
-            cube_size);
+            xmul, ymul, zmul);
 
         // Check for CUDA errors
         cudaError_t err = cudaGetLastError();

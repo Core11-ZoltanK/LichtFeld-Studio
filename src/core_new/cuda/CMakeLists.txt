@@ -11,6 +11,7 @@ set(LFS_CORE_CUDA_SOURCES
     memory_arena.cu
     lanczos_resize/lanczos_resize.cu
     kernels/kmeans_new.cu
+    kernels/kdtree_kmeans.cu
     kernels/morton_encoding_new.cu
 )
 
@@ -26,11 +27,15 @@ target_include_directories(lfs_core_cuda
         ${CMAKE_SOURCE_DIR}/src/core_new/tensor/internal  # For memory_pool.hpp and other internal headers
 )
 
+find_package(OpenMP REQUIRED)
+
 target_link_libraries(lfs_core_cuda
     PUBLIC
         lfs_tensor      # Tensor library needed by lanczos_resize and kernels
         CUDA::cudart
         CUDA::cuda_driver  # For VMM support in memory_arena
+        CUDA::cublas      # For k-means gemm optimization
+        OpenMP::OpenMP_CXX  # For parallel k-means
 )
 
 set_target_properties(lfs_core_cuda PROPERTIES

@@ -2,7 +2,9 @@
  * SPDX-License-Identifier: GPL-3.0-or-later */
 
 #include "core/logger.hpp"
+#include "core_new/logger.hpp"
 #include "core_new/pinned_memory_allocator.hpp"
+#include <cstdlib>
 #include "core_new/tensor/internal/memory_pool.hpp"
 #include <gtest/gtest.h>
 #include <torch/torch.h>
@@ -61,8 +63,19 @@ public:
 };
 
 int main(int argc, char** argv) {
-    // Initialize logger with Info level
+    // Initialize loggers - check LOG_LEVEL env var
+    auto log_level = lfs::core::LogLevel::Info;
+    if (const char* env = std::getenv("LOG_LEVEL")) {
+        std::string level(env);
+        if (level == "trace") log_level = lfs::core::LogLevel::Trace;
+        else if (level == "debug") log_level = lfs::core::LogLevel::Debug;
+        else if (level == "info") log_level = lfs::core::LogLevel::Info;
+        else if (level == "perf") log_level = lfs::core::LogLevel::Performance;
+        else if (level == "warn") log_level = lfs::core::LogLevel::Warn;
+        else if (level == "error") log_level = lfs::core::LogLevel::Error;
+    }
     gs::core::Logger::get().init(gs::core::LogLevel::Info);
+    lfs::core::Logger::get().init(log_level);
 
     ::testing::InitGoogleTest(&argc, argv);
 

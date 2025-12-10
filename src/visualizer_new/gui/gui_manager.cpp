@@ -13,6 +13,7 @@
 #include "core_new/logger.hpp"
 #include "core_new/sogs.hpp"
 #include "core_new/splat_data_export.hpp"
+#include "gui/html_viewer_export.hpp"
 #include "loader_new/formats/compressed_ply.hpp"
 #include "project_new/project.hpp"
 #include "gui/panels/main_panel.hpp"
@@ -184,6 +185,15 @@ namespace lfs::vis::gui {
             if (path.empty()) return;
 
             startAsyncSOGExport(path);
+        });
+
+        menu_bar_->setOnExportHtml([this]() {
+            if (isExporting()) return;
+
+            const auto path = SaveHtmlFileDialog("export");
+            if (path.empty()) return;
+
+            startAsyncHtmlExport(path);
         });
 
         menu_bar_->setOnExit([this]() {
@@ -1151,6 +1161,16 @@ namespace lfs::vis::gui {
                 }
                 break;
             }
+            case ExportFormat::HTML_VIEWER: {
+                if (isExporting()) return;
+                const auto html_path = SaveHtmlFileDialog(e.name);
+                if (html_path.empty()) return;
+                const HtmlViewerExportOptions options{.output_path = html_path};
+                if (auto result = export_html_viewer(*node->model, options); !result) {
+                    LOG_ERROR("HTML viewer export failed: {}", result.error());
+                }
+                break;
+            }
             }
         });
 
@@ -1185,6 +1205,13 @@ namespace lfs::vis::gui {
                 const auto path = SaveSogFileDialog("merged");
                 if (path.empty()) return;
                 startAsyncSOGExport(path);
+                break;
+            }
+            case ExportFormat::HTML_VIEWER: {
+                if (isExporting()) return;
+                const auto html_path = SaveHtmlFileDialog("merged");
+                if (html_path.empty()) return;
+                startAsyncHtmlExport(html_path);
                 break;
             }
             }
@@ -1721,6 +1748,60 @@ namespace lfs::vis::gui {
                     export_state_.stage = "Complete";
                 } else {
                     LOG_ERROR("SOG export failed: {}", result.error());
+                    const std::lock_guard lock(export_state_.mutex);
+                    export_state_.error = result.error();
+                    export_state_.stage = "Failed";
+                }
+
+                export_state_.active.store(false);
+            });
+    }
+
+    void GuiManager::startAsyncHtmlExport(const std::filesystem::path& path) {
+        auto* const scene_manager = viewer_->getSceneManager();
+        if (!scene_manager) {
+            LOG_ERROR("No scene manager for export");
+            return;
+        }
+
+        auto merged = scene_manager->getScene().createMergedModelWithTransforms();
+        if (!merged) {
+            LOG_ERROR("No splat data to export");
+            return;
+        }
+
+        export_state_.active.store(true);
+        export_state_.cancel_requested.store(false);
+        export_state_.progress.store(0.0f);
+        {
+            const std::lock_guard lock(export_state_.mutex);
+            export_state_.stage = "Starting";
+            export_state_.error.clear();
+        }
+
+        auto splat_data = std::make_shared<lfs::core::SplatData>(std::move(*merged));
+        LOG_INFO("HTML viewer export started: {}", path.string());
+
+        export_state_.thread = std::make_unique<std::jthread>(
+            [this, path, splat_data](std::stop_token stop_token) {
+                const HtmlViewerExportOptions options{
+                    .output_path = path,
+                    .progress_callback = [this, &stop_token](float progress, const std::string& stage) {
+                        export_state_.progress.store(progress);
+                        {
+                            const std::lock_guard lock(export_state_.mutex);
+                            export_state_.stage = stage;
+                        }
+                    }
+                };
+
+                auto result = export_html_viewer(*splat_data, options);
+
+                if (result) {
+                    const std::lock_guard lock(export_state_.mutex);
+                    export_state_.stage = "Complete";
+                } else {
+                    LOG_ERROR("HTML viewer export failed: {}", result.error());
                     const std::lock_guard lock(export_state_.mutex);
                     export_state_.error = result.error();
                     export_state_.stage = "Failed";

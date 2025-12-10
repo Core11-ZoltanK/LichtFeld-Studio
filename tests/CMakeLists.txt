@@ -130,6 +130,7 @@ set(OPTIONAL_TEST_FILES
     test_tensor_cat_reduction_bug.cpp  # Tests for cat+reduction bug (min/max on concatenated tensors)
     test_compressed_ply.cpp  # Tests for compressed PLY format support
     test_sog_format.cpp  # Tests for SOG (SuperSplat Optimized Gaussian) format support
+    test_sog_html_export.cpp  # Consolidated SOG/HTML export regression tests
 )
 
 foreach(TEST_FILE ${OPTIONAL_TEST_FILES})
