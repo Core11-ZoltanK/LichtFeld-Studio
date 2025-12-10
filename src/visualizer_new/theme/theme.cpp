@@ -157,6 +157,9 @@ ImVec4 Theme::button_selected_hovered() const { return lighten(palette.primary, 
 ImVec4 Theme::toolbar_background() const { return withAlpha(palette.surface, TOOLBAR_BG_ALPHA); }
 ImVec4 Theme::subtoolbar_background() const { return withAlpha(darken(palette.surface, 0.03f), SUBTOOLBAR_BG_ALPHA); }
 
+ImU32 Theme::row_even_u32() const { return toU32(palette.row_even); }
+ImU32 Theme::row_odd_u32() const { return toU32(palette.row_odd); }
+
 // Global access
 const Theme& theme() {
     ensureInitialized();
@@ -267,6 +270,8 @@ const Theme DEFAULT_DARK = {
         .warning = {1.0f, 0.6f, 0.2f, 1.0f},
         .error = {0.9f, 0.3f, 0.3f, 1.0f},
         .info = {0.26f, 0.59f, 0.98f, 1.0f},
+        .row_even = {1.0f, 1.0f, 1.0f, 0.04f},
+        .row_odd = {0.0f, 0.0f, 0.0f, 0.15f},
     },
     .sizes = {},
     .fonts = {},
@@ -288,6 +293,8 @@ const Theme DEFAULT_LIGHT = {
         .warning = {0.85f, 0.5f, 0.1f, 1.0f},
         .error = {0.8f, 0.2f, 0.2f, 1.0f},
         .info = {0.15f, 0.5f, 0.85f, 1.0f},
+        .row_even = {0.0f, 0.0f, 0.0f, 0.04f},
+        .row_odd = {0.0f, 0.0f, 0.0f, 0.10f},
     },
     .sizes = {},
     .fonts = {},
@@ -398,6 +405,8 @@ bool saveTheme(const Theme& t, const std::string& path) {
         palette["warning"] = colorToJson(t.palette.warning);
         palette["error"] = colorToJson(t.palette.error);
         palette["info"] = colorToJson(t.palette.info);
+        palette["row_even"] = colorToJson(t.palette.row_even);
+        palette["row_odd"] = colorToJson(t.palette.row_odd);
 
         auto& sizes = j["sizes"];
         sizes["window_rounding"] = t.sizes.window_rounding;
@@ -461,6 +470,8 @@ bool loadTheme(Theme& t, const std::string& path) {
             if (p.contains("warning")) t.palette.warning = colorFromJson(p["warning"]);
             if (p.contains("error")) t.palette.error = colorFromJson(p["error"]);
             if (p.contains("info")) t.palette.info = colorFromJson(p["info"]);
+            if (p.contains("row_even")) t.palette.row_even = colorFromJson(p["row_even"]);
+            if (p.contains("row_odd")) t.palette.row_odd = colorFromJson(p["row_odd"]);
         }
 
         if (j.contains("sizes")) {

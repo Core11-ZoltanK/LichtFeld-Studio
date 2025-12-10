@@ -23,6 +23,8 @@ struct ThemePalette {
     ImVec4 warning;
     ImVec4 error;
     ImVec4 info;
+    ImVec4 row_even;
+    ImVec4 row_odd;
 };
 
 // Size configuration
@@ -105,6 +107,10 @@ struct Theme {
     // Toolbar
     [[nodiscard]] ImVec4 toolbar_background() const;
     [[nodiscard]] ImVec4 subtoolbar_background() const;
+
+    // Scene graph row colors
+    [[nodiscard]] ImU32 row_even_u32() const;
+    [[nodiscard]] ImU32 row_odd_u32() const;
 };
 
 // Global access

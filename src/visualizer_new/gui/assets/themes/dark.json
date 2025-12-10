@@ -42,7 +42,13 @@
     "_error":         "Errors, delete actions - Red",
 
     "info":           [0.26, 0.59, 0.98, 1.0],
-    "_info":          "Info messages, links - Blue"
+    "_info":          "Info messages, links - Blue",
+
+    "row_even":       [1.00, 1.00, 1.00, 0.04],
+    "_row_even":      "Scene graph even row tint",
+
+    "row_odd":        [0.00, 0.00, 0.00, 0.15],
+    "_row_odd":       "Scene graph odd row tint"
   },
 
   "sizes": {

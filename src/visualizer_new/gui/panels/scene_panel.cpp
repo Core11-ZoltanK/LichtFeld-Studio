@@ -308,14 +308,14 @@ namespace lfs::vis::gui {
 
         // Alternating row background
         const ImVec2 row_min = ImGui::GetCursorScreenPos();
-        const float row_width = ImGui::GetContentRegionAvail().x + ImGui::GetCursorPosX();
+        const float window_left = ImGui::GetWindowPos().x;
+        const float window_right = window_left + ImGui::GetWindowWidth();
         const float row_height = ImGui::GetTextLineHeight() + 2.0f;
-        if (m_rowIndex++ % 2 == 1) {
-            draw_list->AddRectFilled(
-                ImVec2(row_min.x - 2, row_min.y),
-                ImVec2(row_min.x + row_width, row_min.y + row_height),
-                toU32WithAlpha(t.palette.surface, 0.3f));
-        }
+        const ImU32 row_color = (m_rowIndex++ % 2 == 0) ? t.row_even_u32() : t.row_odd_u32();
+        draw_list->AddRectFilled(
+            ImVec2(window_left, row_min.y),
+            ImVec2(window_right, row_min.y + row_height),
+            row_color);
 
         // Visibility icon
         constexpr float ICON_SIZE = 12.0f;
