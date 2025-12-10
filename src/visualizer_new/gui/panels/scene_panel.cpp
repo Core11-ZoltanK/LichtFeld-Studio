@@ -150,13 +150,12 @@ namespace lfs::vis::gui {
 
         ImGui::End();
         ImGui::PopStyleColor();
-
-        if (m_showImagePreview && m_imagePreview) {
-            m_imagePreview->render(&m_showImagePreview);
-        }
     }
 
     void ScenePanel::renderContent(const UIContext* ctx) {
+        if (m_showImagePreview && m_imagePreview) {
+            m_imagePreview->render(&m_showImagePreview);
+        }
         if (hasPLYs(ctx)) {
             renderPLYSceneGraph(ctx);
         } else {
@@ -457,9 +456,14 @@ namespace lfs::vis::gui {
                 }
             }
 
-            // Double-click on camera opens image preview with arrow key navigation
-            if (is_camera && hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-                if (!node.image_path.empty() && m_imagePreview) {
+            // Double-click opens image preview
+            if (is_camera && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                const ImVec2 item_min = ImGui::GetItemRectMin();
+                const ImVec2 item_max = ImGui::GetItemRectMax();
+                const ImVec2 mouse = ImGui::GetMousePos();
+                const bool in_item = mouse.x >= item_min.x && mouse.x <= item_max.x &&
+                                     mouse.y >= item_min.y && mouse.y <= item_max.y;
+                if (in_item && !node.image_path.empty() && m_imagePreview) {
                     std::vector<std::filesystem::path> camera_paths;
                     size_t current_idx = 0;
 

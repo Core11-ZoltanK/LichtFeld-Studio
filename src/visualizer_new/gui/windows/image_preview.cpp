@@ -517,22 +517,25 @@ namespace lfs::vis::gui {
         // Check for preloaded images and convert to textures
         checkPreloadedImages();
 
-        // Window setup
-        ImGui::SetNextWindowSize(ImVec2(800, 600), ImGuiCond_FirstUseEver);
-        ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoScrollbar |
-                                        ImGuiWindowFlags_NoScrollWithMouse |
-                                        ImGuiWindowFlags_MenuBar;
+        // Initial size: half viewport, centered
+        const auto* vp = ImGui::GetMainViewport();
+        ImGui::SetNextWindowSize({vp->Size.x * 0.5f, vp->Size.y * 0.5f}, ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowPos({vp->Pos.x + vp->Size.x * 0.5f, vp->Pos.y + vp->Size.y * 0.5f},
+                                ImGuiCond_FirstUseEver, {0.5f, 0.5f});
 
-        // Use ### to keep stable window ID while changing display title
-        std::string title = "Image Preview###ImagePreview";
-        if (!image_paths_.empty()) {
-            title = std::format("Image Preview - {}/{} - {}###ImagePreview",
-                                current_index_ + 1,
-                                image_paths_.size(),
-                                image_paths_[current_index_].filename().string());
-        }
+        constexpr ImGuiWindowFlags WINDOW_FLAGS = ImGuiWindowFlags_NoScrollbar |
+                                                  ImGuiWindowFlags_NoScrollWithMouse |
+                                                  ImGuiWindowFlags_MenuBar;
 
-        if (!ImGui::Begin(title.c_str(), p_open, window_flags)) {
+        const std::string title = image_paths_.empty()
+            ? "Image Preview###ImagePreview"
+            : std::format("Image Preview - {}/{} - {}###ImagePreview",
+                          current_index_ + 1, image_paths_.size(),
+                          image_paths_[current_index_].filename().string());
+
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.15f, 0.15f, 0.17f, 1.0f));
+        if (!ImGui::Begin(title.c_str(), p_open, WINDOW_FLAGS)) {
+            ImGui::PopStyleColor();
             ImGui::End();
             return;
         }
@@ -581,12 +584,14 @@ namespace lfs::vis::gui {
         if (!load_error_.empty() && !current_texture_) {
             ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "Error: %s", load_error_.c_str());
             ImGui::End();
+            ImGui::PopStyleColor();
             return;
         }
 
         if (!current_texture_ || !current_texture_->texture.valid()) {
             ImGui::Text(is_loading_ ? "Loading..." : "No image loaded");
             ImGui::End();
+            ImGui::PopStyleColor();
             return;
         }
 
@@ -661,6 +666,7 @@ namespace lfs::vis::gui {
         }
 
         ImGui::End();
+        ImGui::PopStyleColor();
     }
 
 } // namespace lfs::vis::gui
