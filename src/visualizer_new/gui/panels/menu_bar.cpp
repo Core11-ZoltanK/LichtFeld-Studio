@@ -27,6 +27,10 @@ namespace lfs::vis::gui {
 
         if (ImGui::BeginMainMenuBar()) {
             if (ImGui::BeginMenu("File")) {
+                if (ImGui::MenuItem("New Project") && on_new_project_) {
+                    on_new_project_();
+                }
+                ImGui::Separator();
                 if (ImGui::MenuItem("Open Project") && on_open_project_) {
                     on_open_project_();
                 }
@@ -379,6 +383,10 @@ namespace lfs::vis::gui {
 
         ImGui::PopStyleColor(7);
         ImGui::PopStyleVar(3);
+    }
+
+    void MenuBar::setOnNewProject(std::function<void()> callback) {
+        on_new_project_ = std::move(callback);
     }
 
     void MenuBar::setOnImportDataset(std::function<void()> callback) {

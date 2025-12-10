@@ -94,6 +94,10 @@ namespace lfs::vis::gui {
     }
 
     void GuiManager::initMenuBar() {
+        menu_bar_->setOnNewProject([this]() {
+            viewer_->clearScene();
+        });
+
         menu_bar_->setOnImportDataset([this]() {
             window_states_["file_browser"] = true;
 #ifdef WIN32

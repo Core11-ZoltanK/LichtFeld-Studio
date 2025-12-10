@@ -18,6 +18,7 @@ namespace lfs::vis::gui {
 
         void render();
 
+        void setOnNewProject(std::function<void()> callback);
         void setOnImportDataset(std::function<void()> callback);
         void setOnOpenProject(std::function<void()> callback);
         void setOnImportPLY(std::function<void()> callback);
@@ -51,6 +52,7 @@ namespace lfs::vis::gui {
         void renderBindingRow(input::Action action, input::ToolMode mode);
         void updateCapture();
 
+        std::function<void()> on_new_project_;
         std::function<void()> on_import_dataset_;
         std::function<void()> on_open_project_;
         std::function<void()> on_import_ply_;
