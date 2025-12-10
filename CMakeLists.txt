@@ -376,13 +376,14 @@ endif()
 add_subdirectory(external)
 
 # =============================================================================
-# Kernel libs
+# Kernel libs (Legacy - require LibTorch, only built when BUILD_LEGACY=ON)
 # =============================================================================
-add_subdirectory(gsplat)
-add_subdirectory(src/training/fastgs)
-
-set_target_properties(gsplat_backend PROPERTIES CUDA_ARCHITECTURES "${LichtFeld-Studio_CUDA_ARCH}")
-set_target_properties(fastgs_backend PROPERTIES CUDA_ARCHITECTURES "${LichtFeld-Studio_CUDA_ARCH}")
+if(BUILD_LEGACY)
+    add_subdirectory(gsplat)
+    add_subdirectory(src/training/fastgs)
+    set_target_properties(gsplat_backend PROPERTIES CUDA_ARCHITECTURES "${LichtFeld-Studio_CUDA_ARCH}")
+    set_target_properties(fastgs_backend PROPERTIES CUDA_ARCHITECTURES "${LichtFeld-Studio_CUDA_ARCH}")
+endif()
 
 # =============================================================================
 # SHARED CUDA KERNELS (Legacy - only built when BUILD_LEGACY=ON)
@@ -701,8 +702,9 @@ if(BUILD_LEGACY)
     configure_build_type(gs_core)
     configure_build_type(gs_kernels)
     configure_build_type(gsplat_backend)
+    configure_build_type(fastgs_backend)
 endif()
-configure_build_type(fastgs_backend)
+configure_build_type(fastlfs_backend)
 configure_build_type(${PROJECT_NAME})
 
 # =============================================================================
