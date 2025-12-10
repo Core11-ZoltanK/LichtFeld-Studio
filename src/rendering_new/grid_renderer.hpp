@@ -31,7 +31,6 @@ namespace lfs::rendering {
         [[nodiscard]] GridPlane getPlane() const { return plane_; }
 
     private:
-        Result<void> createNoiseTexture();
         void computeFrustum(const glm::mat4& view_inv, float fov_y, float aspect,
                            glm::vec3& near_origin, glm::vec3& far_origin,
                            glm::vec3& far_x, glm::vec3& far_y) const;
@@ -39,7 +38,6 @@ namespace lfs::rendering {
         ManagedShader shader_;
         VAO vao_;
         VBO vbo_;
-        Texture noise_texture_;
 
         GridPlane plane_ = GridPlane::XZ;
         float opacity_ = 1.0f;

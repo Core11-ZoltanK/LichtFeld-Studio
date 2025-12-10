@@ -765,9 +765,9 @@ namespace lfs::vis::gui {
                     if (viewport_gizmo_dragging_) {
                         const float center_x = gizmo_x + VIEWPORT_GIZMO_SIZE * 0.5f;
                         const float center_y = gizmo_y + VIEWPORT_GIZMO_SIZE * 0.5f;
-                        constexpr float OVERLAY_RADIUS_SCALE = 0.48f;
+                        constexpr float OVERLAY_RADIUS = VIEWPORT_GIZMO_SIZE * 0.46f; // Match gizmo content + 2px
                         ImGui::GetBackgroundDrawList()->AddCircleFilled(
-                            ImVec2(center_x, center_y), VIEWPORT_GIZMO_SIZE * OVERLAY_RADIUS_SCALE,
+                            ImVec2(center_x, center_y), OVERLAY_RADIUS,
                             IM_COL32(180, 180, 180, 51), 32);
                     }
                 }

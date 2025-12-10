@@ -6,14 +6,10 @@
 #include "core_new/logger.hpp"
 #include "shader_paths.hpp"
 #include <cmath>
-#include <random>
-#include <vector>
 
 namespace lfs::rendering {
 
     namespace {
-        constexpr int NOISE_TEXTURE_SIZE = 32;
-        constexpr GLuint NOISE_TEXTURE_UNIT = 0;
         constexpr int QUAD_VERTEX_COUNT = 4;
     }
 
@@ -57,38 +53,7 @@ namespace lfs::rendering {
                            .divisor = 0});
         vao_ = builder.build();
 
-        if (auto result = createNoiseTexture(); !result)
-            return result;
-
         initialized_ = true;
-        return {};
-    }
-
-    Result<void> RenderInfiniteGrid::createNoiseTexture() {
-        std::vector<float> noise_data(NOISE_TEXTURE_SIZE * NOISE_TEXTURE_SIZE);
-
-        std::mt19937 rng(42);
-        std::uniform_real_distribution<float> dist(0.0f, 1.0f);
-        for (auto& val : noise_data)
-            val = dist(rng);
-
-        GLuint tex_id;
-        glGenTextures(1, &tex_id);
-        noise_texture_ = Texture(tex_id);
-
-        glBindTexture(GL_TEXTURE_2D, noise_texture_);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, NOISE_TEXTURE_SIZE, NOISE_TEXTURE_SIZE,
-                     0, GL_RED, GL_FLOAT, noise_data.data());
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-        glBindTexture(GL_TEXTURE_2D, 0);
-
-        if (const GLenum err = glGetError(); err != GL_NO_ERROR) {
-            LOG_ERROR("Failed to create noise texture: GL error {}", err);
-            return std::unexpected("Failed to create noise texture");
-        }
         return {};
     }
 
@@ -161,10 +126,6 @@ namespace lfs::rendering {
         if (auto r = s->set("matrix_viewProjection", view_proj); !r) return r;
         if (auto r = s->set("plane", static_cast<int>(plane_)); !r) return r;
         if (auto r = s->set("opacity", opacity_); !r) return r;
-
-        glActiveTexture(GL_TEXTURE0 + NOISE_TEXTURE_UNIT);
-        glBindTexture(GL_TEXTURE_2D, noise_texture_);
-        if (auto r = s->set("blueNoiseTex32", static_cast<int>(NOISE_TEXTURE_UNIT)); !r) return r;
 
         VAOBinder vao_bind(vao_);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, QUAD_VERTEX_COUNT);

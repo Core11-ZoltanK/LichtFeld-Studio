@@ -5,6 +5,7 @@
 #include "viewport_gizmo.hpp"
 #include "core_new/logger.hpp"
 #include "gl_state_guard.hpp"
+#include "rendering_new/render_constants.hpp"
 #include "shader_paths.hpp"
 #include "text_renderer.hpp"
 #include <GLFW/glfw3.h>
@@ -225,16 +226,19 @@ namespace lfs::rendering {
         // Disable face culling for gizmo
         glDisable(GL_CULL_FACE);
 
-        // Fixed gizmo camera
-        glm::mat4 baseView = glm::lookAt(glm::vec3(1.8f, 1.35f, 1.8f), glm::vec3(0), glm::vec3(0, 1, 0));
+        // Build view matrix matching main renderer's coordinate system
+        constexpr float GIZMO_DISTANCE = 2.8f;
+        constexpr float GIZMO_FOV = 38.0f;
+        const glm::mat3 view_rotation = computeViewRotation(camera_rotation);
+        glm::mat4 view(1.0f);
+        for (int i = 0; i < 3; ++i)
+            for (int j = 0; j < 3; ++j)
+                view[i][j] = view_rotation[i][j];
+        view[3][2] = -GIZMO_DISTANCE;
+        const glm::mat4 proj = glm::perspective(glm::radians(GIZMO_FOV), 1.0f, 0.1f, 10.0f);
 
-        // Apply main camera rotation
-        glm::mat4 view = baseView * glm::mat4(glm::transpose(camera_rotation));
-        glm::mat4 proj = glm::perspective(glm::radians(35.0f), 1.0f, 0.1f, 10.0f);
-
-        // Calculate reference distance
-        glm::vec3 originCamSpace = glm::vec3(view * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
-        float refDist = glm::length(originCamSpace);
+        const glm::vec3 originCamSpace = glm::vec3(view * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
+        const float refDist = glm::length(originCamSpace);
 
         // Use shader
         ShaderScope s(shader_);
@@ -481,21 +485,30 @@ namespace lfs::rendering {
     }
 
     glm::mat3 ViewportGizmo::getAxisViewRotation(const GizmoAxis axis, const bool negative) {
+        // Returns camera-to-world rotation for looking along an axis
         const float sign = negative ? -1.0f : 1.0f;
-        const glm::vec3 origin{0.0f};
-        const glm::vec3 up_y{0.0f, 1.0f, 0.0f};
 
+        glm::vec3 forward, up, right;
         switch (axis) {
             case GizmoAxis::X:
-                return glm::mat3(glm::lookAt(glm::vec3(sign, 0.0f, 0.0f), origin, up_y));
+                forward = glm::vec3(sign, 0.0f, 0.0f);
+                up = glm::vec3(0.0f, 1.0f, 0.0f);
+                break;
             case GizmoAxis::Y:
-                return glm::mat3(glm::lookAt(glm::vec3(0.0f, sign, 0.0f), origin,
-                                             glm::vec3(0.0f, 0.0f, negative ? 1.0f : -1.0f)));
+                forward = glm::vec3(0.0f, -sign, 0.0f);
+                up = glm::vec3(0.0f, 0.0f, sign);
+                break;
             case GizmoAxis::Z:
-                return glm::mat3(glm::lookAt(glm::vec3(0.0f, 0.0f, sign), origin, up_y));
+                forward = glm::vec3(0.0f, 0.0f, sign);
+                up = glm::vec3(0.0f, 1.0f, 0.0f);
+                break;
             default:
                 return glm::mat3(1.0f);
         }
+
+        right = glm::normalize(glm::cross(up, forward));
+        up = glm::normalize(glm::cross(forward, right));
+        return glm::mat3(right, up, forward);  // Columns: [right, up, forward]
     }
 
 } // namespace lfs::rendering

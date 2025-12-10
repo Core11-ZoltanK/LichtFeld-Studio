@@ -37,17 +37,26 @@ class Viewport {
         float getMaxZoomSpeed() const { return maxZoomSpeed; }
 
         // Camera state
-        glm::mat3 R = glm::mat3(1.0f);
         glm::vec3 t = glm::vec3(0.0f, 3.0f, -8.0f);
         glm::vec3 pivot = glm::vec3(0.0f);
+        glm::mat3 R = computeLookAtRotation(t, pivot);  // Look at pivot from t
 
         // Home position
-        glm::mat3 home_R = glm::mat3(1.0f);
         glm::vec3 home_t = glm::vec3(0.0f, 3.0f, -8.0f);
         glm::vec3 home_pivot = glm::vec3(0.0f);
+        glm::mat3 home_R = computeLookAtRotation(home_t, home_pivot);
         bool home_saved = true;
 
         CameraMotion() = default;
+
+        // Compute camera-to-world rotation that looks from 'from' toward 'to'
+        static glm::mat3 computeLookAtRotation(const glm::vec3& from, const glm::vec3& to) {
+            const glm::vec3 forward = glm::normalize(to - from);
+            const glm::vec3 world_up(0.0f, 1.0f, 0.0f);
+            const glm::vec3 right = glm::normalize(glm::cross(world_up, forward));
+            const glm::vec3 up = glm::cross(forward, right);
+            return glm::mat3(right, up, forward);  // Columns: right, up, forward
+        }
 
         void saveHomePosition() {
             home_R = R;
@@ -256,32 +265,19 @@ public:
 
     glm::mat4 getViewMatrix() const {
         // Convert R (3x3) and t (3x1) to a 4x4 view matrix
-        // The view matrix transforms world coordinates to camera coordinates
-        // In your system: camera.R is rotation, camera.t is translation
-        // View matrix is the inverse of the camera transform
+        // View matrix = FLIP_YZ * inverse(camera transform)
 
-        glm::mat3 flip_yz = glm::mat3(
-            1, 0, 0,
-            0, -1, 0,
-            0, 0, -1);
-
-        glm::mat3 R_inv = glm::transpose(camera.R); // Inverse of rotation matrix
-        glm::vec3 t_inv = -R_inv * camera.t;        // Inverse translation
-
-        R_inv = flip_yz * R_inv;
-        t_inv = flip_yz * t_inv;
+        const glm::mat3 R_inv = lfs::rendering::computeViewRotation(camera.R);
+        const glm::vec3 t_inv = lfs::rendering::FLIP_YZ * (-glm::transpose(camera.R) * camera.t);
 
         glm::mat4 view(1.0f);
-        // Set rotation part (top-left 3x3)
         for (int i = 0; i < 3; ++i)
             for (int j = 0; j < 3; ++j)
                 view[i][j] = R_inv[i][j];
 
-        // Set translation part (last column)
         view[3][0] = t_inv.x;
         view[3][1] = t_inv.y;
         view[3][2] = t_inv.z;
-        view[3][3] = 1.0f;
 
         return view;
     }

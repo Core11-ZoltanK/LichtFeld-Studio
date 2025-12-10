@@ -2,7 +2,6 @@
 
 uniform vec3 view_position;
 uniform mat4 matrix_viewProjection;
-uniform sampler2D blueNoiseTex32;
 uniform int plane;  // 0: x (yz), 1: y (xz), 2: z (xy)
 uniform float opacity = 1.0;
 
@@ -70,12 +69,6 @@ float calcDepth(vec3 p) {
     return (v.z / v.w) * 0.5 + 0.5;
 }
 
-bool writeDepth(float alpha) {
-    vec2 uv = fract(gl_FragCoord.xy / 32.0);
-    float noise = texture(blueNoiseTex32, uv).r;
-    return alpha > noise;
-}
-
 void main() {
     vec3 p = worldNear;
     vec3 v = normalize(worldFar - worldNear);
@@ -111,19 +104,32 @@ void main() {
     if (levelAlpha > epsilon) {
         vec3 color;
         vec2 loc = abs(levelPos);
-        if (loc.x < levelSize) {
-            if (loc.y < levelSize) {
-                color = vec3(1.0);
-            } else {
-                color = colors[axis1[plane]];
-            }
-        } else if (loc.y < levelSize) {
-            color = colors[axis0[plane]];
+
+        // Anti-aliased axis line detection using screen-space derivatives
+        vec2 axisDeriv = vec2(length(vec2(ddx.x, ddy.x)), length(vec2(ddx.y, ddy.y))) * 0.1;
+        float axisWidth = levelSize * 1.5;
+        float axisX = 1.0 - smoothstep(axisWidth - axisDeriv.x, axisWidth + axisDeriv.x, loc.x);
+        float axisY = 1.0 - smoothstep(axisWidth - axisDeriv.y, axisWidth + axisDeriv.y, loc.y);
+
+        bool isAxisX = axisX > 0.01;
+        bool isAxisY = axisY > 0.01;
+        bool isAxis = isAxisX || isAxisY;
+
+        if (isAxisX && isAxisY) {
+            color = vec3(1.0);  // Origin: white
+        } else if (isAxisX) {
+            color = colors[axis1[plane]];  // Vertical axis
+        } else if (isAxisY) {
+            color = colors[axis0[plane]];  // Horizontal axis
         } else {
-            color = vec3(0.4); // Darker than SuperSplat's 0.9
+            color = vec3(0.4);  // Grid lines
         }
-        FragColor = vec4(color, levelAlpha);
-        gl_FragDepth = writeDepth(levelAlpha) ? calcDepth(worldPos) : 1.0;
+
+        // Smooth alpha for axes, grid alpha for others
+        float axisAlpha = max(axisX, axisY);
+        float finalAlpha = isAxis ? axisAlpha * fade : levelAlpha;
+        FragColor = vec4(color, finalAlpha);
+        gl_FragDepth = calcDepth(worldPos);
         return;
     }
 
@@ -132,8 +138,8 @@ void main() {
     levelSize = 1.0 / 100.0;
     levelAlpha = pristineGrid(levelPos, ddx, ddy, vec2(levelSize)) * fade;
     if (levelAlpha > epsilon) {
-        FragColor = vec4(vec3(0.3), levelAlpha); // Darker than SuperSplat's 0.7
-        gl_FragDepth = writeDepth(levelAlpha) ? calcDepth(worldPos) : 1.0;
+        FragColor = vec4(vec3(0.3), levelAlpha);
+        gl_FragDepth = calcDepth(worldPos);
         return;
     }
 
@@ -142,8 +148,8 @@ void main() {
     levelSize = 1.0 / 100.0;
     levelAlpha = pristineGrid(levelPos, ddx * 10.0, ddy * 10.0, vec2(levelSize)) * fade;
     if (levelAlpha > epsilon) {
-        FragColor = vec4(vec3(0.3), levelAlpha); // Darker
-        gl_FragDepth = writeDepth(levelAlpha) ? calcDepth(worldPos) : 1.0;
+        FragColor = vec4(vec3(0.3), levelAlpha);
+        gl_FragDepth = calcDepth(worldPos);
         return;
     }
 
