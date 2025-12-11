@@ -4,9 +4,169 @@
 
 #include "fast_rasterizer.hpp"
 #include "core_new/logger.hpp"
+#include "core_new/tensor/internal/tensor_serialization.hpp"
 #include "training_new/kernels/grad_alpha.hpp"
+#include <chrono>
+#include <filesystem>
+#include <fstream>
 
 namespace lfs::training {
+
+    /**
+     * @brief Dumps all rasterizer input data when a crash occurs for debugging.
+     *
+     * Creates a directory in the CURRENT WORKING DIRECTORY with the format:
+     *   crash_dump_YYYYMMDD_HHMMSS_MMM/
+     *
+     * Where YYYYMMDD_HHMMSS is the timestamp and MMM is milliseconds.
+     *
+     * The directory contains:
+     *   - means.tensor         : float32 [N, 3] - Gaussian positions
+     *   - raw_scales.tensor    : float32 [N, 3] - Raw scale parameters (pre-activation)
+     *   - raw_rotations.tensor : float32 [N, 4] - Raw rotation quaternions (pre-normalization)
+     *   - raw_opacities.tensor : float32 [N, 1] - Raw opacity values (pre-sigmoid)
+     *   - sh0.tensor           : float32 [N, 3] - DC spherical harmonic coefficients
+     *   - shN.tensor           : float32 [N, K, 3] - Higher-order SH coefficients (K = total_bases_sh_rest)
+     *   - w2c.tensor           : float32 [1, 4, 4] - World-to-camera transformation matrix
+     *   - cam_position.tensor  : float32 [3] - Camera position in world coordinates
+     *   - params.json          : JSON file with scalar parameters and tensor shapes
+     *
+     * Tensor file format (.tensor):
+     *   - Header: magic (4B) + version (4B) + dtype (1B) + device (1B) + rank (2B) + numel (8B)
+     *   - Shape: rank * uint64 dimension values
+     *   - Data: raw float32 values (always saved from CPU, regardless of original device)
+     *
+     * To reload tensors in code:
+     *   auto tensor = lfs::core::load_tensor("crash_dump_.../means.tensor");
+     *
+     * @param error_msg The exception message that triggered the crash
+     * @param means Gaussian positions tensor [N, 3]
+     * @param raw_scales Raw scale parameters [N, 3]
+     * @param raw_rotations Raw rotation quaternions [N, 4]
+     * @param raw_opacities Raw opacity values [N, 1]
+     * @param sh0 DC spherical harmonic coefficients [N, 3]
+     * @param shN Higher-order SH coefficients [N, K, 3]
+     * @param w2c World-to-camera transform [1, 4, 4]
+     * @param cam_position Camera position [3]
+     * @param n_primitives Number of Gaussians
+     * @param active_sh_bases Number of active SH bases: (sh_degree+1)^2
+     * @param total_bases_sh_rest Total higher-order SH bases (K dimension of shN)
+     * @param width Render width in pixels
+     * @param height Render height in pixels
+     * @param fx Focal length x
+     * @param fy Focal length y
+     * @param cx Principal point x (adjusted for tile offset)
+     * @param cy Principal point y (adjusted for tile offset)
+     * @param near_plane Near clipping plane
+     * @param far_plane Far clipping plane
+     */
+    static void dump_crash_data(
+        const std::string& error_msg,
+        const core::Tensor& means,
+        const core::Tensor& raw_scales,
+        const core::Tensor& raw_rotations,
+        const core::Tensor& raw_opacities,
+        const core::Tensor& sh0,
+        const core::Tensor& shN,
+        const core::Tensor& w2c,
+        const core::Tensor& cam_position,
+        int n_primitives,
+        int active_sh_bases,
+        int total_bases_sh_rest,
+        int width,
+        int height,
+        float fx,
+        float fy,
+        float cx,
+        float cy,
+        float near_plane,
+        float far_plane) {
+
+        // Create crash dump directory with timestamp in CURRENT WORKING DIRECTORY
+        // Example: ./crash_dump_20251211_143052_847/
+        auto now = std::chrono::system_clock::now();
+        auto time_t = std::chrono::system_clock::to_time_t(now);
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now.time_since_epoch()) % 1000;
+
+        char time_buf[64];
+        std::strftime(time_buf, sizeof(time_buf), "%Y%m%d_%H%M%S", std::localtime(&time_t));
+
+        // Directory path is relative to cwd, e.g. "./crash_dump_20251211_143052_847"
+        std::string dump_dir = std::string("crash_dump_") + time_buf + "_" + std::to_string(ms.count());
+        std::filesystem::create_directories(dump_dir);
+
+        // Log absolute path for easier debugging
+        auto abs_path = std::filesystem::absolute(dump_dir);
+
+        LOG_ERROR("Rasterizer crash! Dumping data to: {}", abs_path.string());
+        LOG_ERROR("Error: {}", error_msg);
+
+        try {
+            // Dump tensors as binary .tensor files
+            // Each file contains: header + shape dims + raw float32 data
+            // Tensors are copied to CPU before saving if they're on CUDA
+            if (means.is_valid()) core::save_tensor(means, dump_dir + "/means.tensor");              // [N, 3]
+            if (raw_scales.is_valid()) core::save_tensor(raw_scales, dump_dir + "/raw_scales.tensor");   // [N, 3]
+            if (raw_rotations.is_valid()) core::save_tensor(raw_rotations, dump_dir + "/raw_rotations.tensor"); // [N, 4]
+            if (raw_opacities.is_valid()) core::save_tensor(raw_opacities, dump_dir + "/raw_opacities.tensor"); // [N, 1]
+            if (sh0.is_valid()) core::save_tensor(sh0, dump_dir + "/sh0.tensor");                    // [N, 3]
+            if (shN.is_valid()) core::save_tensor(shN, dump_dir + "/shN.tensor");                    // [N, K, 3]
+            if (w2c.is_valid()) core::save_tensor(w2c, dump_dir + "/w2c.tensor");                    // [1, 4, 4]
+            if (cam_position.is_valid()) core::save_tensor(cam_position, dump_dir + "/cam_position.tensor"); // [3]
+
+            // Dump scalar parameters to params.json
+            // This is a human-readable JSON file containing:
+            // - error: The exception message
+            // - n_primitives: Number of Gaussians (N)
+            // - active_sh_bases: (sh_degree+1)^2, e.g., 1 for degree 0, 4 for degree 1
+            // - total_bases_sh_rest: K dimension of shN tensor
+            // - width, height: Render dimensions in pixels
+            // - fx, fy, cx, cy: Camera intrinsics
+            // - near_plane, far_plane: Clipping planes
+            // - *_shape: Shape of each tensor for verification
+            std::ofstream params_file(dump_dir + "/params.json");
+            if (params_file) {
+                params_file << "{\n";
+                params_file << "  \"error\": \"" << error_msg << "\",\n";
+                params_file << "  \"n_primitives\": " << n_primitives << ",\n";
+                params_file << "  \"active_sh_bases\": " << active_sh_bases << ",\n";
+                params_file << "  \"total_bases_sh_rest\": " << total_bases_sh_rest << ",\n";
+                params_file << "  \"width\": " << width << ",\n";
+                params_file << "  \"height\": " << height << ",\n";
+                params_file << "  \"fx\": " << fx << ",\n";
+                params_file << "  \"fy\": " << fy << ",\n";
+                params_file << "  \"cx\": " << cx << ",\n";
+                params_file << "  \"cy\": " << cy << ",\n";
+                params_file << "  \"near_plane\": " << near_plane << ",\n";
+                params_file << "  \"far_plane\": " << far_plane << ",\n";
+                params_file << "  \"means_shape\": [" << means.shape()[0];
+                for (size_t i = 1; i < means.ndim(); ++i) params_file << ", " << means.shape()[i];
+                params_file << "],\n";
+                params_file << "  \"raw_scales_shape\": [" << raw_scales.shape()[0];
+                for (size_t i = 1; i < raw_scales.ndim(); ++i) params_file << ", " << raw_scales.shape()[i];
+                params_file << "],\n";
+                params_file << "  \"raw_rotations_shape\": [" << raw_rotations.shape()[0];
+                for (size_t i = 1; i < raw_rotations.ndim(); ++i) params_file << ", " << raw_rotations.shape()[i];
+                params_file << "],\n";
+                params_file << "  \"raw_opacities_shape\": [" << raw_opacities.shape()[0];
+                for (size_t i = 1; i < raw_opacities.ndim(); ++i) params_file << ", " << raw_opacities.shape()[i];
+                params_file << "],\n";
+                params_file << "  \"sh0_shape\": [" << sh0.shape()[0];
+                for (size_t i = 1; i < sh0.ndim(); ++i) params_file << ", " << sh0.shape()[i];
+                params_file << "],\n";
+                params_file << "  \"shN_shape\": [" << shN.shape()[0];
+                for (size_t i = 1; i < shN.ndim(); ++i) params_file << ", " << shN.shape()[i];
+                params_file << "]\n";
+                params_file << "}\n";
+            }
+
+            LOG_ERROR("Crash dump complete: {}", abs_path.string());
+        } catch (const std::exception& dump_error) {
+            LOG_ERROR("Failed to create crash dump: {}", dump_error.what());
+        }
+    }
+
     std::expected<std::pair<RenderOutput, FastRasterizeContext>, std::string> fast_rasterize_forward(
         core::Camera& viewpoint_camera,
         core::SplatData& gaussian_model,
@@ -69,28 +229,79 @@ namespace lfs::training {
 
         // Call forward_raw with raw pointers (no PyTorch wrappers)
         // Use adjusted cx/cy for tile rendering
-        auto forward_ctx = fast_lfs::rasterization::forward_raw(
-            means.ptr<float>(),
-            raw_scales.ptr<float>(),
-            raw_rotations.ptr<float>(),
-            raw_opacities.ptr<float>(),
-            sh0.ptr<float>(),
-            shN.ptr<float>(),
-            w2c_ptr,
-            cam_position_ptr,
-            image.ptr<float>(),
-            alpha.ptr<float>(),
-            n_primitives,
-            active_sh_bases,
-            total_bases_sh_rest,
-            width,
-            height,
-            fx,
-            fy,
-            cx_adjusted,  // Use adjusted cx for tile offset
-            cy_adjusted,  // Use adjusted cy for tile offset
-            near_plane,
-            far_plane);
+        fast_lfs::rasterization::ForwardContext forward_ctx;
+        try {
+            forward_ctx = fast_lfs::rasterization::forward_raw(
+                means.ptr<float>(),
+                raw_scales.ptr<float>(),
+                raw_rotations.ptr<float>(),
+                raw_opacities.ptr<float>(),
+                sh0.ptr<float>(),
+                shN.ptr<float>(),
+                w2c_ptr,
+                cam_position_ptr,
+                image.ptr<float>(),
+                alpha.ptr<float>(),
+                n_primitives,
+                active_sh_bases,
+                total_bases_sh_rest,
+                width,
+                height,
+                fx,
+                fy,
+                cx_adjusted,  // Use adjusted cx for tile offset
+                cy_adjusted,  // Use adjusted cy for tile offset
+                near_plane,
+                far_plane);
+        } catch (const std::exception& e) {
+            // Dump all input data for debugging
+            dump_crash_data(
+                e.what(),
+                means,
+                raw_scales,
+                raw_rotations,
+                raw_opacities,
+                sh0,
+                shN,
+                viewpoint_camera.world_view_transform(),
+                viewpoint_camera.cam_position(),
+                n_primitives,
+                active_sh_bases,
+                total_bases_sh_rest,
+                width,
+                height,
+                fx,
+                fy,
+                cx_adjusted,
+                cy_adjusted,
+                near_plane,
+                far_plane);
+            throw;  // Re-throw after dumping
+        } catch (...) {
+            // Handle non-std::exception crashes
+            dump_crash_data(
+                "Unknown exception (not std::exception)",
+                means,
+                raw_scales,
+                raw_rotations,
+                raw_opacities,
+                sh0,
+                shN,
+                viewpoint_camera.world_view_transform(),
+                viewpoint_camera.cam_position(),
+                n_primitives,
+                active_sh_bases,
+                total_bases_sh_rest,
+                width,
+                height,
+                fx,
+                fy,
+                cx_adjusted,
+                cy_adjusted,
+                near_plane,
+                far_plane);
+            throw;  // Re-throw after dumping
+        }
 
         // Check if forward failed due to OOM
         if (!forward_ctx.success) {
