@@ -62,7 +62,6 @@ namespace lfs::vis::gui {
         : m_trainerManager(std::move(trainer_manager)) {
         m_imagePreview = std::make_unique<ImagePreview>();
         setupEventHandlers();
-        LOG_DEBUG("ScenePanel created");
     }
 
     ScenePanel::~ScenePanel() {
@@ -81,8 +80,9 @@ namespace lfs::vis::gui {
         m_icons.cropbox = loadSceneIcon("cropbox.png");
         m_icons.pointcloud = loadSceneIcon("pointcloud.png");
         m_icons.mask = loadSceneIcon("mask.png");
+        m_icons.trash = loadSceneIcon("trash.png");
+        m_icons.grip = loadSceneIcon("grip.png");
         m_icons.initialized = true;
-        LOG_DEBUG("Scene panel icons loaded");
     }
 
     void ScenePanel::shutdownIcons() {
@@ -97,6 +97,8 @@ namespace lfs::vis::gui {
         deleteTexture(m_icons.cropbox);
         deleteTexture(m_icons.pointcloud);
         deleteTexture(m_icons.mask);
+        deleteTexture(m_icons.trash);
+        deleteTexture(m_icons.grip);
         m_icons.initialized = false;
     }
 
@@ -118,19 +120,15 @@ namespace lfs::vis::gui {
     }
 
     void ScenePanel::handleGoToCamView(const cmd::GoToCamView& event) {
-        // Sync image selection
         for (const auto& [path, cam_id] : m_pathToCamId) {
             if (cam_id == event.cam_id) {
-                if (auto it = std::find(m_imagePaths.begin(), m_imagePaths.end(), path); it != m_imagePaths.end()) {
+                if (const auto it = std::find(m_imagePaths.begin(), m_imagePaths.end(), path); it != m_imagePaths.end()) {
                     m_selectedImageIndex = static_cast<int>(std::distance(m_imagePaths.begin(), it));
                     m_needsScrollToSelection = true;
-                    LOG_TRACE("Synced image selection to camera ID {} (index {})", event.cam_id, m_selectedImageIndex);
                 }
                 break;
             }
         }
-
-        // Sync camera highlighting in scene graph
         m_highlightedCamUid = event.cam_id;
         m_needsScrollToCam = true;
     }
@@ -278,7 +276,8 @@ namespace lfs::vis::gui {
     }
 
     void ScenePanel::renderModelNode(const SceneNode& node, const Scene& scene,
-                                     const std::unordered_set<std::string>& selected_names) {
+                                     const std::unordered_set<std::string>& selected_names,
+                                     const int depth) {
         // Filter check
         if (m_filterText[0] != '\0') {
             std::string lower_name = node.name;
@@ -286,15 +285,16 @@ namespace lfs::vis::gui {
             std::transform(lower_name.begin(), lower_name.end(), lower_name.begin(), ::tolower);
             std::transform(lower_filter.begin(), lower_filter.end(), lower_filter.begin(), ::tolower);
             if (lower_name.find(lower_filter) == std::string::npos) {
-                // Still render children in case they match
                 for (const auto child_id : node.children) {
-                    if (const auto* child = scene.getNodeById(child_id)) {
-                        renderModelNode(*child, scene, selected_names);
-                    }
+                    if (const auto* child = scene.getNodeById(child_id))
+                        renderModelNode(*child, scene, selected_names, depth + 1);
                 }
                 return;
             }
         }
+
+        // Draw indentation guides
+        renderIndentGuides(depth);
 
         ImGui::PushID(node.id);
 
@@ -311,7 +311,7 @@ namespace lfs::vis::gui {
         const bool is_highlighted_cam = is_camera && node.camera_uid == m_highlightedCamUid;
 
         const auto* parent_node = scene.getNodeById(node.parent_id);
-        [[maybe_unused]] const bool parent_is_dataset = parent_node && parent_node->type == NodeType::DATASET;
+        const bool parent_is_dataset = parent_node && parent_node->type == NodeType::DATASET;
 
         const auto& t = theme();
         ImDrawList* const draw_list = ImGui::GetWindowDrawList();
@@ -336,32 +336,51 @@ namespace lfs::vis::gui {
             m_needsScrollToCam = false;
         }
 
-        constexpr float ICON_SIZE = 18.0f;
-        const float line_h = ImGui::GetTextLineHeight();
+        // Scene graph icon layout constants
+        constexpr float ICON_SIZE = 16.0f;
+        constexpr float ICON_SPACING = 2.0f;
+        const ImVec2 icon_sz{ICON_SIZE, ICON_SIZE};
 
-        const unsigned int vis_tex = is_visible ? m_icons.visible : m_icons.hidden;
-        const ImVec4 vis_tint = is_visible
-            ? ImVec4(0.4f, 0.9f, 0.4f, 1.0f)  // Green for visible
-            : ImVec4(0.7f, 0.5f, 0.5f, 0.8f); // Reddish-gray for hidden
+        const bool can_drag = canReparent(node, nullptr, scene);
+        const bool is_deletable = !is_camera && !is_camera_group && !is_cropbox && !parent_is_dataset;
 
+        // Button style for all icon buttons
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, withAlpha(t.palette.surface_bright, 0.5f));
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, withAlpha(t.palette.surface_bright, 0.7f));
 
-        if (vis_tex) {
-            if (ImGui::ImageButton("##vis", static_cast<ImTextureID>(vis_tex),
-                                   ImVec2(ICON_SIZE, ICON_SIZE), ImVec2(0, 0), ImVec2(1, 1),
-                                   ImVec4(0, 0, 0, 0), vis_tint)) {
-                cmd::SetPLYVisibility{.name = node.name, .visible = !is_visible}.emit();
-            }
-        } else {
-            // Fallback if icon didn't load
-            if (ImGui::Button(is_visible ? "o" : "-", ImVec2(ICON_SIZE, line_h))) {
-                cmd::SetPLYVisibility{.name = node.name, .visible = !is_visible}.emit();
-            }
+        // [Grip] - drag indicator
+        if (m_icons.grip) {
+            const ImVec4 grip_tint = can_drag
+                ? withAlpha(t.palette.text_dim, 0.5f)
+                : ImVec4(0, 0, 0, 0);
+            ImGui::Image(static_cast<ImTextureID>(m_icons.grip), icon_sz, {0,0}, {1,1}, grip_tint, {0,0,0,0});
+            ImGui::SameLine(0.0f, ICON_SPACING);
         }
+
+        // [Visibility] - toggle visible/hidden
+        if (const unsigned int vis_tex = is_visible ? m_icons.visible : m_icons.hidden) {
+            const ImVec4 vis_tint = is_visible
+                ? ImVec4(0.4f, 0.9f, 0.4f, 1.0f)
+                : ImVec4(0.6f, 0.4f, 0.4f, 0.7f);
+            if (ImGui::ImageButton("##vis", static_cast<ImTextureID>(vis_tex), icon_sz, {0,0}, {1,1}, {0,0,0,0}, vis_tint))
+                cmd::SetPLYVisibility{.name = node.name, .visible = !is_visible}.emit();
+            ImGui::SameLine(0.0f, ICON_SPACING);
+        }
+
+        // [Trash] - delete node
+        if (is_deletable && m_icons.trash) {
+            const ImVec4 trash_tint = is_selected
+                ? ImVec4(1.0f, 0.6f, 0.6f, 0.9f)
+                : withAlpha(t.palette.text_dim, 0.5f);
+            if (ImGui::ImageButton("##del", static_cast<ImTextureID>(m_icons.trash), icon_sz, {0,0}, {1,1}, {0,0,0,0}, trash_tint))
+                cmd::RemovePLY{.name = node.name, .keep_children = false}.emit();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Delete");
+            ImGui::SameLine(0.0f, ICON_SPACING);
+        }
+
         ImGui::PopStyleColor(3);
-        ImGui::SameLine(0.0f, 2.0f);
 
         const bool is_renaming = m_renameState.is_renaming && m_renameState.renaming_node_name == node.name;
 
@@ -409,27 +428,21 @@ namespace lfs::vis::gui {
                 type_tint = ImVec4(0.8f, 0.5f, 1.0f, 0.8f);
             }
 
-            constexpr float TYPE_ICON_SIZE = 18.0f;
+            // [Type] - node type indicator
             if (type_tex) {
-                ImGui::Image(static_cast<ImTextureID>(type_tex),
-                             ImVec2(TYPE_ICON_SIZE, TYPE_ICON_SIZE),
-                             ImVec2(0, 0), ImVec2(1, 1), type_tint, ImVec4(0, 0, 0, 0));
+                ImGui::Image(static_cast<ImTextureID>(type_tex), icon_sz, {0,0}, {1,1}, type_tint, {0,0,0,0});
             } else {
-                ImGui::Dummy(ImVec2(TYPE_ICON_SIZE, TYPE_ICON_SIZE));
+                ImGui::Dummy(icon_sz);
             }
 
-            // Show mask indicator for cameras with masks
+            // [Mask] - indicator for cameras with masks
             if (has_mask && m_icons.mask) {
-                ImGui::SameLine(0.0f, 2.0f);
-                constexpr float MASK_ICON_SIZE = 14.0f;
-                ImGui::Image(static_cast<ImTextureID>(m_icons.mask),
-                             ImVec2(MASK_ICON_SIZE, MASK_ICON_SIZE),
-                             ImVec2(0, 0), ImVec2(1, 1),
-                             ImVec4(0.9f, 0.5f, 0.6f, 0.8f),  // Pink tint for mask
-                             ImVec4(0, 0, 0, 0));
+                ImGui::SameLine(0.0f, ICON_SPACING);
+                ImGui::Image(static_cast<ImTextureID>(m_icons.mask), icon_sz, {0,0}, {1,1},
+                             ImVec4(0.9f, 0.5f, 0.6f, 0.8f), {0,0,0,0});
             }
 
-            ImGui::SameLine(0.0f, 4.0f);
+            ImGui::SameLine(0.0f, ICON_SPACING + 2.0f);
 
             static constexpr ImGuiTreeNodeFlags BASE_FLAGS = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
             ImGuiTreeNodeFlags flags = BASE_FLAGS;
@@ -456,13 +469,14 @@ namespace lfs::vis::gui {
                 ImGui::OpenPopup(("##ctx_" + node.name).c_str());
             }
 
-            // Drag source
-            if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+            // Drag source (only for reparentable nodes)
+            if (can_drag && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
                 ImGui::SetDragDropPayload("SCENE_NODE", node.name.c_str(), node.name.size() + 1);
                 ImGui::Text("Move: %s", node.name.c_str());
                 ImGui::EndDragDropSource();
             }
 
+            // Drop target (only groups accept children)
             if (is_group) handleDragDrop(node.name, true);
 
             // Selection - emit event, let SceneManager handle state
@@ -534,7 +548,7 @@ namespace lfs::vis::gui {
             const auto closeContextAndFinish = [&]() {
                 ImGui::EndPopup();
                 if (is_open && has_children) {
-                    renderNodeChildren(node.id, scene, selected_names);
+                    renderNodeChildren(node.id, scene, selected_names, depth + 1);
                     ImGui::TreePop();
                 }
                 ImGui::PopID();
@@ -573,7 +587,7 @@ namespace lfs::vis::gui {
                     }
                     ImGui::EndPopup();
                     if (is_open && has_children) {
-                        renderNodeChildren(node.id, scene, selected_names);
+                        renderNodeChildren(node.id, scene, selected_names, depth + 1);
                         ImGui::TreePop();
                     }
                     ImGui::PopID();
@@ -627,7 +641,7 @@ namespace lfs::vis::gui {
             }
 
             if (is_open && has_children) {
-                renderNodeChildren(node.id, scene, selected_names);
+                renderNodeChildren(node.id, scene, selected_names, depth + 1);
                 ImGui::TreePop();
             }
         }
@@ -636,19 +650,66 @@ namespace lfs::vis::gui {
     }
 
     void ScenePanel::renderNodeChildren(NodeId parent_id, const Scene& scene,
-                                        const std::unordered_set<std::string>& selected_names) {
+                                        const std::unordered_set<std::string>& selected_names,
+                                        const int depth) {
         const auto* parent = scene.getNodeById(parent_id);
         if (!parent) return;
 
         for (const NodeId child_id : parent->children) {
-            const auto* child = scene.getNodeById(child_id);
-            if (child) {
-                renderModelNode(*child, scene, selected_names);
-            }
+            if (const auto* child = scene.getNodeById(child_id))
+                renderModelNode(*child, scene, selected_names, depth);
         }
     }
 
-    bool ScenePanel::handleDragDrop(const std::string& target_name, const bool is_folder) {
+    void ScenePanel::renderIndentGuides(const int depth) const {
+        if (depth <= 0) return;
+
+        constexpr float INDENT_WIDTH = 14.0f;
+        constexpr float LINE_OFFSET_X = 7.0f;
+
+        const auto& t = theme();
+        const ImU32 guide_color = toU32(withAlpha(t.palette.text_dim, 0.25f));
+
+        ImDrawList* const dl = ImGui::GetWindowDrawList();
+        const ImVec2 cursor = ImGui::GetCursorScreenPos();
+        const float row_height = ImGui::GetTextLineHeight() + 2.0f;
+
+        for (int i = 0; i < depth; ++i) {
+            const float x = cursor.x + i * INDENT_WIDTH + LINE_OFFSET_X;
+            dl->AddLine({x, cursor.y}, {x, cursor.y + row_height}, guide_color, 1.0f);
+        }
+    }
+
+    bool ScenePanel::canReparent(const SceneNode& node, const SceneNode* target, const Scene& scene) {
+        // Only SPLAT, GROUP, and POINTCLOUD nodes at root level can be reparented
+        if (node.type != NodeType::SPLAT && node.type != NodeType::GROUP && node.type != NodeType::POINTCLOUD)
+            return false;
+
+        // Check if node is inside a DATASET - these cannot be moved out
+        const auto* parent = scene.getNodeById(node.parent_id);
+        while (parent) {
+            if (parent->type == NodeType::DATASET)
+                return false;
+            parent = scene.getNodeById(parent->parent_id);
+        }
+
+        // Target must be GROUP or root (nullptr)
+        if (target && target->type != NodeType::GROUP)
+            return false;
+
+        // Cannot reparent to self or descendant
+        if (target) {
+            const auto* check = target;
+            while (check) {
+                if (check->id == node.id) return false;
+                check = scene.getNodeById(check->parent_id);
+            }
+        }
+
+        return true;
+    }
+
+    bool ScenePanel::handleDragDrop(const std::string& target_name, const bool is_group_target) {
         if (!ImGui::BeginDragDropTarget()) return false;
 
         bool handled = false;
@@ -657,9 +718,8 @@ namespace lfs::vis::gui {
             if (dragged_name != target_name) {
                 cmd::ReparentNode{
                     .node_name = std::string(dragged_name),
-                    .new_parent_name = is_folder ? target_name : ""
+                    .new_parent_name = is_group_target ? target_name : ""
                 }.emit();
-                LOG_INFO("Reparented '{}' to '{}'", dragged_name, target_name.empty() ? "root" : target_name);
                 handled = true;
             }
         }
@@ -674,7 +734,6 @@ namespace lfs::vis::gui {
         m_renameState.focus_input = true;
         strncpy(m_renameState.buffer, node_name.c_str(), sizeof(m_renameState.buffer) - 1);
         m_renameState.buffer[sizeof(m_renameState.buffer) - 1] = '\0';
-        LOG_DEBUG("Started renaming node '{}'", node_name);
     }
 
     void ScenePanel::finishRenaming(SceneManager* /*scene_manager*/) {
@@ -691,7 +750,6 @@ namespace lfs::vis::gui {
                 .old_name = m_renameState.renaming_node_name,
                 .new_name = new_name
             }.emit();
-            LOG_INFO("Emitted rename command: '{}' -> '{}'", m_renameState.renaming_node_name, new_name);
         }
 
         cancelRenaming();
@@ -747,10 +805,8 @@ namespace lfs::vis::gui {
                 const std::string context_menu_id = std::format("context_menu_{}", i);
                 if (ImGui::BeginPopupContextItem(context_menu_id.c_str())) {
                     if (ImGui::MenuItem("Go to Cam View")) {
-                        if (auto cam_it = m_pathToCamId.find(imagePath); cam_it != m_pathToCamId.end()) {
+                        if (const auto cam_it = m_pathToCamId.find(imagePath); cam_it != m_pathToCamId.end()) {
                             cmd::GoToCamView{.cam_id = cam_it->second}.emit();
-                            LOG_INFO("Going to camera view for: {} (Camera ID: {})",
-                                     imagePath.filename().string(), cam_it->second);
                         }
                     }
                     ImGui::EndPopup();
@@ -765,22 +821,17 @@ namespace lfs::vis::gui {
     }
 
     void ScenePanel::loadImageCams(const std::filesystem::path& path) {
-        LOG_TIMER_TRACE("ScenePanel::loadImageCams");
-
         m_currentDatasetPath = path;
         m_imagePaths.clear();
         m_pathToCamId.clear();
         m_selectedImageIndex = -1;
 
         if (!m_trainerManager) {
-            LOG_ERROR("m_trainerManager was not set");
+            LOG_ERROR("TrainerManager not set");
             return;
         }
 
-        LOG_DEBUG("Loading camera list from dataset: {}", path.string());
-        auto cams = m_trainerManager->getCamList();
-        LOG_DEBUG("Found {} cameras", cams.size());
-
+        const auto cams = m_trainerManager->getCamList();
         for (const auto& cam : cams) {
             m_imagePaths.emplace_back(cam->image_path());
             m_pathToCamId[cam->image_path()] = cam->uid();
@@ -790,7 +841,7 @@ namespace lfs::vis::gui {
             return a.filename() < b.filename();
         });
 
-        LOG_INFO("Loaded {} images from dataset: {}", m_imagePaths.size(), path.string());
+        LOG_INFO("Loaded {} cameras from dataset", m_imagePaths.size());
     }
 
     void ScenePanel::setOnDatasetLoad(std::function<void(const std::filesystem::path&)> callback) {
@@ -798,7 +849,6 @@ namespace lfs::vis::gui {
     }
 
     void ScenePanel::onImageSelected(const std::filesystem::path& imagePath) {
-        LOG_DEBUG("Selected image: {}", imagePath.filename().string());
         ui::NodeSelected{
             .path = imagePath.string(),
             .type = "Images",
@@ -806,14 +856,12 @@ namespace lfs::vis::gui {
         }.emit();
     }
 
-    void ScenePanel::onImageDoubleClicked(size_t imageIndex) {
+    void ScenePanel::onImageDoubleClicked(const size_t imageIndex) {
         if (imageIndex >= m_imagePaths.size()) return;
 
-        const auto& imagePath = m_imagePaths[imageIndex];
         if (m_imagePreview) {
             m_imagePreview->open(m_imagePaths, imageIndex);
             m_showImagePreview = true;
-            LOG_INFO("Opening image preview: {} (index {})", imagePath.filename().string(), imageIndex);
         }
     }
 

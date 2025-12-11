@@ -92,6 +92,8 @@ namespace lfs::vis {
                 unsigned int cropbox = 0;
                 unsigned int pointcloud = 0;
                 unsigned int mask = 0;
+                unsigned int trash = 0;
+                unsigned int grip = 0;
                 bool initialized = false;
             } m_icons;
 
@@ -113,11 +115,15 @@ namespace lfs::vis {
             void renderPLYSceneGraph(const UIContext* ctx);
             void renderModelsFolder(const Scene& scene, const std::unordered_set<std::string>& selected_names);
             void renderModelNode(const SceneNode& node, const Scene& scene,
-                                 const std::unordered_set<std::string>& selected_names);
+                                 const std::unordered_set<std::string>& selected_names, int depth = 0);
             void renderNodeChildren(NodeId parent_id, const Scene& scene,
-                                    const std::unordered_set<std::string>& selected_names);
+                                    const std::unordered_set<std::string>& selected_names, int depth);
+            void renderIndentGuides(int depth) const;
             void renderImageList();
-            bool handleDragDrop(const std::string& target_name, bool is_folder);
+
+            // Drag-drop with constraints
+            bool handleDragDrop(const std::string& target_name, bool is_group_target);
+            static bool canReparent(const SceneNode& node, const SceneNode* target, const Scene& scene);
 
             // Rename functionality
             void startRenaming(const std::string& node_name);
