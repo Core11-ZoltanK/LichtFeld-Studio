@@ -634,7 +634,6 @@ namespace lfs::vis {
         const auto render_result = engine_->renderGaussians(*model, request);
         if (render_result) {
             cached_result_ = *render_result;
-            render_texture_valid_ = true;
 
             // Copy packed depth+id back and extract gaussian ID
             if (need_hovered_output) {
@@ -645,6 +644,14 @@ namespace lfs::vis {
                 } else {
                     hovered_gaussian_id_ = static_cast<int>(hovered_depth_id_ & 0xFFFFFFFF);
                 }
+            }
+
+            // For GT comparison, present to the bound FBO to fill cached_render_texture_
+            if (settings_.split_view_mode == SplitViewMode::GTComparison) {
+                const auto present_result = engine_->presentToScreen(cached_result_, glm::ivec2(0), render_size);
+                render_texture_valid_ = present_result.has_value();
+            } else {
+                render_texture_valid_ = true;
             }
         } else {
             LOG_ERROR("Failed to render gaussians: {}", render_result.error());
