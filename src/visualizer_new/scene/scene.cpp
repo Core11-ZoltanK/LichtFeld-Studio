@@ -227,7 +227,6 @@ namespace lfs::vis {
     }
 
     void Scene::clear() {
-        std::lock_guard<std::mutex> lock(camera_mutex_);
         nodes_.clear();
         id_to_index_.clear();
         next_node_id_ = 0;
@@ -324,7 +323,6 @@ namespace lfs::vis {
     }
 
     std::unordered_set<int> Scene::getVisibleCameraIndices() const {
-        std::lock_guard<std::mutex> lock(camera_mutex_);
         std::unordered_set<int> visible_indices;
         for (const auto& node : nodes_) {
             if (node->type == NodeType::CAMERA && node->camera_index >= 0 &&
@@ -1577,30 +1575,13 @@ namespace lfs::vis {
     // ========== Training Data Storage ==========
 
     void Scene::setTrainCameras(std::shared_ptr<lfs::training::CameraDataset> dataset) {
-        std::lock_guard<std::mutex> lock(camera_mutex_);
         train_cameras_ = std::move(dataset);
         LOG_DEBUG("Scene: set train cameras ({})", train_cameras_ ? "valid" : "null");
     }
 
     void Scene::setValCameras(std::shared_ptr<lfs::training::CameraDataset> dataset) {
-        std::lock_guard<std::mutex> lock(camera_mutex_);
         val_cameras_ = std::move(dataset);
         LOG_DEBUG("Scene: set val cameras ({})", val_cameras_ ? "valid" : "null");
-    }
-
-    std::shared_ptr<lfs::training::CameraDataset> Scene::getTrainCameras() const {
-        std::lock_guard<std::mutex> lock(camera_mutex_);
-        return train_cameras_;
-    }
-
-    std::shared_ptr<lfs::training::CameraDataset> Scene::getValCameras() const {
-        std::lock_guard<std::mutex> lock(camera_mutex_);
-        return val_cameras_;
-    }
-
-    bool Scene::hasTrainingData() const {
-        std::lock_guard<std::mutex> lock(camera_mutex_);
-        return train_cameras_ != nullptr;
     }
 
     void Scene::setInitialPointCloud(std::shared_ptr<lfs::core::PointCloud> point_cloud) {
@@ -1635,8 +1616,7 @@ namespace lfs::vis {
         return node->model.get();
     }
 
-    std::shared_ptr<const lfs::core::Camera> Scene::getCameraByUid(const int uid) const {
-        std::lock_guard<std::mutex> lock(camera_mutex_);
+    std::shared_ptr<const lfs::core::Camera> Scene::getCameraByUid(int uid) const {
         if (!train_cameras_) {
             return nullptr;
         }
@@ -1649,7 +1629,6 @@ namespace lfs::vis {
     }
 
     std::vector<std::shared_ptr<const lfs::core::Camera>> Scene::getAllCameras() const {
-        std::lock_guard<std::mutex> lock(camera_mutex_);
         std::vector<std::shared_ptr<const lfs::core::Camera>> result;
         if (train_cameras_) {
             const auto& cams = train_cameras_->get_cameras();

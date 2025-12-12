@@ -9,7 +9,6 @@
 #include "core_new/tensor.hpp"
 #include <glm/glm.hpp>
 #include <memory>
-#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -259,11 +258,11 @@ namespace lfs::vis {
         void setValCameras(std::shared_ptr<lfs::training::CameraDataset> dataset);
         void setInitialPointCloud(std::shared_ptr<lfs::core::PointCloud> point_cloud);
 
-        [[nodiscard]] std::shared_ptr<lfs::training::CameraDataset> getTrainCameras() const;
-        [[nodiscard]] std::shared_ptr<lfs::training::CameraDataset> getValCameras() const;
+        [[nodiscard]] std::shared_ptr<lfs::training::CameraDataset> getTrainCameras() const { return train_cameras_; }
+        [[nodiscard]] std::shared_ptr<lfs::training::CameraDataset> getValCameras() const { return val_cameras_; }
         [[nodiscard]] std::shared_ptr<lfs::core::PointCloud> getInitialPointCloud() const { return initial_point_cloud_; }
 
-        [[nodiscard]] bool hasTrainingData() const;
+        [[nodiscard]] bool hasTrainingData() const { return train_cameras_ != nullptr; }
 
         // Camera access helpers (delegates to CameraDataset)
         [[nodiscard]] std::shared_ptr<const lfs::core::Camera> getCameraByUid(int uid) const;
@@ -345,9 +344,7 @@ namespace lfs::vis {
         std::shared_ptr<lfs::training::CameraDataset> train_cameras_;
         std::shared_ptr<lfs::training::CameraDataset> val_cameras_;
         std::shared_ptr<lfs::core::PointCloud> initial_point_cloud_;
-        std::string training_model_node_;
-
-        mutable std::mutex camera_mutex_;
+        std::string training_model_node_;  // Name of the node being trained
     };
 
 } // namespace lfs::vis
