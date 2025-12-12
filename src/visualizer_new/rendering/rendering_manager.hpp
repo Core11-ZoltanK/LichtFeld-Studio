@@ -164,6 +164,9 @@ namespace lfs::vis {
         void updateSettings(const RenderSettings& settings);
         RenderSettings getSettings() const;
 
+        // Toggle orthographic mode, calculating ortho_scale to preserve size at pivot
+        void setOrthographic(bool enabled, float viewport_height, float distance_to_pivot);
+
         // Direct accessors
         float getFovDegrees() const;
         float getScalingModifier() const;

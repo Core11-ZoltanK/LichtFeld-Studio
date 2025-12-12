@@ -586,7 +586,7 @@ namespace lfs::vis::gui {
         // Utility toolbar (always visible)
         const bool is_fullscreen = viewer_->getWindowManager() && viewer_->getWindowManager()->isFullscreen();
         panels::DrawUtilityToolbar(gizmo_toolbar_state_, viewport_pos_, viewport_size_, ui_hidden_, is_fullscreen,
-                                   viewer_->getRenderingManager());
+                                   viewer_->getRenderingManager(), &viewer_->getViewport());
 
         // Gizmo toolbar (only when node selected and UI visible)
         auto* const scene_manager = ctx.viewer->getSceneManager();

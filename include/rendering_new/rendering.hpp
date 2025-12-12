@@ -44,6 +44,8 @@ namespace lfs::rendering {
         glm::vec3 translation;
         glm::ivec2 size;
         float fov = 60.0f;
+        bool orthographic = false;
+        float ortho_scale = 100.0f;  // pixels per world unit
     };
 
     struct BoundingBox {

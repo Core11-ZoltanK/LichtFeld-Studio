@@ -10,6 +10,7 @@
 #include "core_new/logger.hpp"
 #include "gui/ui_widgets.hpp"
 #include "internal/resource_paths.hpp"
+#include "internal/viewport.hpp"
 #include "rendering/rendering_manager.hpp"
 #include "theme/theme.hpp"
 #include <imgui.h>
@@ -424,7 +425,8 @@ namespace lfs::vis::gui::panels {
     void DrawUtilityToolbar(GizmoToolbarState& state,
                             const ImVec2& viewport_pos, const ImVec2& viewport_size,
                             bool ui_hidden, bool is_fullscreen,
-                            RenderingManager* render_manager) {
+                            RenderingManager* render_manager,
+                            const ::Viewport* viewport) {
         if (!state.initialized) InitGizmoToolbar(state);
 
         constexpr float MARGIN_RIGHT = 10.0f;
@@ -496,9 +498,14 @@ namespace lfs::vis::gui::panels {
                 const char* proj_tooltip = is_ortho ? "Orthographic (O)" : "Perspective (O)";
 
                 if (widgets::IconButton("##projection", proj_tex, btn_size, is_ortho, "O")) {
-                    auto new_settings = settings;
-                    new_settings.orthographic = !is_ortho;
-                    render_manager->updateSettings(new_settings);
+                    if (viewport) {
+                        const float distance_to_pivot = glm::length(viewport->camera.getPivot() - viewport->camera.t);
+                        render_manager->setOrthographic(!is_ortho, viewport_size.y, distance_to_pivot);
+                    } else {
+                        auto new_settings = settings;
+                        new_settings.orthographic = !is_ortho;
+                        render_manager->updateSettings(new_settings);
+                    }
                 }
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", proj_tooltip);
             }

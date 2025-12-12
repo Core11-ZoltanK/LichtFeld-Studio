@@ -9,6 +9,8 @@
 #include <imgui.h>
 #include <ImGuizmo.h>
 
+class Viewport;  // Forward declare global Viewport class
+
 namespace lfs::vis {
     class RenderingManager;
 }
@@ -92,6 +94,7 @@ namespace lfs::vis::gui::panels {
     void DrawUtilityToolbar(GizmoToolbarState& state,
                             const ImVec2& viewport_pos, const ImVec2& viewport_size,
                             bool ui_hidden, bool is_fullscreen,
-                            lfs::vis::RenderingManager* render_manager = nullptr);
+                            lfs::vis::RenderingManager* render_manager = nullptr,
+                            const ::Viewport* viewport = nullptr);
 
 } // namespace lfs::vis::gui::panels

@@ -24,16 +24,21 @@ namespace lfs::rendering {
         Result<void> init();
         [[nodiscard]] bool isInitialized() const { return initialized_; }
 
-        Result<void> render(const glm::mat4& view, const glm::mat4& projection);
+        Result<void> render(const glm::mat4& view, const glm::mat4& projection,
+                           bool orthographic = false, float ortho_scale = 100.0f);
 
         void setOpacity(float opacity) { opacity_ = glm::clamp(opacity, 0.0f, 1.0f); }
         void setPlane(GridPlane plane) { plane_ = plane; }
         [[nodiscard]] GridPlane getPlane() const { return plane_; }
 
     private:
-        void computeFrustum(const glm::mat4& view_inv, float fov_y, float aspect,
-                           glm::vec3& near_origin, glm::vec3& far_origin,
-                           glm::vec3& far_x, glm::vec3& far_y) const;
+        void computeFrustumPerspective(const glm::mat4& view_inv, float fov_y, float aspect,
+                                       glm::vec3& near_origin, glm::vec3& far_origin,
+                                       glm::vec3& far_x, glm::vec3& far_y) const;
+
+        void computeFrustumOrthographic(const glm::mat4& view_inv, float half_width, float half_height,
+                                        glm::vec3& near_origin, glm::vec3& near_x, glm::vec3& near_y,
+                                        glm::vec3& far_origin, glm::vec3& far_x, glm::vec3& far_y) const;
 
         ManagedShader shader_;
         VAO vao_;

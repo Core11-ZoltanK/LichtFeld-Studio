@@ -87,7 +87,8 @@ void main() {
 
     float epsilon = 1.0 / 255.0;
 
-    // calculate fade
+    // calculate fade based on 3D distance from camera
+    // Use same fixed distances for both perspective and orthographic
     float fade = (1.0 - smoothstep(400.0, 1000.0, length(worldPos - view_position))) * opacity;
     if (fade < epsilon) {
         discard;

@@ -415,6 +415,31 @@ namespace lfs::vis {
         return settings_;
     }
 
+    void RenderingManager::setOrthographic(const bool enabled, const float viewport_height, const float distance_to_pivot) {
+        std::lock_guard<std::mutex> lock(settings_mutex_);
+
+        // Calculate ortho_scale to preserve apparent size at pivot distance
+        if (enabled && !settings_.orthographic) {
+            constexpr float MIN_DISTANCE = 0.01f;
+            constexpr float MIN_SCALE = 1.0f;
+            constexpr float MAX_SCALE = 10000.0f;
+            constexpr float DEFAULT_SCALE = 100.0f;
+
+            if (viewport_height <= 0.0f || distance_to_pivot <= MIN_DISTANCE) {
+                LOG_WARN("setOrthographic: invalid viewport_height={} or distance={}", viewport_height, distance_to_pivot);
+                settings_.ortho_scale = DEFAULT_SCALE;
+            } else {
+                const float half_tan_fov = std::tan(glm::radians(settings_.fov) * 0.5f);
+                settings_.ortho_scale = std::clamp(
+                    viewport_height / (2.0f * distance_to_pivot * half_tan_fov),
+                    MIN_SCALE, MAX_SCALE);
+            }
+        }
+
+        settings_.orthographic = enabled;
+        needs_render_.store(true);
+    }
+
     float RenderingManager::getFovDegrees() const {
         std::lock_guard<std::mutex> lock(settings_mutex_);
         return settings_.fov;
@@ -555,7 +580,9 @@ namespace lfs::vis {
             .rotation = context.viewport.getRotationMatrix(),
             .translation = context.viewport.getTranslation(),
             .size = render_size,
-            .fov = settings_.fov};
+            .fov = settings_.fov,
+            .orthographic = settings_.orthographic,
+            .ortho_scale = settings_.ortho_scale};
 
         // Build render state from scene (single source of truth)
         lfs::vis::SceneRenderState scene_state;
@@ -963,7 +990,9 @@ namespace lfs::vis {
                     .rotation = context.viewport.getRotationMatrix(),
                     .translation = context.viewport.getTranslation(),
                     .size = render_size,
-                    .fov = settings_.fov};
+                    .fov = settings_.fov,
+                    .orthographic = settings_.orthographic,
+                    .ortho_scale = settings_.ortho_scale};
 
                 lfs::rendering::RenderRequest pc_request{
                     .viewport = viewport_data,
@@ -1046,7 +1075,9 @@ namespace lfs::vis {
             .rotation = context.viewport.getRotationMatrix(),
             .translation = context.viewport.getTranslation(),
             .size = render_size,
-            .fov = settings_.fov};
+            .fov = settings_.fov,
+            .orthographic = settings_.orthographic,
+            .ortho_scale = settings_.ortho_scale};
 
         // Crop box from scene graph (single source of truth)
         std::optional<lfs::rendering::BoundingBox> crop_box;
@@ -1205,7 +1236,9 @@ namespace lfs::vis {
             .rotation = context.viewport.getRotationMatrix(),
             .translation = context.viewport.getTranslation(),
             .size = render_size,
-            .fov = settings_.fov};
+            .fov = settings_.fov,
+            .orthographic = settings_.orthographic,
+            .ortho_scale = settings_.ortho_scale};
 
         // Reset depth for overlay rendering
         glClear(GL_DEPTH_BUFFER_BIT);

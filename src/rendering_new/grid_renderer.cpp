@@ -57,9 +57,9 @@ namespace lfs::rendering {
         return {};
     }
 
-    void RenderInfiniteGrid::computeFrustum(const glm::mat4& view_inv, const float fov_y, const float aspect,
-                                            glm::vec3& near_origin, glm::vec3& far_origin,
-                                            glm::vec3& far_x, glm::vec3& far_y) const {
+    void RenderInfiniteGrid::computeFrustumPerspective(const glm::mat4& view_inv, const float fov_y, const float aspect,
+                                                        glm::vec3& near_origin, glm::vec3& far_origin,
+                                                        glm::vec3& far_x, glm::vec3& far_y) const {
         const glm::vec3 cam_pos = glm::vec3(view_inv[3]);
         const glm::vec3 cam_right = glm::vec3(view_inv[0]);
         const glm::vec3 cam_up = glm::vec3(view_inv[1]);
@@ -83,17 +83,57 @@ namespace lfs::rendering {
         far_y = far_tl - far_bl;
     }
 
-    Result<void> RenderInfiniteGrid::render(const glm::mat4& view, const glm::mat4& projection) {
+    void RenderInfiniteGrid::computeFrustumOrthographic(const glm::mat4& view_inv, const float half_width, const float half_height,
+                                                        glm::vec3& near_origin, glm::vec3& near_x, glm::vec3& near_y,
+                                                        glm::vec3& far_origin, glm::vec3& far_x, glm::vec3& far_y) const {
+        const glm::vec3 cam_pos = glm::vec3(view_inv[3]);
+        const glm::vec3 cam_right = glm::vec3(view_inv[0]);
+        const glm::vec3 cam_up = glm::vec3(view_inv[1]);
+        const glm::vec3 cam_forward = -glm::vec3(view_inv[2]);
+
+        // Orthographic: parallel rays with identical near/far plane dimensions
+        const glm::vec3 right_offset = cam_right * half_width;
+        const glm::vec3 up_offset = cam_up * half_height;
+
+        // Extended ray range ensures grid intersection from any camera position
+        constexpr float RAY_NEAR = -1000.0f;
+        constexpr float RAY_FAR = 1000.0f;
+
+        const glm::vec3 near_center = cam_pos + cam_forward * RAY_NEAR;
+        near_origin = near_center - right_offset - up_offset;
+        near_x = right_offset * 2.0f;
+        near_y = up_offset * 2.0f;
+
+        const glm::vec3 far_center = cam_pos + cam_forward * RAY_FAR;
+        far_origin = far_center - right_offset - up_offset;
+        far_x = right_offset * 2.0f;
+        far_y = up_offset * 2.0f;
+    }
+
+    Result<void> RenderInfiniteGrid::render(const glm::mat4& view, const glm::mat4& projection,
+                                            bool orthographic, float ortho_scale) {
         if (!initialized_ || !shader_.valid())
             return std::unexpected("Grid renderer not initialized");
 
-        const float fov_y = 2.0f * std::atan(1.0f / projection[1][1]);
-        const float aspect = projection[1][1] / projection[0][0];
         const glm::mat4 view_inv = glm::inverse(view);
         const glm::vec3 view_position = glm::vec3(view_inv[3]);
 
-        glm::vec3 near_origin, far_origin, far_x, far_y;
-        computeFrustum(view_inv, fov_y, aspect, near_origin, far_origin, far_x, far_y);
+        glm::vec3 near_origin, near_x, near_y, far_origin, far_x, far_y;
+
+        if (orthographic) {
+            // Extract half-extents from orthographic projection matrix
+            const float half_width = 1.0f / projection[0][0];
+            const float half_height = 1.0f / std::abs(projection[1][1]);
+            computeFrustumOrthographic(view_inv, half_width, half_height,
+                                       near_origin, near_x, near_y, far_origin, far_x, far_y);
+        } else {
+            // Perspective: rays converge to camera position
+            const float fov_y = 2.0f * std::atan(1.0f / std::abs(projection[1][1]));
+            const float aspect = std::abs(projection[1][1] / projection[0][0]);
+            computeFrustumPerspective(view_inv, fov_y, aspect, near_origin, far_origin, far_x, far_y);
+            near_x = glm::vec3{0.0f};
+            near_y = glm::vec3{0.0f};
+        }
 
         const glm::mat4 view_proj = projection * view;
 
@@ -114,11 +154,9 @@ namespace lfs::rendering {
 
         ShaderScope s(shader_);
 
-        // Perspective: near_x/near_y are zero (rays from single point)
-        static constexpr glm::vec3 ZERO_VEC{0.0f};
         if (auto r = s->set("near_origin", near_origin); !r) return r;
-        if (auto r = s->set("near_x", ZERO_VEC); !r) return r;
-        if (auto r = s->set("near_y", ZERO_VEC); !r) return r;
+        if (auto r = s->set("near_x", near_x); !r) return r;
+        if (auto r = s->set("near_y", near_y); !r) return r;
         if (auto r = s->set("far_origin", far_origin); !r) return r;
         if (auto r = s->set("far_x", far_x); !r) return r;
         if (auto r = s->set("far_y", far_y); !r) return r;
