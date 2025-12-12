@@ -401,4 +401,9 @@ namespace lfs::core::tensor_ops {
         size_t n,
         cudaStream_t stream = nullptr);
 
+    // ============= Fast GPU-based NaN/Inf Check =============
+    // Checks if any element is NaN or Inf on GPU - only transfers 1 int back to CPU
+    // Orders of magnitude faster than copying entire tensor to CPU
+    bool has_nan_or_inf_gpu(const float* data, size_t n, cudaStream_t stream = nullptr);
+
 } // namespace lfs::core::tensor_ops

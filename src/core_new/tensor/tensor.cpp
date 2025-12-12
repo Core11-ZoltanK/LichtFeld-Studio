@@ -2093,6 +2093,12 @@ namespace lfs::core {
             return false;
         }
 
+        // Use fast GPU check for CUDA tensors (only transfers 1 int back)
+        if (device_ == Device::CUDA && dtype_ == DataType::Float32) {
+            return tensor_ops::has_nan_or_inf_gpu(ptr<float>(), numel(), nullptr);
+        }
+
+        // CPU fallback
         auto values = to_vector();
         return std::any_of(values.begin(), values.end(),
                            [](float x) { return std::isnan(x); });
@@ -2103,6 +2109,13 @@ namespace lfs::core {
             return false;
         }
 
+        // Use fast GPU check for CUDA tensors (only transfers 1 int back)
+        // Note: has_nan_or_inf_gpu checks both NaN and Inf
+        if (device_ == Device::CUDA && dtype_ == DataType::Float32) {
+            return tensor_ops::has_nan_or_inf_gpu(ptr<float>(), numel(), nullptr);
+        }
+
+        // CPU fallback
         auto values = to_vector();
         return std::any_of(values.begin(), values.end(),
                            [](float x) { return std::isinf(x); });
