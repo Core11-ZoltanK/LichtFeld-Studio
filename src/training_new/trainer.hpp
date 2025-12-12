@@ -221,11 +221,10 @@ namespace lfs::training {
         std::atomic<int> current_iteration_{0};
         std::atomic<float> current_loss_{0.0f};
 
-        // Callback system for async operations (LibTorch-free)
+        // Async callback system
         std::function<void()> callback_;
         std::atomic<bool> callback_busy_{false};
         cudaStream_t callback_stream_ = nullptr;
-        cudaEvent_t callback_launch_event_ = nullptr;
 
         // LichtFeld project
         std::shared_ptr<lfs::project::Project> lf_project_ = nullptr;

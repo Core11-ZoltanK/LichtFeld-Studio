@@ -44,11 +44,11 @@ namespace lfs::training {
         // Stop any ongoing operations
         stop_requested_ = true;
 
-        // Wait for callback to finish if busy
-        if (callback_busy_.load()) {
+        // Sync callback stream to avoid race conditions
+        if (callback_stream_) {
             cudaStreamSynchronize(callback_stream_);
-            callback_busy_.store(false);
         }
+        callback_busy_ = false;
 
         // Reset all components
         progress_.reset();
@@ -278,9 +278,7 @@ namespace lfs::training {
             throw std::runtime_error("CUDA is not available – aborting.");
         }
 
-        // Initialize callback stream and event (LibTorch-free)
         cudaStreamCreateWithFlags(&callback_stream_, cudaStreamNonBlocking);
-        cudaEventCreate(&callback_launch_event_);
 
         LOG_DEBUG("Trainer constructed with {} cameras", base_dataset_->get_cameras().size());
     }
@@ -295,9 +293,7 @@ namespace lfs::training {
             throw std::runtime_error("CUDA is not available – aborting.");
         }
 
-        // Initialize callback stream and event
         cudaStreamCreateWithFlags(&callback_stream_, cudaStreamNonBlocking);
-        cudaEventCreate(&callback_launch_event_);
 
         // Datasets will be created in initialize() from Scene cameras
         if (!scene.getTrainCameras()) {
@@ -472,26 +468,15 @@ namespace lfs::training {
     }
 
     Trainer::~Trainer() {
-        // Ensure training is stopped
         stop_requested_ = true;
 
-        // Wait for callback to finish if busy
-        if (callback_busy_.load()) {
-            cudaStreamSynchronize(callback_stream_);
-            callback_busy_.store(false);
-        }
-
-        // Cleanup CUDA resources
+        // Sync and destroy callback stream
         if (callback_stream_) {
+            cudaStreamSynchronize(callback_stream_);
             cudaStreamDestroy(callback_stream_);
             callback_stream_ = nullptr;
         }
-        if (callback_launch_event_) {
-            cudaEventDestroy(callback_launch_event_);
-            callback_launch_event_ = nullptr;
-        }
-
-        LOG_DEBUG("Trainer destroyed");
+        callback_busy_ = false;
     }
 
     void Trainer::handle_control_requests(int iter, std::stop_token stop_token) {
