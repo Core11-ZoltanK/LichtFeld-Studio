@@ -787,3 +787,37 @@ if(CCACHE_PROGRAM)
     set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE "${CCACHE_PROGRAM}")
     message(STATUS "Using ccache: ${CCACHE_PROGRAM}")
 endif()
+
+# Build statistics (parses .ninja_log, no Python required)
+if(CMAKE_GENERATOR MATCHES "Ninja")
+    # Manual target: ninja build_stats
+    add_custom_target(build_stats
+        COMMAND ${CMAKE_COMMAND} -P ${CMAKE_SOURCE_DIR}/cmake/BuildStats.cmake
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        COMMENT "Build time statistics by module"
+    )
+
+    # Auto-show after build: cmake -DSHOW_BUILD_STATS=ON ..
+    option(SHOW_BUILD_STATS "Show build stats after every build" OFF)
+    if(SHOW_BUILD_STATS)
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -P ${CMAKE_SOURCE_DIR}/cmake/BuildStats.cmake
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        )
+    endif()
+endif()
+
+# Clean build target: ninja clean_all (clears build + compiler cache)
+if(CCACHE_PROGRAM)
+    add_custom_target(clean_all
+        COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target clean
+        COMMAND ${CCACHE_PROGRAM} --clear
+        COMMENT "Cleaning build and compiler cache (ccache)"
+    )
+elseif(SCCACHE_PROGRAM)
+    add_custom_target(clean_all
+        COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target clean
+        COMMAND ${SCCACHE_PROGRAM} --zero-stats
+        COMMENT "Cleaning build and resetting sccache stats"
+    )
+endif()
