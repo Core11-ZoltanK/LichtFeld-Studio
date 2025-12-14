@@ -1291,12 +1291,28 @@ namespace lfs::vis {
             }
         }
 
-        // Pivot point visualization (big red point)
-        if (settings_.show_pivot && engine_) {
-            glm::vec3 pivot_pos = context.viewport.camera.getPivot();
-            auto pivot_result = engine_->renderPivot(viewport, pivot_pos, 1.0f);
-            if (!pivot_result) {
-                LOG_WARN("Failed to render pivot point: {}", pivot_result.error());
+        // Pivot point ripple animation
+        if (engine_) {
+            constexpr float PIVOT_DURATION_SEC = 0.5f;
+            constexpr float PIVOT_SIZE_PX = 50.0f;
+
+            const float time_since_set = context.viewport.camera.getSecondsSincePivotSet();
+            const bool animation_active = time_since_set < PIVOT_DURATION_SEC;
+
+            if (animation_active) {
+                const auto remaining_ms = static_cast<int>((PIVOT_DURATION_SEC - time_since_set) * 1000.0f);
+                setPivotAnimationEndTime(std::chrono::steady_clock::now() +
+                    std::chrono::milliseconds(remaining_ms));
+            }
+
+            if (settings_.show_pivot || animation_active) {
+                const float opacity = settings_.show_pivot ? 1.0f :
+                    1.0f - std::clamp(time_since_set / PIVOT_DURATION_SEC, 0.0f, 1.0f);
+
+                if (auto result = engine_->renderPivot(viewport, context.viewport.camera.getPivot(),
+                                                       PIVOT_SIZE_PX, opacity); !result) {
+                    LOG_WARN("Pivot render failed: {}", result.error());
+                }
             }
         }
 

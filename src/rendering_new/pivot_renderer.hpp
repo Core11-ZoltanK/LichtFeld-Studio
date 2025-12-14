@@ -6,31 +6,46 @@
 
 #include "gl_resources.hpp"
 #include "rendering_new/rendering.hpp"
-#include "shader_manager.hpp"
 #include <glm/glm.hpp>
 
 namespace lfs::rendering {
-    class RenderPivotPoint {
-    public:
-        RenderPivotPoint() = default;
-        ~RenderPivotPoint() = default;
 
-        Result<void> init();
-        [[nodiscard]] bool isInitialized() const { return initialized_; }
+class RenderPivotPoint {
+public:
+    RenderPivotPoint() = default;
+    ~RenderPivotPoint() = default;
 
-        void setPosition(const glm::vec3& position) { pivot_position_ = position; }
-        void setSize(float size) { sphere_size_ = size; }
+    Result<void> init();
+    [[nodiscard]] bool isInitialized() const { return initialized_; }
 
-        Result<void> render(const glm::mat4& view, const glm::mat4& projection);
+    void setPosition(const glm::vec3& position) { pivot_position_ = position; }
+    void setSize(const float size) { screen_size_ = size; }
+    void setColor(const glm::vec3& color) { color_ = color; }
+    void setOpacity(const float opacity) { opacity_ = opacity; }
 
-    private:
-        GLuint shader_program_{0};
-        VAO vao_;
-        VBO vbo_;
+    Result<void> render(const glm::mat4& view, const glm::mat4& projection);
 
-        glm::vec3 pivot_position_{0.0f, 0.0f, 0.0f};
-        float sphere_size_{0.15f};
-        int vertex_count_{0};
-        bool initialized_{false};
-    };
+private:
+    static constexpr float DEFAULT_SCREEN_SIZE = 50.0f;
+    static constexpr glm::vec3 DEFAULT_COLOR{0.26f, 0.59f, 0.98f};  // Theme primary
+
+    GLuint shader_program_{0};
+    VAO vao_;
+
+    // Cached uniform locations
+    GLint loc_view_{-1};
+    GLint loc_projection_{-1};
+    GLint loc_pivot_pos_{-1};
+    GLint loc_screen_size_{-1};
+    GLint loc_viewport_size_{-1};
+    GLint loc_color_{-1};
+    GLint loc_opacity_{-1};
+
+    glm::vec3 pivot_position_{0.0f};
+    glm::vec3 color_{DEFAULT_COLOR};
+    float screen_size_{DEFAULT_SCREEN_SIZE};
+    float opacity_{1.0f};
+    bool initialized_{false};
+};
+
 } // namespace lfs::rendering

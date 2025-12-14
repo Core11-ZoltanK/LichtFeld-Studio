@@ -4,6 +4,7 @@
 
 #pragma once
 #include "rendering_new/render_constants.hpp"
+#include <chrono>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -40,6 +41,7 @@ class Viewport {
         glm::vec3 t = glm::vec3(0.0f, 3.0f, -8.0f);
         glm::vec3 pivot = glm::vec3(0.0f);
         glm::mat3 R = computeLookAtRotation(t, pivot);  // Look at pivot from t
+        std::chrono::steady_clock::time_point pivot_set_time{};
 
         // Home position
         glm::vec3 home_t = glm::vec3(0.0f, 3.0f, -8.0f);
@@ -195,9 +197,17 @@ class Viewport {
 
         void initScreenPos(const glm::vec2& pos) { prePos = pos; }
 
-        void setPivot(const glm::vec3& new_pivot) { pivot = new_pivot; }
+        void setPivot(const glm::vec3& new_pivot) {
+            pivot = new_pivot;
+            pivot_set_time = std::chrono::steady_clock::now();
+        }
 
         glm::vec3 getPivot() const { return pivot; }
+
+        float getSecondsSincePivotSet() const {
+            return std::chrono::duration<float>(
+                std::chrono::steady_clock::now() - pivot_set_time).count();
+        }
 
         void updatePivotFromCamera(float distance = 5.0f) {
             const glm::vec3 forward = R * glm::vec3(0, 0, 1);

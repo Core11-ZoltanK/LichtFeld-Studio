@@ -313,7 +313,8 @@ namespace lfs::rendering {
         virtual Result<void> renderPivot(
             const ViewportData& viewport,
             const glm::vec3& pivot_position,
-            float size = 0.15f) = 0;
+            float size = 50.0f,
+            float opacity = 1.0f) = 0;
 
         // Viewport gizmo rendering
         virtual Result<void> renderViewportGizmo(

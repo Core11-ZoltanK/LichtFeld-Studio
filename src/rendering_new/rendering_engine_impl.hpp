@@ -62,7 +62,8 @@ namespace lfs::rendering {
         Result<void> renderPivot(
             const ViewportData& viewport,
             const glm::vec3& pivot_position,
-            float size = 0.15f) override;
+            float size = 50.0f,
+            float opacity = 1.0f) override;
 
         Result<void> renderViewportGizmo(
             const glm::mat3& camera_rotation,

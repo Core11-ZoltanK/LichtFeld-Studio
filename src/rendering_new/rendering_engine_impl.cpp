@@ -451,7 +451,8 @@ namespace lfs::rendering {
     Result<void> RenderingEngineImpl::renderPivot(
         const ViewportData& viewport,
         const glm::vec3& pivot_position,
-        float size) {
+        float size,
+        float opacity) {
 
         if (!isInitialized() || !pivot_renderer_.isInitialized()) {
             return std::unexpected("Pivot renderer not initialized");
@@ -459,6 +460,7 @@ namespace lfs::rendering {
 
         pivot_renderer_.setPosition(pivot_position);
         pivot_renderer_.setSize(size);
+        pivot_renderer_.setOpacity(opacity);
 
         auto view = createViewMatrix(viewport);
         auto proj = createProjectionMatrix(viewport);

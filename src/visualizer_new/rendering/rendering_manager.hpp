@@ -156,9 +156,21 @@ namespace lfs::vis {
         // Main render function
         void renderFrame(const RenderContext& context, SceneManager* scene_manager);
 
-        // Mark that rendering is needed
         void markDirty();
-        [[nodiscard]] bool needsRender() const { return needs_render_.load(); }
+
+        [[nodiscard]] bool needsRender() const {
+            if (pivot_animation_active_.load() &&
+                std::chrono::steady_clock::now() < pivot_animation_end_time_) {
+                return true;
+            }
+            pivot_animation_active_.store(false);
+            return needs_render_.load();
+        }
+
+        void setPivotAnimationEndTime(const std::chrono::steady_clock::time_point end_time) {
+            pivot_animation_end_time_ = end_time;
+            pivot_animation_active_.store(true);
+        }
 
         // Settings management
         void updateSettings(const RenderSettings& settings);
@@ -254,6 +266,8 @@ namespace lfs::vis {
 
         // State tracking
         std::atomic<bool> needs_render_{true};
+        mutable std::atomic<bool> pivot_animation_active_{false};
+        std::chrono::steady_clock::time_point pivot_animation_end_time_;
         lfs::rendering::RenderResult cached_result_;
         size_t last_model_ptr_ = 0;
         glm::ivec2 last_render_size_{0, 0};
