@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later */
 
 #include "core_new/tensor.hpp"
+#include "core_new/logger.hpp"
 #include <gtest/gtest.h>
 #include <torch/torch.h>
 
@@ -326,27 +327,19 @@ TEST_F(TensorAccessorTest, AccessorWrongDimension) {
     auto t_custom = Tensor::zeros({3, 3}, Device::CPU);
     auto t_torch = torch::zeros({3, 3}, torch::TensorOptions().dtype(torch::kFloat32));
 
-    // Try to create 1D accessor for 2D tensor
-    auto acc_custom = t_custom.accessor<float, 1>();
+    // Try to create 1D accessor for 2D tensor - should throw like PyTorch
+    EXPECT_THROW((t_custom.accessor<float, 1>()), std::runtime_error);
 
-    // PyTorch will throw if wrong dimension, our implementation should handle gracefully
-    // Check that sizes are reasonable or zero
-    EXPECT_TRUE(acc_custom.sizes()[0] == 0 || acc_custom.sizes()[0] == 3);
-
-    // Note: PyTorch throws std::runtime_error if dimensions don't match
-    // We document this as a known difference - our implementation is more forgiving
-    LOG_INFO("IMPLEMENTATION NOTE: Dimension mismatch handling may differ from PyTorch");
+    LOG_INFO("IMPLEMENTATION NOTE: Dimension mismatch throws, matching PyTorch behavior");
 }
 
 TEST_F(TensorAccessorTest, AccessorOnCUDAFails) {
     auto t_custom = Tensor::zeros({3, 3}, Device::CUDA);
 
-    // Accessor should only work on CPU tensors
-    auto acc = t_custom.accessor<float, 2>();
+    // Accessor should only work on CPU tensors - throws on CUDA like PyTorch
+    EXPECT_THROW((t_custom.accessor<float, 2>()), std::runtime_error);
 
-    // Implementation should either return null/invalid or handle gracefully
-    // PyTorch also restricts accessors to CPU tensors
-    LOG_INFO("IMPLEMENTATION NOTE: CUDA tensor accessor should fail gracefully");
+    LOG_INFO("IMPLEMENTATION NOTE: CUDA tensor accessor throws, matching PyTorch behavior");
 }
 
 // ============= Practical Use Cases =============

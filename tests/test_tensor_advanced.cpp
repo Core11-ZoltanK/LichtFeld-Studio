@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later */
 
 #include "core_new/tensor.hpp"
+#include "core_new/logger.hpp"
 #include <chrono>
 #include <cuda_runtime.h>
 #include <gtest/gtest.h>
@@ -182,8 +183,8 @@ TEST_F(TensorAdvancedTest, ErrorHandlingShapeMismatch) {
     auto t1_custom = Tensor::ones({3, 4}, Device::CUDA);
     auto t2_custom = Tensor::ones({4, 3}, Device::CUDA);
 
-    auto result = t1_custom.add(t2_custom);
-    EXPECT_FALSE(result.is_valid()) << "Shape mismatch should produce invalid tensor";
+    // Incompatible shapes should throw an exception
+    EXPECT_THROW(t1_custom.add(t2_custom), std::runtime_error);
 }
 
 TEST_F(TensorAdvancedTest, ErrorHandlingInvalidReshape) {

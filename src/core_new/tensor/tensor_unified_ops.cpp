@@ -619,12 +619,9 @@ namespace lfs::core {
     }
 
     Tensor Tensor::reduce(ReduceOp op, const ReduceArgs& args) const {
-        if (!validate_unary_op()) {
-            return Tensor();
-        }
+        validate_unary_op();
 
-        // Make tensor contiguous if it's a view/slice before reduction
-        // The reduce kernel expects contiguous memory layout
+        // Reduce kernel expects contiguous memory
         const Tensor* input = this;
         Tensor contiguous_copy;
         if (!is_contiguous()) {
@@ -993,9 +990,7 @@ namespace lfs::core {
     // ============= TERNARY OPERATIONS =============
 
     Tensor Tensor::ternary(const Tensor& b, const Tensor& c) const {
-        if (!validate_ternary_op(b, c)) {
-            return Tensor();
-        }
+        validate_ternary_op(b, c);
 
         if (numel() == 0 || b.numel() == 0 || c.numel() == 0) {
             auto shape_ab = this->broadcast_shape(b.shape());

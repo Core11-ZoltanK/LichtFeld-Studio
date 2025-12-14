@@ -3,6 +3,7 @@
 
 #include "internal/tensor_impl.hpp"
 #include "internal/tensor_ops.hpp"
+#include "core_new/logger.hpp"
 #include <atomic>
 #include <curand.h>
 #include <curand_kernel.h>

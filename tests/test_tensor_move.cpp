@@ -728,13 +728,15 @@ TEST_F(TensorMoveTest, CRITICAL_MovedFromShapeBug) {
     std::println("  After move - moved-from tensor:");
     std::println("    is_valid(): {}", gs_orig.is_valid());
     std::println("    ndim(): {}", gs_orig.ndim());
-    std::println("    shape()[0]: {}", gs_orig.shape()[0]);
 
     // HARD ASSERT: Invalid tensor should have no dimensions
     ASSERT_FALSE(gs_orig.is_valid());
     ASSERT_EQ(gs_orig.ndim(), 0)
         << "BUG EXPOSED: Moved-from invalid tensor has ndim()="
         << gs_orig.ndim() << " instead of 0!";
+
+    // Accessing shape()[0] on invalid tensor should throw (rank is 0)
+    EXPECT_THROW(gs_orig.shape()[0], std::out_of_range);
 
     std::println("✓ CRITICAL_MovedFromShapeBug: Bug test passed");
 }
@@ -996,17 +998,16 @@ TEST_F(TensorMoveTest, CRITICAL_MovedFromShapeAccess) {
 
     ASSERT_FALSE(gs_orig.is_valid());
 
-    // HARD ASSERT: Accessing shape dimensions should be safe and return 0
+    // Accessing shape dimensions on invalid tensor throws (rank is 0)
     std::println("  Accessing shape of invalid tensor:");
-    std::println("    shape()[0]: {}", gs_orig.shape()[0]);
-    std::println("    shape()[1]: {}", gs_orig.shape()[1]);
+    EXPECT_THROW(gs_orig.shape()[0], std::out_of_range);
+    EXPECT_THROW(gs_orig.shape()[1], std::out_of_range);
 
-    // Either shape is uninitialized or returns 0
-    // Both are acceptable, but numel() MUST be 0
+    // numel() MUST be 0 for invalid tensors
     ASSERT_EQ(gs_orig.numel(), 0)
         << "BUG: Invalid tensor shape access returns non-zero numel()";
 
-    std::println("✓ CRITICAL_MovedFromShapeAccess: Shape access safe");
+    std::println("✓ CRITICAL_MovedFromShapeAccess: Shape access throws as expected");
 }
 
 TEST_F(TensorMoveTest, CRITICAL_ExpectedValueAccess) {

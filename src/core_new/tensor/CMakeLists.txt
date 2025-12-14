@@ -20,6 +20,7 @@
 # C++ sources (can use C++23)
 set(LFS_TENSOR_SOURCES
     tensor.cpp              # Main tensor implementation (includes expr templates)
+    tensor_factory.cpp      # Factory methods (empty, zeros, ones, rand, etc.) - moved from header
     tensor_utils.cpp        # Minimal utilities (MemoryInfo)
     tensor_matrix_ops.cpp   # Matrix operations (matmul, transpose, etc.)
     tensor_unified_ops.cpp  # Unified operations (load, unary, binary, reduce, ternary)
@@ -29,6 +30,7 @@ set(LFS_TENSOR_SOURCES
     tensor_shape_ops.cpp       # Shape functions (reshape, slice, etc.)
     tensor_masking_ops.cpp     # Masking and indexing operations
     tensor_advanced_ops.cpp    # Advanced operations
+    tensor_row_proxy.cpp       # TensorRowProxy implementations (moved from header)
     pinned_memory_allocator.cpp # Pinned memory allocator for fast CPU-GPU transfers (used by tensor)
     offset_allocator.cpp       # OffsetAllocator for O(1) GPU memory sub-allocation
 )
@@ -115,10 +117,11 @@ add_library(lfs_tensor STATIC ${LFS_TENSOR_SOURCES})
 target_include_directories(lfs_tensor
         PUBLIC
         ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/src       # For <core_new/tensor/internal/*.hpp> includes
         ${CMAKE_BINARY_DIR}/include
         ${CUDAToolkit_INCLUDE_DIRS}
         PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}  # For internal/ headers
+        ${CMAKE_CURRENT_SOURCE_DIR}  # For internal/ headers (relative paths)
 )
 
 target_link_libraries(lfs_tensor

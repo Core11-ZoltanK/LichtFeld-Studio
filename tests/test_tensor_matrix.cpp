@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later */
 
 #include "core_new/tensor.hpp"
+#include "core_new/logger.hpp"
 #include <chrono>
 #include <gtest/gtest.h>
 #include <numeric>

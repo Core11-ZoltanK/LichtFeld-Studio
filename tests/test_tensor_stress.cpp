@@ -1,8 +1,9 @@
 /* SPDX-FileCopyrightText: 2025 LichtFeld Studio Authors
  * SPDX-License-Identifier: GPL-3.0-or-later */
 
-// Memory pool is now an internal implementation detail of tensor library
-// #include "core/memory_pool.hpp"
+// Include internal memory pool header for stress testing
+// This allows us to properly release cached memory when testing for leaks
+#include "core_new/tensor/internal/memory_pool.hpp"
 #include "core_new/tensor.hpp"
 #include <algorithm>
 #include <c10/cuda/CUDACachingAllocator.h>
@@ -76,8 +77,8 @@ protected:
             c10::cuda::CUDACachingAllocator::emptyCache();
         }
 
-        // Note: Tensor library's memory pool is now an internal detail
-        // Memory cleanup is handled automatically by the tensor library
+        // Clear tensor library's memory pool cache
+        CudaMemoryPool::instance().trim_cached_memory();
 
         // Give the system a moment to actually free memory
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -140,6 +141,9 @@ TEST_F(TensorStressTest, MaxMemoryAllocation) {
 
     // Clear PyTorch cache to actually release memory
     c10::cuda::CUDACachingAllocator::emptyCache();
+
+    // Clear tensor library's memory pool cache
+    CudaMemoryPool::instance().trim_cached_memory();
     cudaDeviceSynchronize();
 
     // Memory should be freed
@@ -164,6 +168,9 @@ TEST_F(TensorStressTest, RapidAllocationDeallocation) {
 
     // Clear PyTorch cache to verify no leaks (caching is expected, leaks are not)
     c10::cuda::CUDACachingAllocator::emptyCache();
+
+    // Clear tensor library's memory pool cache
+    CudaMemoryPool::instance().trim_cached_memory();
     cudaDeviceSynchronize();
 
     // Check memory is stable

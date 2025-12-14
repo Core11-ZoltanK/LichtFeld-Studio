@@ -28,6 +28,11 @@ protected:
         test_dir = fs::path("/home/paja/projects/gaussian-splatting-cuda/test_formats");
         sog_bundle = test_dir / "test.sog";
         original_ply = fs::path("/home/paja/projects/gaussian-splatting-cuda/output/splat_30000.ply");
+
+        // Create test directory if it doesn't exist
+        if (!fs::exists(test_dir)) {
+            fs::create_directories(test_dir);
+        }
     }
 
     static bool floatNear(float a, float b, float tol = 1e-4f) {

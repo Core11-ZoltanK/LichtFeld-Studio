@@ -12,39 +12,6 @@
 
 namespace lfs::core {
 
-    // ============================================================================
-    // TensorLeaf implementation - Needs full Tensor definition
-    // ============================================================================
-
-    inline TensorLeaf::TensorLeaf(Tensor tensor)
-        : tensor_ptr_(std::make_shared<Tensor>(std::move(tensor))) {}
-
-    inline Tensor TensorLeaf::eval_impl() const {
-        // Materialize tensors with storage offsets (sliced views) or non-contiguous layout
-        // Expression templates use ptr<T>() which returns the base pointer without offset
-        // So we need to materialize sliced tensors even if they're technically "contiguous"
-        if (tensor_ptr_->storage_offset() != 0 || !tensor_ptr_->is_contiguous()) {
-            return tensor_ptr_->contiguous();
-        }
-        return *tensor_ptr_; // Return copy of the materialized tensor
-    }
-
-    inline const TensorShape& TensorLeaf::shape_impl() const {
-        return tensor_ptr_->shape();
-    }
-
-    inline Device TensorLeaf::device_impl() const {
-        return tensor_ptr_->device();
-    }
-
-    inline DataType TensorLeaf::dtype_impl() const {
-        return tensor_ptr_->dtype();
-    }
-
-    // ============================================================================
-    // TensorExpr::eval() - Needs full Tensor definition
-    // ============================================================================
-
     template <typename Derived>
     Tensor TensorExpr<Derived>::eval() const {
         return derived().eval_impl();

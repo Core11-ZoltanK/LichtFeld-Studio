@@ -3,6 +3,7 @@
 
 #include "internal/tensor_impl.hpp"
 #include "internal/tensor_ops.hpp"
+#include "core_new/logger.hpp"
 #include <algorithm>
 #include <cstring>
 #include <execution>

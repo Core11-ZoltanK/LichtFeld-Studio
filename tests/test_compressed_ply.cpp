@@ -27,6 +27,11 @@ protected:
         test_dir = fs::path("/home/paja/projects/gaussian-splatting-cuda/test_formats");
         compressed_ply = test_dir / "test.compressed.ply";
         decompressed_ply = test_dir / "test_decompressed.ply";
+
+        // Create test directory if it doesn't exist
+        if (!fs::exists(test_dir)) {
+            fs::create_directories(test_dir);
+        }
     }
 
     static bool floatNear(float a, float b, float tol = 1e-4f) {
@@ -122,9 +127,10 @@ protected:
 
 // Test: Detection of compressed PLY format
 TEST_F(CompressedPlyTest, DetectCompressedFormat) {
-    ASSERT_TRUE(fs::exists(compressed_ply))
-        << "Test file not found: " << compressed_ply
-        << "\nRun: node splat-transform/bin/cli.mjs output/splat_30000.ply test_formats/test.compressed.ply";
+    if (!fs::exists(compressed_ply)) {
+        GTEST_SKIP() << "Test file not found: " << compressed_ply
+            << "\nRun: node splat-transform/bin/cli.mjs output/splat_30000.ply test_formats/test.compressed.ply";
+    }
 
     EXPECT_TRUE(lfs::loader::is_compressed_ply(compressed_ply))
         << "Failed to detect compressed PLY format";
@@ -138,8 +144,9 @@ TEST_F(CompressedPlyTest, DetectCompressedFormat) {
 
 // Test: Load compressed PLY
 TEST_F(CompressedPlyTest, LoadCompressedPly) {
-    ASSERT_TRUE(fs::exists(compressed_ply))
-        << "Test file not found: " << compressed_ply;
+    if (!fs::exists(compressed_ply)) {
+        GTEST_SKIP() << "Test file not found: " << compressed_ply;
+    }
 
     auto result = lfs::loader::load_compressed_ply(compressed_ply);
     ASSERT_TRUE(result.has_value()) << "Failed to load: " << result.error();
@@ -157,11 +164,13 @@ TEST_F(CompressedPlyTest, LoadCompressedPly) {
 
 // Test: Compare with reference decompression
 TEST_F(CompressedPlyTest, CompareWithReference) {
-    ASSERT_TRUE(fs::exists(compressed_ply))
-        << "Compressed test file not found: " << compressed_ply;
-    ASSERT_TRUE(fs::exists(decompressed_ply))
-        << "Reference file not found: " << decompressed_ply
-        << "\nRun: node splat-transform/bin/cli.mjs test_formats/test.compressed.ply test_formats/test_decompressed.ply";
+    if (!fs::exists(compressed_ply)) {
+        GTEST_SKIP() << "Compressed test file not found: " << compressed_ply;
+    }
+    if (!fs::exists(decompressed_ply)) {
+        GTEST_SKIP() << "Reference file not found: " << decompressed_ply
+            << "\nRun: node splat-transform/bin/cli.mjs test_formats/test.compressed.ply test_formats/test_decompressed.ply";
+    }
 
     std::cout << "Loading compressed PLY with our loader..." << std::endl;
     auto comp_result = lfs::loader::load_compressed_ply(compressed_ply);
@@ -270,8 +279,12 @@ TEST_F(CompressedPlyTest, ExportRoundtrip) {
 
 // Test: Debug print actual color values
 TEST_F(CompressedPlyTest, DebugColorValues) {
-    ASSERT_TRUE(fs::exists(compressed_ply)) << "Compressed test file not found";
-    ASSERT_TRUE(fs::exists(decompressed_ply)) << "Reference file not found";
+    if (!fs::exists(compressed_ply)) {
+        GTEST_SKIP() << "Compressed test file not found: " << compressed_ply;
+    }
+    if (!fs::exists(decompressed_ply)) {
+        GTEST_SKIP() << "Reference file not found: " << decompressed_ply;
+    }
 
     // Load all three: compressed, reference decompressed, and original
     auto comp_result = lfs::loader::load_compressed_ply(compressed_ply);

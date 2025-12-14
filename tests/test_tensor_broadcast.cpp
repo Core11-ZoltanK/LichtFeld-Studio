@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later */
 
 #include "core_new/tensor.hpp"
+#include "core_new/logger.hpp"
 #include <gtest/gtest.h>
 #include <random>
 #include <torch/torch.h>
@@ -376,16 +377,15 @@ TEST_F(TensorBroadcastTest, BroadcastWithEmpty) {
     auto empty_custom = Tensor::from_vector(empty_data, {0}, Device::CUDA);
     auto normal_custom = Tensor::from_vector(normal_data, {3, 4}, Device::CUDA);
 
-    // Broadcasting with empty should fail
-    auto result_custom = empty_custom.add(normal_custom);
-    EXPECT_FALSE(result_custom.is_valid());
+    // Broadcasting with empty tensor and incompatible shapes should throw
+    EXPECT_THROW(empty_custom.add(normal_custom), std::runtime_error);
 
     // Verify PyTorch also has issues with empty tensors
     auto empty_torch = torch::empty({0}, torch::TensorOptions().device(torch::kCUDA));
     auto normal_torch = torch::ones({3, 4}, torch::TensorOptions().device(torch::kCUDA));
 
-    // PyTorch may produce empty result or error - our implementation returns invalid
-    LOG_INFO("Empty tensor broadcasting: Our implementation returns invalid tensor");
+    // PyTorch also throws for incompatible broadcast shapes
+    LOG_INFO("Empty tensor broadcasting: Our implementation throws on incompatible shapes");
 }
 
 TEST_F(TensorBroadcastTest, BroadcastSingleElement) {

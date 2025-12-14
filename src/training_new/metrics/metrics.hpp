@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <iostream>
 #include <memory>
 #include <sstream>
 #include <string>

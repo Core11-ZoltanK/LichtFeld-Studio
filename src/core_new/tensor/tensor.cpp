@@ -4,6 +4,7 @@
 #include "internal/tensor_broadcast.hpp"
 #include "internal/tensor_impl.hpp"
 #include "internal/tensor_ops.hpp"
+#include "core_new/logger.hpp"
 #include <cstring>
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
@@ -36,6 +37,22 @@
 namespace lfs::core {
 
     std::atomic<size_t> Tensor::next_id_{1};
+
+    // TensorLeaf implementation
+    TensorLeaf::TensorLeaf(Tensor tensor)
+        : tensor_ptr_(std::make_shared<Tensor>(std::move(tensor))) {}
+
+    Tensor TensorLeaf::eval_impl() const {
+        // Materialize non-contiguous or offset tensors
+        if (tensor_ptr_->storage_offset() != 0 || !tensor_ptr_->is_contiguous()) {
+            return tensor_ptr_->contiguous();
+        }
+        return *tensor_ptr_;
+    }
+
+    const TensorShape& TensorLeaf::shape_impl() const { return tensor_ptr_->shape(); }
+    Device TensorLeaf::device_impl() const { return tensor_ptr_->device(); }
+    DataType TensorLeaf::dtype_impl() const { return tensor_ptr_->dtype(); }
 
     // ============= Helper Functions =============
 
