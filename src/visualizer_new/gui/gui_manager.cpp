@@ -14,7 +14,7 @@
 #include "core_new/sogs.hpp"
 #include "core_new/splat_data_export.hpp"
 #include "gui/html_viewer_export.hpp"
-#include "io/formats/compressed_ply.hpp"
+#include "io/exporter.hpp"
 #include "project_new/project.hpp"
 #include "gui/panels/main_panel.hpp"
 #include "gui/panels/scene_panel.hpp"

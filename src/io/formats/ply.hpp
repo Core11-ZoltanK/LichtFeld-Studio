@@ -4,22 +4,15 @@
 
 #pragma once
 
-#include "core_new/splat_data.hpp"
-#include <expected>
-#include <filesystem>
-#include <string>
+// Re-export public API
+#include "io/exporter.hpp"
 
 namespace lfs::io {
 
-    // Import types from lfs::core for convenience
-    using lfs::core::SplatData;
+    // Internal: Loading function (not in public API)
+    std::expected<SplatData, std::string> load_ply(const std::filesystem::path& filepath);
 
-    /**
-     * @brief Load PLY file and return SplatData
-     * @param filepath Path to the PLY file
-     * @return SplatData on success, error string on failure
-     */
-    std::expected<SplatData, std::string>
-    load_ply(const std::filesystem::path& filepath);
+    // Alias for backward compatibility
+    using SaveProgressCallback = ExportProgressCallback;
 
 } // namespace lfs::io

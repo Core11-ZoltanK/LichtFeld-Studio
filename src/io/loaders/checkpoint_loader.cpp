@@ -132,7 +132,7 @@ namespace lfs::io {
     }
 
     int CheckpointLoader::priority() const {
-        return 15;  // Higher priority than PLY since it contains more info
+        return 15; // Higher priority than PLY since it contains more info
     }
 
     std::expected<lfs::training::CheckpointHeader, std::string> CheckpointLoader::loadHeader(

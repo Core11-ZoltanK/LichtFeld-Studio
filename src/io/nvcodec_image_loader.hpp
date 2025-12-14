@@ -24,10 +24,10 @@ namespace lfs::io {
     class NvCodecImageLoader {
     public:
         struct Options {
-            int device_id = 0;              // CUDA device to use
-            int max_num_cpu_threads = 0;    // 0 = auto
-            bool enable_fallback = true;    // Fall back to CPU if GPU decode fails
-            size_t decoder_pool_size = 16;  // Number of decoders in pool (one per worker thread)
+            int device_id = 0;             // CUDA device to use
+            int max_num_cpu_threads = 0;   // 0 = auto
+            bool enable_fallback = true;   // Fall back to CPU if GPU decode fails
+            size_t decoder_pool_size = 16; // Number of decoders in pool (one per worker thread)
         };
 
         explicit NvCodecImageLoader(const Options& options);

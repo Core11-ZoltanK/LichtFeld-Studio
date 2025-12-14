@@ -3,16 +3,16 @@
  * SPDX-License-Identifier: GPL-3.0-or-later */
 
 #include "io/nvcodec_image_loader.hpp"
+#include "core_new/cuda/lanczos_resize/lanczos_resize.hpp"
 #include "core_new/logger.hpp"
 #include "core_new/tensor.hpp"
-#include "core_new/cuda/lanczos_resize/lanczos_resize.hpp"
 
-#include <nvimgcodec.h>
-#include <cuda_runtime.h>
-#include <cuda.h>  // For CUcontext, cuCtxGetCurrent, cuCtxSetCurrent
 #include <algorithm>
 #include <condition_variable>
+#include <cuda.h> // For CUcontext, cuCtxGetCurrent, cuCtxSetCurrent
+#include <cuda_runtime.h>
 #include <fstream>
+#include <nvimgcodec.h>
 #include <stdexcept>
 
 namespace lfs::io {
@@ -20,10 +20,10 @@ namespace lfs::io {
     // Internal implementation (PIMPL pattern to hide nvImageCodec types)
     struct NvCodecImageLoader::Impl {
         nvimgcodecInstance_t instance = nullptr;
-        std::vector<nvimgcodecDecoder_t> decoder_pool;  // Pool of decoders (one per thread)
-        std::vector<bool> decoder_available;             // Track which decoders are available
-        std::mutex pool_mutex;                           // Protect pool access
-        std::condition_variable pool_cv;                 // Wait for available decoder
+        std::vector<nvimgcodecDecoder_t> decoder_pool; // Pool of decoders (one per thread)
+        std::vector<bool> decoder_available;           // Track which decoders are available
+        std::mutex pool_mutex;                         // Protect pool access
+        std::condition_variable pool_cv;               // Wait for available decoder
         int device_id = 0;
         bool fallback_enabled = true;
 
@@ -77,13 +77,13 @@ namespace lfs::io {
             NVIMGCODEC_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
             sizeof(nvimgcodecInstanceCreateInfo_t),
             nullptr,
-            1,  // load_builtin_modules
-            1,  // load_extension_modules
-            nullptr,  // extension_modules_path
-            0,  // create_debug_messenger
-            nullptr,  // debug_messenger_desc
-            0,  // message_severity
-            0   // message_category
+            1,       // load_builtin_modules
+            1,       // load_extension_modules
+            nullptr, // extension_modules_path
+            0,       // create_debug_messenger
+            nullptr, // debug_messenger_desc
+            0,       // message_severity
+            0        // message_category
         };
 
         auto status = nvimgcodecInstanceCreate(&impl_->instance, &create_info);
@@ -102,15 +102,15 @@ namespace lfs::io {
             NVIMGCODEC_STRUCTURE_TYPE_EXECUTION_PARAMS,
             sizeof(nvimgcodecExecutionParams_t),
             nullptr,
-            nullptr,  // device_allocator
-            nullptr,  // pinned_allocator
-            options.max_num_cpu_threads,  // max_num_cpu_threads
-            nullptr,  // executor
-            options.device_id,  // device_id
-            0,  // pre_init
-            0,  // skip_pre_sync
-            0,  // num_backends
-            nullptr  // backends
+            nullptr,                     // device_allocator
+            nullptr,                     // pinned_allocator
+            options.max_num_cpu_threads, // max_num_cpu_threads
+            nullptr,                     // executor
+            options.device_id,           // device_id
+            0,                           // pre_init
+            0,                           // skip_pre_sync
+            0,                           // num_backends
+            nullptr                      // backends
         };
 
         for (size_t i = 0; i < pool_size; ++i) {
@@ -139,13 +139,13 @@ namespace lfs::io {
             NVIMGCODEC_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
             sizeof(nvimgcodecInstanceCreateInfo_t),
             nullptr,
-            1,  // load_builtin_modules
-            0,  // load_extension_modules
-            nullptr,  // extension_modules_path
-            0,  // create_debug_messenger
-            nullptr,  // debug_messenger_desc
-            0,  // message_severity
-            0   // message_category
+            1,       // load_builtin_modules
+            0,       // load_extension_modules
+            nullptr, // extension_modules_path
+            0,       // create_debug_messenger
+            nullptr, // debug_messenger_desc
+            0,       // message_severity
+            0        // message_category
         };
 
         auto status = nvimgcodecInstanceCreate(&test_instance, &create_info);
@@ -234,11 +234,11 @@ namespace lfs::io {
 
             // Error for debugging
             const char* error_desc = "unknown";
-            switch(status) {
-                case NVIMGCODEC_STATUS_INVALID_PARAMETER: error_desc = "invalid parameter"; break;
-                case NVIMGCODEC_STATUS_CODESTREAM_UNSUPPORTED: error_desc = "unsupported codestream format"; break;
-                case NVIMGCODEC_STATUS_BAD_CODESTREAM: error_desc = "corrupted/bad codestream"; break;
-                default: error_desc = "unknown error"; break;
+            switch (status) {
+            case NVIMGCODEC_STATUS_INVALID_PARAMETER: error_desc = "invalid parameter"; break;
+            case NVIMGCODEC_STATUS_CODESTREAM_UNSUPPORTED: error_desc = "unsupported codestream format"; break;
+            case NVIMGCODEC_STATUS_BAD_CODESTREAM: error_desc = "corrupted/bad codestream"; break;
+            default: error_desc = "unknown error"; break;
             }
 
             LOG_ERROR("Failed to get image info from JPEG blob ({} bytes): {} (status={})",
@@ -311,7 +311,7 @@ namespace lfs::io {
 
         nvimgcodecFuture_t decode_future;
         status = nvimgcodecDecoderDecode(
-            decoder,  // Use decoder from pool
+            decoder, // Use decoder from pool
             &code_stream,
             &nv_image,
             1, // batch_size
@@ -336,7 +336,7 @@ namespace lfs::io {
 
         // Get processing status (for single image decode)
         nvimgcodecProcessingStatus_t decode_status;
-        size_t status_size = 1;  // We're decoding 1 image
+        size_t status_size = 1; // We're decoding 1 image
         nvimgcodecFutureGetProcessingStatus(decode_future, &decode_status, &status_size);
 
         bool decode_success = (decode_status == NVIMGCODEC_PROCESSING_STATUS_SUCCESS);
@@ -348,11 +348,11 @@ namespace lfs::io {
 
         if (!decode_success) {
             // uint8_tensor will be automatically freed when it goes out of scope
-            const char* status_str = decode_status == NVIMGCODEC_PROCESSING_STATUS_FAIL ? "FAIL" :
-                                     decode_status == NVIMGCODEC_PROCESSING_STATUS_IMAGE_CORRUPTED ? "IMAGE_CORRUPTED" :
-                                     decode_status == NVIMGCODEC_PROCESSING_STATUS_CODEC_UNSUPPORTED ? "CODEC_UNSUPPORTED" :
-                                     decode_status == NVIMGCODEC_PROCESSING_STATUS_BACKEND_UNSUPPORTED ? "BACKEND_UNSUPPORTED" :
-                                     decode_status == NVIMGCODEC_PROCESSING_STATUS_CODESTREAM_UNSUPPORTED ? "CODESTREAM_UNSUPPORTED" : "UNKNOWN";
+            const char* status_str = decode_status == NVIMGCODEC_PROCESSING_STATUS_FAIL ? "FAIL" : decode_status == NVIMGCODEC_PROCESSING_STATUS_IMAGE_CORRUPTED      ? "IMAGE_CORRUPTED"
+                                                                                               : decode_status == NVIMGCODEC_PROCESSING_STATUS_CODEC_UNSUPPORTED      ? "CODEC_UNSUPPORTED"
+                                                                                               : decode_status == NVIMGCODEC_PROCESSING_STATUS_BACKEND_UNSUPPORTED    ? "BACKEND_UNSUPPORTED"
+                                                                                               : decode_status == NVIMGCODEC_PROCESSING_STATUS_CODESTREAM_UNSUPPORTED ? "CODESTREAM_UNSUPPORTED"
+                                                                                                                                                                      : "UNKNOWN";
             throw std::runtime_error(std::string("Decode failed: ") + status_str);
         }
 
@@ -368,7 +368,7 @@ namespace lfs::io {
                 uint8_tensor,
                 target_height,
                 target_width,
-                2,  // kernel_size=2 (good balance of quality and speed)
+                2, // kernel_size=2 (good balance of quality and speed)
                 static_cast<cudaStream_t>(cuda_stream));
 
             LOG_DEBUG("Successfully decoded+resized image to GPU: {}x{} → {}x{}",
@@ -376,7 +376,7 @@ namespace lfs::io {
         } else {
             // No resize needed - convert [H,W,3] uint8 to [C,H,W] float32
             output_tensor = uint8_tensor.to(DataType::Float32) / 255.0f;
-            output_tensor = output_tensor.permute({2, 0, 1}).contiguous();  // [H,W,3] → [3,H,W]
+            output_tensor = output_tensor.permute({2, 0, 1}).contiguous(); // [H,W,3] → [3,H,W]
 
             LOG_DEBUG("Successfully decoded image to GPU: {}x{} (no resize)",
                       src_width, src_height);

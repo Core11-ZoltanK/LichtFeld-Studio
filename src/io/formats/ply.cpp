@@ -5,6 +5,7 @@
 #include "ply.hpp"
 #include "core_new/logger.hpp"
 #include "core_new/tensor.hpp"
+#include "external/tinyply.hpp"
 #include <algorithm>
 #include <charconv>
 #include <chrono>
@@ -12,6 +13,7 @@
 #include <cstring>
 #include <format>
 #include <fstream>
+#include <future>
 #include <mutex>
 #include <ranges>
 #include <span>
@@ -635,6 +637,178 @@ namespace lfs::io {
             std::string error_msg = std::format("Failed to load PLY file: {}", e.what());
             LOG_ERROR("{}", error_msg);
             return std::unexpected(error_msg);
+        }
+    }
+
+    // ============================================================================
+    // PLY Save Implementation
+    // ============================================================================
+
+    namespace {
+
+        std::mutex g_save_mutex;
+        std::vector<std::future<void>> g_save_futures;
+
+        void cleanup_finished_saves() {
+            std::lock_guard lock(g_save_mutex);
+            g_save_futures.erase(
+                std::remove_if(g_save_futures.begin(), g_save_futures.end(),
+                               [](const std::future<void>& f) {
+                                   return !f.valid() || f.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
+                               }),
+                g_save_futures.end());
+        }
+
+        void write_ply_binary(const PointCloud& pc, const std::filesystem::path& output_path) {
+            std::vector<Tensor> tensors;
+            tensors.push_back(pc.means.cpu().contiguous());
+
+            if (pc.normals.is_valid()) {
+                tensors.push_back(pc.normals.cpu().contiguous());
+            }
+
+            auto process_sh = [](const Tensor& sh) -> Tensor {
+                if (sh.ndim() == 3) {
+                    auto transposed = sh.transpose(1, 2).contiguous();
+                    return transposed.flatten(1).cpu().contiguous();
+                }
+                return sh.cpu().contiguous();
+            };
+
+            if (pc.sh0.is_valid())
+                tensors.push_back(process_sh(pc.sh0));
+            if (pc.shN.is_valid())
+                tensors.push_back(process_sh(pc.shN));
+            if (pc.opacity.is_valid())
+                tensors.push_back(pc.opacity.cpu().contiguous());
+            if (pc.scaling.is_valid())
+                tensors.push_back(pc.scaling.cpu().contiguous());
+            if (pc.rotation.is_valid())
+                tensors.push_back(pc.rotation.cpu().contiguous());
+
+            // Write using tinyply
+            tinyply::PlyFile ply;
+            size_t attr_off = 0;
+
+            for (const auto& tensor : tensors) {
+                const size_t cols = tensor.size(1);
+                std::vector<std::string> attrs(pc.attribute_names.begin() + attr_off,
+                                               pc.attribute_names.begin() + attr_off + cols);
+
+                ply.add_properties_to_element(
+                    "vertex", attrs, tinyply::Type::FLOAT32, tensor.size(0),
+                    reinterpret_cast<uint8_t*>(const_cast<float*>(tensor.ptr<float>())),
+                    tinyply::Type::INVALID, 0);
+
+                attr_off += cols;
+            }
+
+            std::filebuf fb;
+            fb.open(output_path, std::ios::out | std::ios::binary);
+            std::ostream out_stream(&fb);
+            ply.write(out_stream, true);
+        }
+
+    } // anonymous namespace
+
+    PointCloud to_point_cloud(const SplatData& splat_data) {
+        PointCloud pc;
+
+        pc.means = splat_data.means().cpu().contiguous();
+        pc.normals = Tensor::zeros_like(pc.means);
+
+        auto process_sh = [](const Tensor& sh) -> Tensor {
+            const auto sh_cpu = sh.cpu().contiguous();
+            if (sh_cpu.ndim() == 3) {
+                const auto transposed = sh_cpu.transpose(1, 2);
+                const size_t N = transposed.shape()[0];
+                const size_t flat_dim = transposed.shape()[1] * transposed.shape()[2];
+                return transposed.reshape({static_cast<int>(N), static_cast<int>(flat_dim)});
+            }
+            return sh_cpu;
+        };
+
+        if (splat_data.sh0().is_valid())
+            pc.sh0 = process_sh(splat_data.sh0());
+        if (splat_data.shN().is_valid())
+            pc.shN = process_sh(splat_data.shN());
+        if (splat_data.opacity_raw().is_valid())
+            pc.opacity = splat_data.opacity_raw().cpu().contiguous();
+        if (splat_data.scaling_raw().is_valid())
+            pc.scaling = splat_data.scaling_raw().cpu().contiguous();
+
+        if (splat_data.rotation_raw().is_valid()) {
+            pc.rotation = splat_data.get_rotation().cpu().contiguous();
+        }
+
+        pc.attribute_names = get_ply_attribute_names(splat_data);
+        return pc;
+    }
+
+    std::vector<std::string> get_ply_attribute_names(const SplatData& splat_data) {
+        std::vector<std::string> attrs{"x", "y", "z", "nx", "ny", "nz"};
+
+        auto add_indexed_attrs = [&attrs](const std::string& prefix, const size_t count) {
+            for (size_t i = 0; i < count; ++i) {
+                attrs.emplace_back(prefix + std::to_string(i));
+            }
+        };
+
+        auto get_feature_count = [](const Tensor& t) -> size_t {
+            if (t.ndim() == 3)
+                return t.shape()[1] * t.shape()[2];
+            if (t.ndim() == 2)
+                return t.shape()[1];
+            return 0;
+        };
+
+        if (splat_data.sh0().is_valid())
+            add_indexed_attrs("f_dc_", get_feature_count(splat_data.sh0()));
+        if (splat_data.shN().is_valid())
+            add_indexed_attrs("f_rest_", get_feature_count(splat_data.shN()));
+
+        attrs.emplace_back("opacity");
+
+        if (splat_data.scaling_raw().is_valid())
+            add_indexed_attrs("scale_", splat_data.scaling_raw().shape()[1]);
+        if (splat_data.rotation_raw().is_valid())
+            add_indexed_attrs("rot_", splat_data.rotation_raw().shape()[1]);
+
+        return attrs;
+    }
+
+    std::expected<void, std::string> save_ply(const SplatData& splat_data, const PlySaveOptions& options) {
+        try {
+            auto pc = lfs::io::to_point_cloud(splat_data);
+            return save_ply(pc, options);
+        } catch (const std::exception& e) {
+            return std::unexpected(std::format("Failed to save PLY: {}", e.what()));
+        }
+    }
+
+    std::expected<void, std::string> save_ply(const PointCloud& point_cloud, const PlySaveOptions& options) {
+        try {
+            std::filesystem::create_directories(options.output_path.parent_path());
+
+            if (options.async) {
+                cleanup_finished_saves();
+                std::lock_guard lock(g_save_mutex);
+                g_save_futures.emplace_back(
+                    std::async(std::launch::async, [pc = point_cloud, path = options.output_path]() {
+                        try {
+                            write_ply_binary(pc, path);
+                            LOG_INFO("PLY saved: {}", path.string());
+                        } catch (const std::exception& e) {
+                            LOG_ERROR("Failed to save PLY: {}", e.what());
+                        }
+                    }));
+            } else {
+                write_ply_binary(point_cloud, options.output_path);
+                LOG_INFO("PLY saved: {}", options.output_path.string());
+            }
+            return {};
+        } catch (const std::exception& e) {
+            return std::unexpected(std::format("Failed to save PLY: {}", e.what()));
         }
     }
 

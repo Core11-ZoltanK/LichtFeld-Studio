@@ -4,14 +4,10 @@
 
 #pragma once
 
-#include "core_new/splat_data.hpp"
-#include <expected>
-#include <filesystem>
-#include <string>
+// Re-export public API
+#include "io/exporter.hpp"
 
 namespace lfs::io {
-
-    using lfs::core::SplatData;
 
     /**
      * @brief Check if a PLY file is in compressed format
@@ -36,27 +32,5 @@ namespace lfs::io {
      */
     std::expected<SplatData, std::string>
     load_compressed_ply(const std::filesystem::path& filepath);
-
-    /**
-     * @brief Options for compressed PLY export
-     */
-    struct CompressedPlyWriteOptions {
-        std::filesystem::path output_path;
-        bool include_sh = true;  // Include higher-order SH coefficients
-    };
-
-    /**
-     * @brief Write a compressed PLY file
-     *
-     * Uses chunk-based compression with Morton ordering for spatial coherence.
-     * Each chunk contains 256 splats with shared min/max bounds.
-     *
-     * @param splat_data The splat data to export
-     * @param options Export options including output path
-     * @return Success or error string
-     */
-    std::expected<void, std::string>
-    write_compressed_ply(const SplatData& splat_data,
-                         const CompressedPlyWriteOptions& options);
 
 } // namespace lfs::io

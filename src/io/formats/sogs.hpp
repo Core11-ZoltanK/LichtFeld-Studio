@@ -4,21 +4,15 @@
 
 #pragma once
 
-#include "core_new/splat_data.hpp"
-#include <expected>
-#include <filesystem>
-#include <string>
+// Re-export public API
+#include "io/exporter.hpp"
 
 namespace lfs::io {
 
-    // Import types from lfs::core for convenience
-    using lfs::core::SplatData;
+    // Alias for backward compatibility
+    using SogProgressCallback = ExportProgressCallback;
 
-    /**
-     * @brief Load SOG file and return SplatData
-     * @param filepath Path to the SOG file or directory
-     * @return SplatData on success, error string on failure
-     */
+    // Internal: Loading function (not in public API)
     std::expected<SplatData, std::string> load_sog(const std::filesystem::path& filepath);
 
 } // namespace lfs::io

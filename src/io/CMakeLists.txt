@@ -2,6 +2,40 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+# CUDA library for IO-specific kernels (morton encoding, k-means)
+add_library(lfs_io_cuda STATIC
+        cuda/morton_encoding.hpp
+        cuda/morton_encoding.cu
+        cuda/kmeans.hpp
+        cuda/kmeans.cu
+)
+
+target_include_directories(lfs_io_cuda
+        PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(lfs_io_cuda
+        PUBLIC
+        lfs_core
+        PRIVATE
+        CUDA::cudart
+)
+
+set_target_properties(lfs_io_cuda PROPERTIES
+        CUDA_SEPARABLE_COMPILATION ON
+        CUDA_STANDARD 20
+        CUDA_STANDARD_REQUIRED ON
+)
+
+target_compile_options(lfs_io_cuda PRIVATE
+        $<$<COMPILE_LANGUAGE:CUDA>:--expt-relaxed-constexpr>
+)
+
+# Main IO library
 add_library(lfs_io STATIC
         # Implementation file only (header is in include/io/)
         loader.cpp
@@ -13,7 +47,7 @@ add_library(lfs_io STATIC
         loader_service.hpp
         loader_service.cpp
 
-        # Format implementations
+        # Format implementations (load + save)
         formats/ply.hpp
         formats/ply.cpp
         formats/colmap.hpp
@@ -24,6 +58,9 @@ add_library(lfs_io STATIC
         formats/sogs.cpp
         formats/compressed_ply.hpp
         formats/compressed_ply.cpp
+        formats/html.hpp
+        formats/html.cpp
+        formats/html_viewer_resources.hpp
 
         # Concrete loader implementations
         loaders/ply_loader.hpp
@@ -42,9 +79,10 @@ add_library(lfs_io STATIC
 )
 
 # Set include directories
+# Public interface is ONLY what's in src/io/include/ - all implementation is private
 target_include_directories(lfs_io
         PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
         PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
@@ -52,7 +90,7 @@ target_include_directories(lfs_io
         ${CMAKE_SOURCE_DIR}/external/nvImageCodec/include
 )
 
-# Find the actual WebP library target
+# Find the actual WebP library targets
 if(TARGET WebP::webpdecoder)
     set(WEBP_DECODE_LIB WebP::webpdecoder)
 elseif(TARGET WebP::webp)
@@ -62,6 +100,16 @@ elseif(TARGET webpdecoder)
 else()
     find_library(WEBP_DECODE_LIBRARY NAMES webpdecoder webp libwebpdecoder libwebp REQUIRED)
     set(WEBP_DECODE_LIB ${WEBP_DECODE_LIBRARY})
+endif()
+
+# WebP encoder for SOG/HTML export
+if(TARGET WebP::webp)
+    set(WEBP_ENCODE_LIB WebP::webp)
+elseif(TARGET webp)
+    set(WEBP_ENCODE_LIB webp)
+else()
+    find_library(WEBP_ENCODE_LIBRARY NAMES webp libwebp REQUIRED)
+    set(WEBP_ENCODE_LIB ${WEBP_ENCODE_LIBRARY})
 endif()
 
 # Find the actual LibArchive library target
@@ -76,6 +124,9 @@ else()
     set(ARCHIVE_LIB ${ARCHIVE_LIBRARY})
 endif()
 
+# Ensure CUDA library is built first
+add_dependencies(lfs_io lfs_io_cuda)
+
 # Link dependencies
 target_link_libraries(lfs_io
         PUBLIC
@@ -86,9 +137,11 @@ target_link_libraries(lfs_io
         spdlog::spdlog
         nlohmann_json::nlohmann_json
         ${WEBP_DECODE_LIB}     # WebP for SOG decompression
+        ${WEBP_ENCODE_LIB}     # WebP for SOG/HTML export
         ${ARCHIVE_LIB}         # LibArchive for SOG bundle support
         CUDA::cudart           # CUDA runtime for nvImageCodec
-        lfs_core_cuda          # CUDA utilities (lanczos_resize, etc.)
+        lfs_io_cuda            # IO-specific CUDA kernels (morton, k-means)
+        lfs_core_cuda          # Core CUDA utilities (lanczos_resize for nvcodec)
 )
 
 # Link nvImageCodec if available
@@ -122,10 +175,11 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     endif ()
 endif ()
 
-# Export only the public header
-install(FILES ${CMAKE_SOURCE_DIR}/include/io/loader.hpp
-        DESTINATION include/io)
+# Export public headers (all interface files in src/io/include/io/)
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/io
+        DESTINATION include)
 
 message(STATUS "I/O module configured with SOG support")
+message(STATUS "  IO CUDA library: lfs_io_cuda (morton, k-means)")
 message(STATUS "  WebP decoder library: ${WEBP_DECODE_LIB}")
 message(STATUS "  Archive library: ${ARCHIVE_LIB}")
