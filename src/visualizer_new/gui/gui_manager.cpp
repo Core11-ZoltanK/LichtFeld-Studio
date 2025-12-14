@@ -1051,20 +1051,35 @@ namespace lfs::vis::gui {
             // Mode (bold)
             const char* mode = "Empty";
             ImVec4 color = t.palette.text_dim;
+            TrainerManager* trainer_mgr = nullptr;
+            bool show_training_progress = false;
+            char mode_buf[64] = {};
+
             if (sm) {
                 switch (sm->getContentType()) {
                 case SceneManager::ContentType::SplatFiles:
                     mode = "Viewer"; color = t.palette.info; break;
                 case SceneManager::ContentType::Dataset:
-                    if (auto* tm = sm->getTrainerManager(); tm && tm->hasTrainer()) {
-                        switch (tm->getState()) {
-                        case TrainerManager::State::Running:   mode = "Training"; color = t.palette.warning; break;
-                        case TrainerManager::State::Paused:    mode = "Paused";   color = t.palette.text_dim; break;
-                        case TrainerManager::State::Ready:     mode = "Ready";    color = t.palette.success; break;
-                        case TrainerManager::State::Completed: mode = "Complete"; color = t.palette.success; break;
-                        case TrainerManager::State::Error:     mode = "Error";    color = t.palette.error; break;
-                        default: mode = "Dataset"; break;
+                    trainer_mgr = sm->getTrainerManager();
+                    if (trainer_mgr && trainer_mgr->hasTrainer()) {
+                        const auto state = trainer_mgr->getState();
+                        const char* base_mode = "Dataset";
+                        switch (state) {
+                        case TrainerManager::State::Running:   base_mode = "Training"; color = t.palette.warning; show_training_progress = true; break;
+                        case TrainerManager::State::Paused:    base_mode = "Paused";   color = t.palette.text_dim; show_training_progress = true; break;
+                        case TrainerManager::State::Ready:     base_mode = "Ready";    color = t.palette.success; break;
+                        case TrainerManager::State::Completed: base_mode = "Complete"; color = t.palette.success; show_training_progress = true; break;
+                        case TrainerManager::State::Error:     base_mode = "Error";    color = t.palette.error; break;
+                        default: break;
                         }
+                        // Add strategy and method info
+                        const char* strategy = trainer_mgr->getStrategyType();
+                        const bool gut = trainer_mgr->isGutEnabled();
+                        snprintf(mode_buf, sizeof(mode_buf), "%s (%s/%s)",
+                            base_mode,
+                            strcmp(strategy, "mcmc") == 0 ? "MCMC" : "Default",
+                            gut ? "GUT" : "3DGS");
+                        mode = mode_buf;
                     } else { mode = "Dataset"; }
                     break;
                 default: break;
@@ -1074,8 +1089,126 @@ namespace lfs::vis::gui {
             ImGui::TextColored(color, "%s", mode);
             if (ctx.fonts.bold) ImGui::PopFont();
 
-            // Splat count (visible / total)
-            if (sm) {
+            // Training progress display
+            if (show_training_progress && trainer_mgr) {
+                constexpr float SECTION_GAP = 12.0f;
+                constexpr float LABEL_GAP = 6.0f;
+                constexpr float SEP_GAP = 20.0f;
+                constexpr float BAR_WIDTH = 120.0f;
+                constexpr float BAR_HEIGHT = 12.0f;
+                constexpr float BAR_ROUNDING = 2.0f;
+
+                const int current_iter = trainer_mgr->getCurrentIteration();
+                const int total_iter = trainer_mgr->getTotalIterations();
+                const float progress = total_iter > 0
+                    ? static_cast<float>(current_iter) / static_cast<float>(total_iter) : 0.0f;
+
+                ImDrawList* const draw_list = ImGui::GetWindowDrawList();
+                ImFont* const font = ctx.fonts.bold ? ctx.fonts.bold : ImGui::GetFont();
+                const float font_size = font->FontSize;
+                const float y_text = pos.y + (STATUS_BAR_HEIGHT - font_size) * 0.5f;
+                const float y_bar = pos.y + (STATUS_BAR_HEIGHT - BAR_HEIGHT) * 0.5f;
+                const ImU32 col_text = toU32(t.palette.text);
+                const ImU32 col_dim = toU32(t.palette.text_dim);
+                const ImU32 col_bar_bg = toU32(withAlpha(t.palette.surface_bright, 0.5f));
+                const ImU32 col_bar_fill = toU32(t.palette.primary);
+
+                // Helper: draw label and advance cursor
+                const auto draw_label = [&](float& x, const char* label) {
+                    draw_list->AddText(font, font_size, {x, y_text}, col_dim, label);
+                    x += font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, label).x + LABEL_GAP;
+                };
+
+                // Helper: draw value and advance cursor
+                const auto draw_value = [&](float& x, const char* value) {
+                    draw_list->AddText(font, font_size, {x, y_text}, col_text, value);
+                    x += font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, value).x;
+                };
+
+                // Helper: draw separator and advance cursor
+                const auto draw_sep = [&](float& x) {
+                    draw_list->AddText(font, font_size, {x, y_text}, col_dim, "|");
+                    x += SEP_GAP;
+                };
+
+                // Helper: format count with K/M suffix
+                const auto fmt_count = [](const int n, char* buf, const size_t size) {
+                    if (n >= 1'000'000) snprintf(buf, size, "%.2fM", n / 1e6);
+                    else if (n >= 1'000) snprintf(buf, size, "%.0fK", n / 1e3);
+                    else snprintf(buf, size, "%d", n);
+                };
+
+                // Helper: format time as h:mm:ss or m:ss
+                const auto fmt_time = [](const float secs, char* buf, const size_t size) {
+                    if (secs < 0.0f) { snprintf(buf, size, "--:--"); return; }
+                    const int total = static_cast<int>(secs);
+                    const int h = total / 3600, m = (total % 3600) / 60, s = total % 60;
+                    if (h > 0) snprintf(buf, size, "%d:%02d:%02d", h, m, s);
+                    else snprintf(buf, size, "%d:%02d", m, s);
+                };
+
+                ImGui::SameLine(0.0f, SPACING);
+                ImGui::TextColored(t.palette.text_dim, "|");
+                ImGui::SameLine(0.0f, SPACING);
+
+                float x = ImGui::GetCursorScreenPos().x;
+
+                // Progress bar
+                draw_list->AddRectFilled({x, y_bar}, {x + BAR_WIDTH, y_bar + BAR_HEIGHT},
+                    col_bar_bg, BAR_ROUNDING);
+                if (progress > 0.0f) {
+                    draw_list->AddRectFilled({x, y_bar}, {x + BAR_WIDTH * progress, y_bar + BAR_HEIGHT},
+                        col_bar_fill, BAR_ROUNDING);
+                }
+                char pct_buf[8];
+                snprintf(pct_buf, sizeof(pct_buf), "%.0f%%", progress * 100.0f);
+                const ImVec2 pct_size = font->CalcTextSizeA(font_size, FLT_MAX, 0.0f, pct_buf);
+                draw_list->AddText(font, font_size,
+                    {x + (BAR_WIDTH - pct_size.x) * 0.5f, y_bar + (BAR_HEIGHT - pct_size.y) * 0.5f},
+                    col_text, pct_buf);
+                x += BAR_WIDTH + SECTION_GAP;
+
+                // Step
+                char iter_buf[32];
+                snprintf(iter_buf, sizeof(iter_buf), "%d/%d", current_iter, total_iter);
+                draw_label(x, "Step");
+                draw_value(x, iter_buf);
+                x += SECTION_GAP;
+                draw_sep(x);
+
+                // Loss
+                char loss_buf[16];
+                snprintf(loss_buf, sizeof(loss_buf), "%.4f", trainer_mgr->getCurrentLoss());
+                draw_label(x, "Loss");
+                draw_value(x, loss_buf);
+                x += SECTION_GAP;
+                draw_sep(x);
+
+                // Gaussians
+                char cur_buf[16], max_buf[16], gauss_buf[32];
+                fmt_count(trainer_mgr->getNumSplats(), cur_buf, sizeof(cur_buf));
+                fmt_count(trainer_mgr->getMaxGaussians(), max_buf, sizeof(max_buf));
+                snprintf(gauss_buf, sizeof(gauss_buf), "%s/%s", cur_buf, max_buf);
+                draw_label(x, "Gaussians");
+                draw_value(x, gauss_buf);
+                x += SECTION_GAP;
+                draw_sep(x);
+
+                // Time
+                char elapsed_buf[16], eta_buf[16];
+                fmt_time(trainer_mgr->getElapsedSeconds(), elapsed_buf, sizeof(elapsed_buf));
+                fmt_time(trainer_mgr->getEstimatedRemainingSeconds(), eta_buf, sizeof(eta_buf));
+                draw_value(x, elapsed_buf);
+                x += LABEL_GAP;
+                draw_label(x, "ETA");
+                draw_value(x, eta_buf);
+
+                ImGui::SameLine();
+                ImGui::Dummy({x - ImGui::GetCursorScreenPos().x + SECTION_GAP, STATUS_BAR_HEIGHT});
+            }
+
+            // Splat count (visible / total) - skip during training
+            if (sm && !show_training_progress) {
                 size_t total = 0, visible = 0;
                 for (const auto* n : sm->getScene().getNodes()) {
                     if (n->type == NodeType::SPLAT) {

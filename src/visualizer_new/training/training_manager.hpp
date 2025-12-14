@@ -88,6 +88,13 @@ namespace lfs::vis {
         float getCurrentLoss() const;
         int getTotalIterations() const;
         int getNumSplats() const;
+        int getMaxGaussians() const;
+        const char* getStrategyType() const;
+        bool isGutEnabled() const;
+
+        // Time tracking
+        float getElapsedSeconds() const;
+        float getEstimatedRemainingSeconds() const;
 
         // Loss buffer management (this needs to be stored)
         std::deque<float> getLossBuffer() const;
@@ -143,6 +150,10 @@ namespace lfs::vis {
         int max_loss_points_ = 200;
         std::deque<float> loss_buffer_;
         mutable std::mutex loss_buffer_mutex_;
+
+        // Training time tracking
+        std::chrono::steady_clock::time_point training_start_time_;
+        std::chrono::steady_clock::duration accumulated_training_time_{0};
 
         // project
         std::shared_ptr<lfs::project::Project> project_ = nullptr;

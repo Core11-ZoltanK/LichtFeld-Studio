@@ -198,6 +198,9 @@ namespace lfs::vis {
 
         setState(State::Running);
 
+        training_start_time_ = std::chrono::steady_clock::now();
+        accumulated_training_time_ = std::chrono::steady_clock::duration{0};
+
         // Emit training started event
         state::TrainingStarted{
             .total_iterations = getTotalIterations()}
@@ -221,6 +224,7 @@ namespace lfs::vis {
 
         if (trainer_) {
             trainer_->request_pause();
+            accumulated_training_time_ += std::chrono::steady_clock::now() - training_start_time_;
             setState(State::Paused);
 
             state::TrainingPaused{
@@ -239,6 +243,7 @@ namespace lfs::vis {
 
         if (trainer_) {
             trainer_->request_resume();
+            training_start_time_ = std::chrono::steady_clock::now();
             setState(State::Running);
 
             state::TrainingResumed{
@@ -402,6 +407,48 @@ namespace lfs::vis {
             return static_cast<int>(trainer_->get_strategy().get_model().size());
         }
         return 0;
+    }
+
+    int TrainerManager::getMaxGaussians() const {
+        if (!trainer_)
+            return 0;
+        return trainer_->getParams().optimization.max_cap;
+    }
+
+    const char* TrainerManager::getStrategyType() const {
+        if (!trainer_ || !trainer_->isInitialized())
+            return "unknown";
+        return trainer_->get_strategy().strategy_type();
+    }
+
+    bool TrainerManager::isGutEnabled() const {
+        if (!trainer_)
+            return false;
+        return trainer_->getParams().optimization.gut;
+    }
+
+    float TrainerManager::getElapsedSeconds() const {
+        const auto state = state_.load();
+        if (state == State::Running) {
+            const auto current = std::chrono::steady_clock::now() - training_start_time_;
+            return std::chrono::duration<float>(accumulated_training_time_ + current).count();
+        }
+        if (state == State::Paused || state == State::Completed) {
+            return std::chrono::duration<float>(accumulated_training_time_).count();
+        }
+        return 0.0f;
+    }
+
+    float TrainerManager::getEstimatedRemainingSeconds() const {
+        const float elapsed = getElapsedSeconds();
+        const int current_iter = getCurrentIteration();
+        const int total_iter = getTotalIterations();
+
+        if (current_iter <= 0 || elapsed <= 0.0f || total_iter <= current_iter)
+            return 0.0f;
+
+        const float secs_per_iter = elapsed / static_cast<float>(current_iter);
+        return secs_per_iter * static_cast<float>(total_iter - current_iter);
     }
 
     void TrainerManager::updateLoss(float loss) {
