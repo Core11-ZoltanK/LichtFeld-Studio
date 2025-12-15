@@ -28,8 +28,7 @@ target_include_directories(lfs_core_cuda
         ${CMAKE_SOURCE_DIR}/src/core_new/tensor/internal  # For memory_pool.hpp and other internal headers
 )
 
-find_package(OpenMP REQUIRED)
-
+find_package(OpenMP REQUIRED COMPONENTS CXX)
 target_link_libraries(lfs_core_cuda
     PUBLIC
         lfs_tensor      # Tensor library needed by lanczos_resize and kernels
