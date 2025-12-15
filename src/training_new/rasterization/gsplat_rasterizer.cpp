@@ -82,7 +82,8 @@ namespace lfs::training {
         // Calculate buffer dimensions
         const uint32_t N = static_cast<uint32_t>(means.shape()[0]);
         const uint32_t C = 1;  // Single camera
-        const uint32_t K = static_cast<uint32_t>(sh_coeffs.shape()[1]);  // SH coefficients
+        const uint32_t K = (sh_coeffs.is_valid() && sh_coeffs.ndim() >= 2)
+            ? static_cast<uint32_t>(sh_coeffs.shape()[1]) : 0;  // SH coefficients
         const uint32_t H = image_height;
         const uint32_t W = image_width;
         const uint32_t tile_height = (H + tile_size - 1) / tile_size;
@@ -545,7 +546,7 @@ namespace lfs::training {
         int64_t K_dst = 0;
         if (K > 1) {
             auto shN_grad = optimizer.get_grad(ParamType::ShN);
-            if (shN_grad.is_valid() && shN_grad.numel() > 0) {
+            if (shN_grad.is_valid() && shN_grad.numel() > 0 && shN_grad.ndim() >= 2) {
                 dst_shN = shN_grad.ptr<float>();
                 K_dst = static_cast<int64_t>(shN_grad.shape()[1]);  // [N, K_dst, 3]
             }

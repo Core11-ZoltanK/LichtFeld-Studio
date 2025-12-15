@@ -2292,7 +2292,24 @@ namespace lfs::core {
             throw TensorError("zeros_direct only supports CUDA device");
         }
 
-        size_t current_size = shape[0];
+        // Rank-0 tensor (empty)
+        if (shape.rank() == 0) {
+            static char DUMMY_OWNER = 0;
+            Tensor t;
+            t.data_ = nullptr;
+            t.data_owner_ = std::shared_ptr<void>(&DUMMY_OWNER, [](void*) {});
+            t.shape_ = shape;
+            t.strides_ = {};
+            t.storage_offset_ = 0;
+            t.device_ = device;
+            t.dtype_ = DataType::Float32;
+            t.capacity_ = 0;
+            t.logical_size_ = 0;
+            t.id_ = next_id_++;
+            return t;
+        }
+
+        const size_t current_size = shape[0];
         size_t row_size = 1;
         for (size_t i = 1; i < shape.rank(); i++) {
             row_size *= shape[i];

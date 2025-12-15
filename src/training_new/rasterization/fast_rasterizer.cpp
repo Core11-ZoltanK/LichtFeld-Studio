@@ -209,7 +209,8 @@ namespace lfs::training {
         const float* cam_position_ptr = viewpoint_camera.cam_position_ptr();
 
         const int n_primitives = static_cast<int>(means.shape()[0]);
-        const int total_bases_sh_rest = static_cast<int>(shN.shape()[1]);
+        const int total_bases_sh_rest = (shN.is_valid() && shN.ndim() >= 2)
+            ? static_cast<int>(shN.shape()[1]) : 0;
 
         // Pre-allocate output tensors (reused across iterations)
         thread_local core::Tensor image;

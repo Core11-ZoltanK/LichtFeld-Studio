@@ -179,7 +179,9 @@ namespace lfs::training {
                 N
             );
 
-            // Then copy from sampled indices to dead indices using fused copy kernel
+            // Copy sampled params to dead slots
+            const size_t sh_coeffs = (_splat_data->shN().is_valid() && _splat_data->shN().ndim() >= 2)
+                ? _splat_data->shN().shape()[1] : 0;
             mcmc::launch_copy_gaussian_params(
                 sampled_idxs.ptr<int64_t>(),
                 dead_indices.ptr<int64_t>(),
@@ -190,9 +192,9 @@ namespace lfs::training {
                 _splat_data->rotation_raw().ptr<float>(),
                 _splat_data->opacity_raw().ptr<float>(),
                 dead_indices.numel(),
-                _splat_data->shN().shape()[1],
+                sh_coeffs,
                 opacity_dim,
-                N  // Pass N for bounds checking
+                N
             );
         }
 
@@ -598,28 +600,18 @@ namespace lfs::training {
                 };
 
                 replace_with_direct(_splat_data->means());
-                LOG_DEBUG("    means: replaced pool allocation with direct cudaMalloc (capacity={})", capacity);
-
                 replace_with_direct(_splat_data->sh0());
-                LOG_DEBUG("    sh0: replaced pool allocation with direct cudaMalloc (capacity={})", capacity);
-
-                replace_with_direct(_splat_data->shN());
-                LOG_DEBUG("    shN: replaced pool allocation with direct cudaMalloc (capacity={})", capacity);
-
+                if (_splat_data->shN().is_valid() && _splat_data->shN().ndim() > 0) {
+                    replace_with_direct(_splat_data->shN());
+                }
                 replace_with_direct(_splat_data->scaling_raw());
-                LOG_DEBUG("    scaling: replaced pool allocation with direct cudaMalloc (capacity={})", capacity);
-
                 replace_with_direct(_splat_data->rotation_raw());
-                LOG_DEBUG("    rotation: replaced pool allocation with direct cudaMalloc (capacity={})", capacity);
-
                 replace_with_direct(_splat_data->opacity_raw());
-                LOG_DEBUG("    opacity: replaced pool allocation with direct cudaMalloc (capacity={})", capacity);
 
-                // Pre-allocate noise buffer with full capacity [max_cap, 3]
+                // Pre-allocate noise buffer [max_cap, 3]
                 _noise_buffer = Tensor::zeros_direct(TensorShape({capacity, 3}), capacity);
-                LOG_DEBUG("  Noise buffer allocated with direct cudaMalloc: [{}, 3]", capacity);
 
-                LOG_INFO("✓ Tensor capacity pre-allocation complete: {}/{} Gaussians ({:.1f}% utilization)",
+                LOG_INFO("Pre-allocated capacity: {}/{} Gaussians ({:.1f}%)",
                          current_size, capacity, 100.0f * current_size / capacity);
             } catch (const std::exception& e) {
                 LOG_WARN("Failed to pre-allocate capacity: {}. Continuing without pre-allocation.", e.what());
