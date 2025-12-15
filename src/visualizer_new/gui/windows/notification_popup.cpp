@@ -52,7 +52,7 @@ namespace lfs::vis::gui {
     void NotificationPopup::setupEventHandlers() {
         state::DatasetLoadCompleted::when([this](const auto& e) {
             if (!e.success && e.error.has_value()) {
-                show(Type::ERROR, "Failed to Load Dataset", *e.error);
+                show(Type::FAILURE, "Failed to Load Dataset", *e.error);
             }
         });
 
@@ -68,7 +68,7 @@ namespace lfs::vis::gui {
                 show(Type::INFO, "Training Complete", message,
                      []() { cmd::SwitchToLatestCheckpoint{}.emit(); });
             } else {
-                show(Type::ERROR, "Training Failed",
+                show(Type::FAILURE, "Training Failed",
                      e.error.value_or("Unknown error occurred during training."));
             }
         });
@@ -94,7 +94,7 @@ namespace lfs::vis::gui {
         ImVec4 accent_color;
         const char* type_label;
         switch (current_.type) {
-            case Type::ERROR:
+            case Type::FAILURE:
                 accent_color = COLOR_ERROR;
                 type_label = "Error";
                 break;
