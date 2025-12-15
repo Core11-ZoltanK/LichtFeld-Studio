@@ -1243,19 +1243,7 @@ namespace lfs::vis {
         // Reset depth for overlay rendering
         glClear(GL_DEPTH_BUFFER_BIT);
 
-        // Grid
-        if (settings_.show_grid && engine_) {
-            auto grid_result = engine_->renderGrid(
-                viewport,
-                static_cast<lfs::rendering::GridPlane>(settings_.grid_plane),
-                settings_.grid_opacity);
-
-            if (!grid_result) {
-                LOG_WARN("Failed to render grid: {}", grid_result.error());
-            }
-        }
-
-        // Crop box wireframes from scene graph (single source of truth)
+        // Wireframe overlays (render before grid to avoid depth occlusion)
         if (settings_.show_crop_box && engine_ && context.scene_manager) {
             const auto visible_cropboxes = context.scene_manager->getScene().getVisibleCropBoxes();
             const NodeId selected_cropbox_id = context.scene_manager->getSelectedNodeCropBoxId();
@@ -1412,6 +1400,16 @@ namespace lfs::vis {
                         }
                     }
                 }
+            }
+        }
+
+        // Grid (render last for proper wireframe compositing)
+        if (settings_.show_grid && engine_) {
+            if (const auto result = engine_->renderGrid(
+                    viewport,
+                    static_cast<lfs::rendering::GridPlane>(settings_.grid_plane),
+                    settings_.grid_opacity); !result) {
+                LOG_WARN("Grid render failed: {}", result.error());
             }
         }
     }

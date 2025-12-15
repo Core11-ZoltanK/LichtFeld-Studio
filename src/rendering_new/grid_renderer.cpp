@@ -146,7 +146,6 @@ namespace lfs::rendering {
         const GLboolean prev_blend = glIsEnabled(GL_BLEND);
         const GLboolean prev_depth_test = glIsEnabled(GL_DEPTH_TEST);
 
-        glClear(GL_DEPTH_BUFFER_BIT);
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glEnable(GL_DEPTH_TEST);
