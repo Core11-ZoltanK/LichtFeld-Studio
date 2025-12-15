@@ -6,6 +6,7 @@
 #include "core_new/logger.hpp"
 #include "core_new/splat_data.hpp"
 #include "formats/sogs.hpp"
+#include "io/error.hpp"
 #include <chrono>
 #include <filesystem>
 #include <format>
@@ -19,7 +20,7 @@ namespace lfs::io {
     using lfs::core::SplatData;
     using lfs::core::Tensor;
 
-    std::expected<LoadResult, std::string> SogLoader::load(
+    Result<LoadResult> SogLoader::load(
         const std::filesystem::path& path,
         const LoadOptions& options) {
 
@@ -33,9 +34,8 @@ namespace lfs::io {
 
         // Validate path exists
         if (!std::filesystem::exists(path)) {
-            std::string error_msg = std::format("SOG file/directory does not exist: {}", path.string());
-            LOG_ERROR("{}", error_msg);
-            throw std::runtime_error(error_msg);
+            return make_error(ErrorCode::PATH_NOT_FOUND,
+                "SOG file/directory does not exist", path);
         }
 
         // Validation only mode
@@ -69,8 +69,8 @@ namespace lfs::io {
             }
 
             if (!valid) {
-                LOG_ERROR("Invalid SOG format: {}", path.string());
-                throw std::runtime_error("Invalid SOG format");
+                return make_error(ErrorCode::INVALID_HEADER,
+                    "Invalid SOG format (expected ZIP archive or directory with meta.json)", path);
             }
 
             if (options.progress) {
@@ -97,11 +97,10 @@ namespace lfs::io {
         }
 
         LOG_INFO("Loading SOG file: {}", path.string());
-        auto splat_result = load_sog(path); // Changed from load_sog_cuda to load_sog
+        auto splat_result = load_sog(path);
         if (!splat_result) {
-            std::string error_msg = splat_result.error();
-            LOG_ERROR("Failed to load SOG: {}", error_msg);
-            throw std::runtime_error(error_msg);
+            return make_error(ErrorCode::CORRUPTED_DATA,
+                std::format("Failed to load SOG: {}", splat_result.error()), path);
         }
 
         if (options.progress) {

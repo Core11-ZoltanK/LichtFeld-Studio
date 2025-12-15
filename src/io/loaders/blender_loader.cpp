@@ -7,6 +7,7 @@
 #include "core_new/logger.hpp"
 #include "core_new/point_cloud.hpp"
 #include "formats/transforms.hpp"
+#include "io/error.hpp"
 #include "training_new/dataset.hpp"
 #include <chrono>
 #include <filesystem>
@@ -50,7 +51,7 @@ namespace lfs::io {
         return {};
     }
 
-    std::expected<LoadResult, std::string> BlenderLoader::load(
+    Result<LoadResult> BlenderLoader::load(
         const std::filesystem::path& path,
         const LoadOptions& options) {
 
@@ -59,9 +60,8 @@ namespace lfs::io {
 
         // Validate path exists
         if (!std::filesystem::exists(path)) {
-            std::string error_msg = std::format("Path does not exist: {}", path.string());
-            LOG_ERROR("{}", error_msg);
-            return std::unexpected(error_msg);
+            return make_error(ErrorCode::PATH_NOT_FOUND,
+                "Blender/NeRF dataset path does not exist", path);
         }
 
         // Report initial progress
@@ -81,18 +81,16 @@ namespace lfs::io {
                 transforms_file = path / "transforms.json";
                 LOG_DEBUG("Found transforms.json");
             } else {
-                std::string error_msg = "No transforms file found (expected 'transforms.json' or 'transforms_train.json')";
-                LOG_ERROR("{}", error_msg);
-                return std::unexpected(error_msg);
+                return make_error(ErrorCode::MISSING_REQUIRED_FILES,
+                    "No transforms file found (expected 'transforms.json' or 'transforms_train.json')", path);
             }
         } else if (path.extension() == ".json") {
             // Direct path to transforms file
             transforms_file = path;
             LOG_DEBUG("Using direct transforms file: {}", transforms_file.string());
         } else {
-            std::string error_msg = "Path must be a directory or a JSON file";
-            LOG_ERROR("{}", error_msg);
-            return std::unexpected(error_msg);
+            return make_error(ErrorCode::UNSUPPORTED_FORMAT,
+                "Path must be a directory or a JSON file", path);
         }
 
         // Validation only mode
@@ -101,9 +99,8 @@ namespace lfs::io {
             // Check if the transforms file is valid JSON
             std::ifstream file(transforms_file);
             if (!file) {
-                std::string error_msg = std::format("Cannot open transforms file: {}", transforms_file.string());
-                LOG_ERROR("{}", error_msg);
-                return std::unexpected(error_msg);
+                return make_error(ErrorCode::PERMISSION_DENIED,
+                    "Cannot open transforms file for reading", transforms_file);
             }
 
             // Try to parse as JSON (basic validation)
@@ -112,14 +109,12 @@ namespace lfs::io {
                 file >> j;
 
                 if (!j.contains("frames") || !j["frames"].is_array()) {
-                    std::string error_msg = "Invalid transforms file: missing 'frames' array";
-                    LOG_ERROR("{}", error_msg);
-                    return std::unexpected(error_msg);
+                    return make_error(ErrorCode::INVALID_DATASET,
+                        "Invalid transforms file: missing 'frames' array", transforms_file);
                 }
             } catch (const std::exception& e) {
-                std::string error_msg = std::format("Invalid JSON: {}", e.what());
-                LOG_ERROR("{}", error_msg);
-                return std::unexpected(error_msg);
+                return make_error(ErrorCode::MALFORMED_JSON,
+                    std::format("Invalid JSON: {}", e.what()), transforms_file);
             }
 
             if (options.progress) {
@@ -248,9 +243,8 @@ namespace lfs::io {
             return result;
 
         } catch (const std::exception& e) {
-            std::string error_msg = std::format("Failed to load Blender/NeRF dataset: {}", e.what());
-            LOG_ERROR("{}", error_msg);
-            return std::unexpected(error_msg);
+            return make_error(ErrorCode::CORRUPTED_DATA,
+                std::format("Failed to load Blender/NeRF dataset: {}", e.what()), path);
         }
     }
 

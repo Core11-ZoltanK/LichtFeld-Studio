@@ -22,7 +22,7 @@ namespace lfs::io {
                 LOG_TRACE("LoaderImpl created");
             }
 
-            std::expected<LoadResult, std::string> load(
+            [[nodiscard]] Result<LoadResult> load(
                 const std::filesystem::path& path,
                 const LoadOptions& options) override {
 

@@ -19,7 +19,11 @@ std::expected<void, std::string> write_sog(
         .progress_callback = options.progress_callback
     };
 
-    return lfs::io::save_sog(splat_data, io_options);
+    auto result = lfs::io::save_sog(splat_data, io_options);
+    if (!result) {
+        return std::unexpected(result.error().format());
+    }
+    return {};
 }
 
 } // namespace lfs::core

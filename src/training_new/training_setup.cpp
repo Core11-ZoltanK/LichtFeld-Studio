@@ -34,7 +34,7 @@ namespace lfs::training {
         LOG_INFO("Loading dataset from: {}", params.dataset.data_path.string());
         auto load_result = data_loader->load(params.dataset.data_path, load_options);
         if (!load_result) {
-            return std::unexpected(std::format("Failed to load dataset: {}", load_result.error()));
+            return std::unexpected(std::format("Failed to load dataset: {}", load_result.error().format()));
         }
 
         LOG_INFO("Dataset loaded successfully using {} loader", load_result->loader_used);
@@ -93,7 +93,7 @@ namespace lfs::training {
                         return std::unexpected(std::format(
                             "Failed to load initialization PLY file '{}': {}",
                             params.init_ply.value(),
-                            ply_load_result.error()));
+                            ply_load_result.error().format()));
                     }
 
                     try {

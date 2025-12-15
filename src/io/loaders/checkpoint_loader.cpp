@@ -5,6 +5,7 @@
 #include "checkpoint_loader.hpp"
 #include "core_new/logger.hpp"
 #include "core_new/splat_data.hpp"
+#include "io/error.hpp"
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
@@ -17,7 +18,7 @@ namespace lfs::io {
     using lfs::core::SplatData;
     using lfs::core::Tensor;
 
-    std::expected<LoadResult, std::string> CheckpointLoader::load(
+    Result<LoadResult> CheckpointLoader::load(
         const std::filesystem::path& path,
         const LoadOptions& options) {
 
@@ -30,11 +31,13 @@ namespace lfs::io {
 
         // Validate file exists
         if (!std::filesystem::exists(path)) {
-            return std::unexpected(std::format("Checkpoint file does not exist: {}", path.string()));
+            return make_error(ErrorCode::PATH_NOT_FOUND,
+                "Checkpoint file does not exist", path);
         }
 
         if (!std::filesystem::is_regular_file(path)) {
-            return std::unexpected(std::format("Path is not a regular file: {}", path.string()));
+            return make_error(ErrorCode::NOT_A_FILE,
+                "Path is not a regular file", path);
         }
 
         // Validation only mode
@@ -43,7 +46,8 @@ namespace lfs::io {
 
             auto header_result = loadHeader(path);
             if (!header_result) {
-                return std::unexpected(header_result.error());
+                return make_error(ErrorCode::INVALID_HEADER,
+                    std::format("Invalid checkpoint: {}", header_result.error()), path);
             }
 
             if (options.progress) {
@@ -69,8 +73,8 @@ namespace lfs::io {
         LOG_INFO("Loading checkpoint file: {}", path.string());
         auto splat_result = lfs::training::load_checkpoint_splat_data(path);
         if (!splat_result) {
-            LOG_ERROR("Failed to load checkpoint: {}", splat_result.error());
-            return std::unexpected(splat_result.error());
+            return make_error(ErrorCode::CORRUPTED_DATA,
+                std::format("Failed to load checkpoint: {}", splat_result.error()), path);
         }
 
         if (options.progress) {

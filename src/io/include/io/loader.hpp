@@ -5,8 +5,8 @@
 #pragma once
 
 #include "core_new/tensor.hpp"
+#include "io/error.hpp"
 #include <chrono>
-#include <expected>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -94,9 +94,9 @@ namespace lfs::io {
          * @brief Load data from any supported format
          * @param path File or directory to load
          * @param options Loading options
-         * @return LoadResult on success, error string on failure
+         * @return LoadResult on success, Error on failure (path not found, invalid dataset, etc.)
          */
-        virtual std::expected<LoadResult, std::string> load(
+        [[nodiscard]] virtual Result<LoadResult> load(
             const std::filesystem::path& path,
             const LoadOptions& options = {}) = 0;
 

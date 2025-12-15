@@ -234,25 +234,19 @@ namespace lfs::vis {
     std::expected<void, std::string> DataLoadingService::loadDataset(const std::filesystem::path& path) {
         LOG_TIMER("LoadDataset");
 
-        try {
-            LOG_INFO("Loading dataset from: {}", path.string());
+        LOG_INFO("Loading dataset from: {}", path.string());
 
-            // Validate parameters
-            if (params_.dataset.data_path.empty() && path.empty()) {
-                LOG_ERROR("No dataset path specified");
-                throw std::runtime_error("No dataset path specified");
-            }
-
-            // Load through scene manager
-            LOG_DEBUG("Passing dataset to scene manager with parameters");
-            scene_manager_->loadDataset(path, params_);
-
-            return {};
-        } catch (const std::exception& e) {
-            std::string error_msg = std::format("Failed to load dataset: {}", e.what());
-            LOG_ERROR("{} (Path: {})", error_msg, path.string());
-            throw std::runtime_error(error_msg);
+        // Validate parameters
+        if (params_.dataset.data_path.empty() && path.empty()) {
+            LOG_ERROR("No dataset path specified");
+            return std::unexpected("No dataset path specified");
         }
+
+        // Load through scene manager (it emits DatasetLoadCompleted event on success/failure)
+        LOG_DEBUG("Passing dataset to scene manager with parameters");
+        scene_manager_->loadDataset(path, params_);
+
+        return {};
     }
 
     void DataLoadingService::clearScene() {

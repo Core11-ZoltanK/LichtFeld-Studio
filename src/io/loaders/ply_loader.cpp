@@ -6,6 +6,7 @@
 #include "core_new/logger.hpp"
 #include "core_new/splat_data.hpp"
 #include "formats/ply.hpp"
+#include "io/error.hpp"
 #include <chrono>
 #include <filesystem>
 #include <format>
@@ -19,7 +20,7 @@ namespace lfs::io {
     using lfs::core::SplatData;
     using lfs::core::Tensor;
 
-    std::expected<LoadResult, std::string> PLYLoader::load(
+    Result<LoadResult> PLYLoader::load(
         const std::filesystem::path& path,
         const LoadOptions& options) {
 
@@ -33,15 +34,13 @@ namespace lfs::io {
 
         // Validate file exists
         if (!std::filesystem::exists(path)) {
-            std::string error_msg = std::format("PLY file does not exist: {}", path.string());
-            LOG_ERROR("{}", error_msg);
-            return std::unexpected(error_msg);
+            return make_error(ErrorCode::PATH_NOT_FOUND,
+                "PLY file does not exist", path);
         }
 
         if (!std::filesystem::is_regular_file(path)) {
-            std::string error_msg = std::format("Path is not a regular file: {}", path.string());
-            LOG_ERROR("{}", error_msg);
-            return std::unexpected(error_msg);
+            return make_error(ErrorCode::NOT_A_FILE,
+                "Path is not a regular file", path);
         }
 
         // Validation only mode
@@ -50,17 +49,15 @@ namespace lfs::io {
             // Basic validation - check if it's a PLY file
             std::ifstream file(path, std::ios::binary);
             if (!file) {
-                std::string error_msg = std::format("Cannot open file for reading: {}", path.string());
-                LOG_ERROR("{}", error_msg);
-                return std::unexpected(error_msg);
+                return make_error(ErrorCode::PERMISSION_DENIED,
+                    "Cannot open file for reading", path);
             }
 
             std::string header;
             std::getline(file, header);
             if (header != "ply" && header != "ply\r") {
-                std::string error_msg = std::format("File does not start with 'ply' header: {}", path.string());
-                LOG_ERROR("{}", error_msg);
-                return std::unexpected(error_msg);
+                return make_error(ErrorCode::INVALID_HEADER,
+                    "File does not start with 'ply' header", path);
             }
 
             if (options.progress) {
@@ -90,9 +87,8 @@ namespace lfs::io {
         auto splat_result = load_ply(path);
 
         if (!splat_result) {
-            std::string error_msg = splat_result.error();
-            LOG_ERROR("Failed to load PLY: {}", error_msg);
-            return std::unexpected(error_msg);
+            return make_error(ErrorCode::CORRUPTED_DATA,
+                std::format("Failed to load PLY: {}", splat_result.error()), path);
         }
 
         if (options.progress) {

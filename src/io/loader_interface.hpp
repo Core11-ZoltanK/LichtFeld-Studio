@@ -4,8 +4,8 @@
 
 #pragma once
 
+#include "io/error.hpp"
 #include "io/loader.hpp"
-#include <expected>
 #include <string>
 #include <vector>
 
@@ -24,9 +24,9 @@ namespace lfs::io {
          * @brief Load data from the specified path
          * @param path File or directory path to load from
          * @param options Loading options
-         * @return LoadResult on success, error string on failure
+         * @return LoadResult on success, Error on failure
          */
-        virtual std::expected<LoadResult, std::string> load(
+        [[nodiscard]] virtual Result<LoadResult> load(
             const std::filesystem::path& path,
             const LoadOptions& options = {}) = 0;
 

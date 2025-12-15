@@ -181,8 +181,8 @@ namespace lfs::vis {
             LOG_TRACE("Loading splat file with loader");
             auto load_result = loader->load(path, options);
             if (!load_result) {
-                LOG_ERROR("Failed to load splat file: {}", load_result.error());
-                throw std::runtime_error(load_result.error());
+                LOG_ERROR("Failed to load splat file: {}", load_result.error().format());
+                throw std::runtime_error(load_result.error().format());
             }
 
             auto* splat_data = std::get_if<std::shared_ptr<lfs::core::SplatData>>(&load_result->data);
@@ -291,7 +291,7 @@ namespace lfs::vis {
 
             auto load_result = loader->load(path, options);
             if (!load_result) {
-                throw std::runtime_error(load_result.error());
+                throw std::runtime_error(load_result.error().format());
             }
 
             auto* splat_data = std::get_if<std::shared_ptr<lfs::core::SplatData>>(&load_result->data);
@@ -949,7 +949,17 @@ namespace lfs::vis {
             auto load_result = lfs::training::loadTrainingDataIntoScene(dataset_params, scene_);
             if (!load_result) {
                 LOG_ERROR("Failed to load training data: {}", load_result.error());
-                throw std::runtime_error(load_result.error());
+
+                // Emit failure event instead of throwing
+                state::DatasetLoadCompleted{
+                    .path = path,
+                    .success = false,
+                    .error = load_result.error(),
+                    .num_images = 0,
+                    .num_points = 0}
+                    .emit();
+
+                return;
             }
 
             // Create cropbox for PointCloud node if present
@@ -1015,7 +1025,15 @@ namespace lfs::vis {
 
         } catch (const std::exception& e) {
             LOG_ERROR("Failed to load dataset: {} (path: {})", e.what(), path.string());
-            throw;
+
+            // Emit failure event instead of throwing
+            state::DatasetLoadCompleted{
+                .path = path,
+                .success = false,
+                .error = e.what(),
+                .num_images = 0,
+                .num_points = 0}
+                .emit();
         }
     }
 

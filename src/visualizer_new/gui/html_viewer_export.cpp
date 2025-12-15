@@ -17,7 +17,11 @@ std::expected<void, std::string> export_html_viewer(
         .progress_callback = options.progress_callback
     };
 
-    return lfs::io::export_html(splat_data, io_options);
+    auto result = lfs::io::export_html(splat_data, io_options);
+    if (!result) {
+        return std::unexpected(result.error().format());
+    }
+    return {};
 }
 
 } // namespace lfs::vis::gui

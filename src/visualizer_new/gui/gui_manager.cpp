@@ -68,6 +68,7 @@ namespace lfs::vis::gui {
         save_project_browser_ = std::make_unique<SaveProjectBrowser>();
         menu_bar_ = std::make_unique<MenuBar>();
         export_dialog_ = std::make_unique<ExportDialog>();
+        notification_popup_ = std::make_unique<NotificationPopup>();
 
         // Initialize window states
         window_states_["file_browser"] = false;
@@ -914,6 +915,11 @@ namespace lfs::vis::gui {
 
         // Render drag-drop overlay when files are being dragged over the window
         renderDragDropOverlay();
+
+        // Render notification popups (errors, warnings, etc.)
+        if (notification_popup_) {
+            notification_popup_->render();
+        }
 
         // End frame
         ImGui::Render();

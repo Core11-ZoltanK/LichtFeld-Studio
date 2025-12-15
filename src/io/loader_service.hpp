@@ -4,9 +4,9 @@
 
 #pragma once
 
+#include "io/error.hpp"
 #include "io/loader_interface.hpp"
 #include "io/loader_registry.hpp"
-#include <expected>
 #include <memory>
 #include <vector>
 
@@ -30,9 +30,9 @@ namespace lfs::io {
          * @brief Load data from any supported format
          * @param path File or directory to load
          * @param options Loading options
-         * @return LoadResult on success, error string on failure
+         * @return LoadResult on success, Error on failure (path not found, invalid format, etc.)
          */
-        std::expected<LoadResult, std::string> load(
+        [[nodiscard]] Result<LoadResult> load(
             const std::filesystem::path& path,
             const LoadOptions& options = {});
 

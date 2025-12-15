@@ -6,9 +6,10 @@
 
 #include "core_new/point_cloud.hpp"
 #include "core_new/splat_data.hpp"
-#include <expected>
+#include "io/error.hpp"
 #include <filesystem>
 #include <functional>
+#include <future>
 #include <string>
 #include <vector>
 
@@ -31,8 +32,13 @@ namespace lfs::io {
         ExportProgressCallback progress_callback = nullptr;
     };
 
-    std::expected<void, std::string> save_ply(const SplatData& splat_data, const PlySaveOptions& options);
-    std::expected<void, std::string> save_ply(const PointCloud& point_cloud, const PlySaveOptions& options);
+    /**
+     * @brief Save SplatData to PLY file
+     * @return Result<void> - success or Error with details
+     * @note When async=true, returns immediately. Use returned future to check result.
+     */
+    [[nodiscard]] Result<void> save_ply(const SplatData& splat_data, const PlySaveOptions& options);
+    [[nodiscard]] Result<void> save_ply(const PointCloud& point_cloud, const PlySaveOptions& options);
 
     PointCloud to_point_cloud(const SplatData& splat_data);
     std::vector<std::string> get_ply_attribute_names(const SplatData& splat_data);
@@ -48,7 +54,11 @@ namespace lfs::io {
         ExportProgressCallback progress_callback = nullptr;
     };
 
-    std::expected<void, std::string> save_sog(const SplatData& splat_data, const SogSaveOptions& options);
+    /**
+     * @brief Save SplatData to SOG (SuperSplat) format
+     * @return Result<void> - success or Error with details (disk space, encoding, archive errors)
+     */
+    [[nodiscard]] Result<void> save_sog(const SplatData& splat_data, const SogSaveOptions& options);
 
     // ============================================================================
     // HTML Viewer Export
@@ -62,6 +72,10 @@ namespace lfs::io {
         HtmlProgressCallback progress_callback = nullptr;
     };
 
-    std::expected<void, std::string> export_html(const SplatData& splat_data, const HtmlExportOptions& options);
+    /**
+     * @brief Export SplatData as standalone HTML viewer
+     * @return Result<void> - success or Error with details
+     */
+    [[nodiscard]] Result<void> export_html(const SplatData& splat_data, const HtmlExportOptions& options);
 
 } // namespace lfs::io

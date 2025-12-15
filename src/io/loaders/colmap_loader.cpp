@@ -7,6 +7,7 @@
 #include "core_new/logger.hpp"
 #include "core_new/point_cloud.hpp"
 #include "formats/colmap.hpp"
+#include "io/error.hpp"
 #include "io/filesystem_utils.hpp"
 #include "training_new/dataset.hpp"
 #include <algorithm>
@@ -24,7 +25,7 @@ namespace lfs::io {
     using lfs::core::PointCloud;
     using lfs::core::Tensor;
 
-    std::expected<LoadResult, std::string> ColmapLoader::load(
+    Result<LoadResult> ColmapLoader::load(
         const std::filesystem::path& path,
         const LoadOptions& options) {
 
@@ -33,15 +34,13 @@ namespace lfs::io {
 
         // Validate directory exists
         if (!std::filesystem::exists(path)) {
-            std::string error_msg = std::format("Path does not exist: {}", path.string());
-            LOG_ERROR("{}", error_msg);
-            return std::unexpected(error_msg);
+            return make_error(ErrorCode::PATH_NOT_FOUND,
+                "COLMAP dataset path does not exist", path);
         }
 
         if (!std::filesystem::is_directory(path)) {
-            std::string error_msg = std::format("COLMAP dataset must be a directory: {}", path.string());
-            LOG_ERROR("{}", error_msg);
-            return std::unexpected(error_msg);
+            return make_error(ErrorCode::NOT_A_DIRECTORY,
+                "COLMAP dataset must be a directory", path);
         }
 
         // Report initial progress
@@ -79,21 +78,17 @@ namespace lfs::io {
 
         // Validate we have required files
         if ((!has_cameras || !has_images) && !trying_text) {
-            std::string error_msg = std::format(
-                "Missing required COLMAP files. cameras.bin: {}, images.bin: {}",
-                has_cameras ? "found" : "missing",
-                has_images ? "found" : "missing");
-            LOG_ERROR("{}", error_msg);
-            return std::unexpected(error_msg);
+            return make_error(ErrorCode::MISSING_REQUIRED_FILES,
+                std::format("Missing required COLMAP files. cameras.bin: {}, images.bin: {}",
+                    has_cameras ? "found" : "missing",
+                    has_images ? "found" : "missing"), path);
         }
 
         if ((!has_cameras_text || !has_images_text) && trying_text) {
-            std::string error_msg = std::format(
-                "Missing required COLMAP text files. cameras.txt: {}, images.txt: {}",
-                has_cameras_text ? "found" : "missing",
-                has_images_text ? "found" : "missing");
-            LOG_ERROR("{}", error_msg);
-            return std::unexpected(error_msg);
+            return make_error(ErrorCode::MISSING_REQUIRED_FILES,
+                std::format("Missing required COLMAP text files. cameras.txt: {}, images.txt: {}",
+                    has_cameras_text ? "found" : "missing",
+                    has_images_text ? "found" : "missing"), path);
         }
 
         // Determine images folder
@@ -138,16 +133,13 @@ namespace lfs::io {
                     image_dir = path;
                     LOG_INFO("Detected flat structure - using root directory for images");
                 } else {
-                    std::string error_msg = std::format(
-                        "Images directory '{}' not found and no images in root", options.images_folder);
-                    LOG_ERROR("{}", error_msg);
-                    return std::unexpected(error_msg);
+                    return make_error(ErrorCode::MISSING_REQUIRED_FILES,
+                        std::format("Images directory '{}' not found and no images in root",
+                            options.images_folder), path);
                 }
             } else {
-                std::string error_msg = std::format(
-                    "Images directory '{}' not found", options.images_folder);
-                LOG_ERROR("{}", error_msg);
-                return std::unexpected(error_msg);
+                return make_error(ErrorCode::MISSING_REQUIRED_FILES,
+                    std::format("Images directory '{}' not found", options.images_folder), path);
             }
         }
 
@@ -186,9 +178,8 @@ namespace lfs::io {
                 LOG_DEBUG("Reading text COLMAP data");
                 std::tie(cameras, scene_center) = read_colmap_cameras_and_images_text(path, actual_images_folder);
             } else {
-                std::string error_msg = "No valid COLMAP camera and image data found";
-                LOG_ERROR("{}", error_msg);
-                return std::unexpected(error_msg);
+                return make_error(ErrorCode::MISSING_REQUIRED_FILES,
+                    "No valid COLMAP camera and image data found", path);
             }
 
             if (options.progress) {
@@ -258,9 +249,8 @@ namespace lfs::io {
             return result;
 
         } catch (const std::exception& e) {
-            std::string error_msg = std::format("Failed to load COLMAP dataset: {}", e.what());
-            LOG_ERROR("{}", error_msg);
-            return std::unexpected(error_msg);
+            return make_error(ErrorCode::CORRUPTED_DATA,
+                std::format("Failed to load COLMAP dataset: {}", e.what()), path);
         }
     }
 

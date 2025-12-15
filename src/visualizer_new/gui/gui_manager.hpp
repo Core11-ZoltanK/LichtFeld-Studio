@@ -15,6 +15,7 @@
 #include "gui/utils/drag_drop_native.hpp"
 #include "gui/windows/save_project_browser.hpp"
 #include "windows/export_dialog.hpp"
+#include "windows/notification_popup.hpp"
 #include "windows/project_changed_dialog_box.hpp"
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
@@ -109,6 +110,7 @@ namespace lfs::vis {
             std::unique_ptr<ProjectChangedDialogBox> project_changed_dialog_box_;
             std::unique_ptr<ScenePanel> scene_panel_;
             std::unique_ptr<ExportDialog> export_dialog_;
+            std::unique_ptr<NotificationPopup> notification_popup_;
 
             // UI state only
             std::unordered_map<std::string, bool> window_states_;

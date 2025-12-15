@@ -4,6 +4,7 @@
 
 #include "io/loader_service.hpp"
 #include "core_new/logger.hpp"
+#include "io/error.hpp"
 #include "io/loaders/blender_loader.hpp"
 #include "io/loaders/checkpoint_loader.hpp"
 #include "io/loaders/colmap_loader.hpp"
@@ -26,56 +27,55 @@ namespace lfs::io {
         LOG_DEBUG("LoaderService initialized with {} loaders", registry_->size());
     }
 
-    std::expected<LoadResult, std::string> LoaderService::load(
+    Result<LoadResult> LoaderService::load(
         const std::filesystem::path& path,
         const LoadOptions& options) {
+
+        // Check if path exists first
+        std::error_code ec;
+        if (!std::filesystem::exists(path, ec)) {
+            return make_error(ErrorCode::PATH_NOT_FOUND,
+                std::format("Path does not exist: {}", path.string()), path);
+        }
 
         // Find appropriate loader
         auto* loader = registry_->findLoader(path);
         if (!loader) {
-            // Build detailed error message
-            std::string error_msg = std::format(
-                "No loader found for path: {}\n", path.string());
+            // Build user-friendly error message
+            const bool is_directory = std::filesystem::is_directory(path, ec);
+            const std::string path_type = is_directory ? "folder" : "file";
+            const std::string filename = path.filename().string();
 
-            // Try all loaders to get diagnostic info
-            error_msg += "Tried loaders:\n";
-            for (const auto& info : registry_->getLoaderInfo()) {
-                error_msg += std::format("  - {}: ", info.name);
-
-                // Get specific loader to check
-                auto loaders = registry_->findAllLoaders(path);
-                bool can_load = false;
-                for (auto* l : loaders) {
-                    if (l->name() == info.name) {
-                        can_load = true;
-                        break;
-                    }
-                }
-
-                if (!can_load) {
-                    if (info.extensions.empty()) {
-                        error_msg += "directory-based format not detected\n";
-                    } else {
-                        error_msg += "extension not supported\n";
-                    }
-                }
+            std::string message;
+            if (is_directory) {
+                message = std::format(
+                    "The folder '{}' is not a recognized dataset.\n\n"
+                    "For COLMAP datasets, ensure the folder contains:\n"
+                    "  - cameras.bin (or cameras.txt)\n"
+                    "  - images.bin (or images.txt)\n"
+                    "  - An 'images' folder with your photos\n\n"
+                    "For NeRF/Blender datasets, ensure the folder contains:\n"
+                    "  - transforms.json (or transforms_train.json)",
+                    filename);
+            } else {
+                auto ext = path.extension().string();
+                message = std::format(
+                    "Cannot open '{}' - unsupported file format.\n\n"
+                    "Supported formats:\n"
+                    "  - Gaussian Splat files: .ply, .sog\n"
+                    "  - Training checkpoints: .resume\n"
+                    "  - NeRF transforms: .json",
+                    filename);
             }
 
-            LOG_ERROR("Failed to find loader: {}", error_msg);
-            throw std::runtime_error(error_msg);
+            LOG_ERROR("Unsupported format: {} ({})", path.string(), path_type);
+            return make_error(ErrorCode::UNSUPPORTED_FORMAT, message, path);
         }
 
         LOG_INFO("Using {} loader for: {}", loader->name(), path.string());
 
-        // Perform the load
-        try {
-            return loader->load(path, options);
-        } catch (const std::exception& e) {
-            std::string error_msg = std::format(
-                "{} loader failed: {}", loader->name(), e.what());
-            LOG_ERROR("{}", error_msg);
-            throw std::runtime_error(error_msg);
-        }
+        // Perform the load - let the loader return proper errors
+        return loader->load(path, options);
     }
 
     std::vector<std::string> LoaderService::getAvailableLoaders() const {

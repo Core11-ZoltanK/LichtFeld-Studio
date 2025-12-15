@@ -6,6 +6,7 @@
 #include "core_new/logger.hpp"
 #include "core_new/tensor.hpp"
 #include "external/tinyply.hpp"
+#include "io/error.hpp"
 #include <algorithm>
 #include <charconv>
 #include <chrono>
@@ -777,39 +778,79 @@ namespace lfs::io {
         return attrs;
     }
 
-    std::expected<void, std::string> save_ply(const SplatData& splat_data, const PlySaveOptions& options) {
-        try {
-            auto pc = lfs::io::to_point_cloud(splat_data);
-            return save_ply(pc, options);
-        } catch (const std::exception& e) {
-            return std::unexpected(std::format("Failed to save PLY: {}", e.what()));
-        }
+    Result<void> save_ply(const SplatData& splat_data, const PlySaveOptions& options) {
+        auto pc = lfs::io::to_point_cloud(splat_data);
+        return save_ply(pc, options);
     }
 
-    std::expected<void, std::string> save_ply(const PointCloud& point_cloud, const PlySaveOptions& options) {
-        try {
-            std::filesystem::create_directories(options.output_path.parent_path());
+    Result<void> save_ply(const PointCloud& point_cloud, const PlySaveOptions& options) {
+        // Calculate estimated file size for disk space check
+        // PLY binary: header (~500 bytes) + vertex_count * stride (floats)
+        const size_t vertex_count = point_cloud.means.size(0);
+        size_t floats_per_vertex = 3;  // positions
 
-            if (options.async) {
-                cleanup_finished_saves();
-                std::lock_guard lock(g_save_mutex);
-                g_save_futures.emplace_back(
-                    std::async(std::launch::async, [pc = point_cloud, path = options.output_path]() {
-                        try {
-                            write_ply_binary(pc, path);
-                            LOG_INFO("PLY saved: {}", path.string());
-                        } catch (const std::exception& e) {
-                            LOG_ERROR("Failed to save PLY: {}", e.what());
-                        }
-                    }));
-            } else {
+        if (point_cloud.normals.is_valid()) floats_per_vertex += 3;
+        if (point_cloud.sh0.is_valid()) {
+            floats_per_vertex += point_cloud.sh0.ndim() == 3
+                ? point_cloud.sh0.size(1) * point_cloud.sh0.size(2)
+                : point_cloud.sh0.size(1);
+        }
+        if (point_cloud.shN.is_valid()) {
+            floats_per_vertex += point_cloud.shN.ndim() == 3
+                ? point_cloud.shN.size(1) * point_cloud.shN.size(2)
+                : point_cloud.shN.size(1);
+        }
+        if (point_cloud.opacity.is_valid()) floats_per_vertex += 1;
+        if (point_cloud.scaling.is_valid()) floats_per_vertex += 3;
+        if (point_cloud.rotation.is_valid()) floats_per_vertex += 4;
+
+        const size_t estimated_size = 1024 + vertex_count * floats_per_vertex * sizeof(float);
+
+        // Check disk space with 10% margin
+        if (auto space_check = check_disk_space(options.output_path, estimated_size, 1.1f); !space_check) {
+            return std::unexpected(space_check.error());
+        }
+
+        // Verify path is writable
+        if (auto writable_check = verify_writable(options.output_path); !writable_check) {
+            return std::unexpected(writable_check.error());
+        }
+
+        // Create parent directories
+        std::error_code ec;
+        std::filesystem::create_directories(options.output_path.parent_path(), ec);
+        if (ec) {
+            return make_error(ErrorCode::PERMISSION_DENIED,
+                std::format("Cannot create directory: {}", ec.message()),
+                options.output_path.parent_path());
+        }
+
+        if (options.async) {
+            cleanup_finished_saves();
+            std::lock_guard lock(g_save_mutex);
+            g_save_futures.emplace_back(
+                std::async(std::launch::async, [pc = point_cloud, path = options.output_path]() {
+                    try {
+                        write_ply_binary(pc, path);
+                        LOG_INFO("PLY saved: {}", path.string());
+                    } catch (const std::exception& e) {
+                        // Log error - async saves report via logs
+                        LOG_ERROR("Async PLY save failed for '{}': {}", path.string(), e.what());
+                    }
+                }));
+            // Note: Async save errors are logged but not returned
+            // The disk space check above prevents most failures
+        } else {
+            try {
                 write_ply_binary(point_cloud, options.output_path);
                 LOG_INFO("PLY saved: {}", options.output_path.string());
+            } catch (const std::exception& e) {
+                return make_error(ErrorCode::WRITE_FAILURE,
+                    std::format("Failed to write PLY: {}", e.what()),
+                    options.output_path);
             }
-            return {};
-        } catch (const std::exception& e) {
-            return std::unexpected(std::format("Failed to save PLY: {}", e.what()));
         }
+        return {};
     }
 
 } // namespace lfs::io

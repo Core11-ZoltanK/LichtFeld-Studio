@@ -16,7 +16,7 @@ namespace lfs::io {
         BlenderLoader() = default;
         ~BlenderLoader() override = default;
 
-        std::expected<LoadResult, std::string> load(
+        [[nodiscard]] Result<LoadResult> load(
             const std::filesystem::path& path,
             const LoadOptions& options = {}) override;
 
