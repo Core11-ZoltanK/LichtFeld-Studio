@@ -76,12 +76,25 @@ void ExportDialog::render(bool* p_open, SceneManager* scene_manager) {
         }
     }
 
+    // Compute max SH degree from selected nodes
+    const auto updateMaxSHDegree = [&]() {
+        max_sh_degree_ = 0;
+        for (const auto* node : splat_nodes) {
+            if (selected_nodes_.contains(node->name) && node->model) {
+                max_sh_degree_ = std::max(max_sh_degree_, node->model->get_max_sh_degree());
+            }
+        }
+        export_sh_degree_ = std::min(export_sh_degree_, max_sh_degree_);
+    };
+
     // Initialize selection on first open
     if (!initialized_ && !splat_nodes.empty()) {
         selected_nodes_.clear();
         for (const auto* node : splat_nodes) {
             selected_nodes_.insert(node->name);
         }
+        updateMaxSHDegree();
+        export_sh_degree_ = max_sh_degree_;
         initialized_ = true;
     }
 
@@ -112,10 +125,12 @@ void ExportDialog::render(bool* p_open, SceneManager* scene_manager) {
             for (const auto* node : splat_nodes) {
                 selected_nodes_.insert(node->name);
             }
+            updateMaxSHDegree();
         }
         ImGui::SameLine();
         if (ImGui::SmallButton("None")) {
             selected_nodes_.clear();
+            updateMaxSHDegree();
         }
         popButtonStyle();
 
@@ -130,6 +145,7 @@ void ExportDialog::render(bool* p_open, SceneManager* scene_manager) {
                 } else {
                     selected_nodes_.erase(node->name);
                 }
+                updateMaxSHDegree();
             }
             ImGui::SameLine();
             ImGui::TextColored(t.palette.text_dim, "(%zu)", node->gaussian_count);
@@ -138,6 +154,22 @@ void ExportDialog::render(bool* p_open, SceneManager* scene_manager) {
     }
 
     ImGui::Spacing();
+    ImGui::Spacing();
+
+    // SH Degree selection
+    ImGui::TextColored(t.palette.text_dim, "SH DEGREE");
+    ImGui::Spacing();
+
+    pushInputStyle(t);
+    if (max_sh_degree_ > 0) {
+        ImGui::SliderInt("##sh_degree", &export_sh_degree_, 0, max_sh_degree_, "Degree %d");
+    } else {
+        ImGui::BeginDisabled();
+        ImGui::SliderInt("##sh_degree", &export_sh_degree_, 0, 0, "Degree 0");
+        ImGui::EndDisabled();
+    }
+    popInputStyle();
+
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::Spacing();
@@ -167,7 +199,7 @@ void ExportDialog::render(bool* p_open, SceneManager* scene_manager) {
             const std::string default_name = selected_nodes_.size() == 1
                 ? *selected_nodes_.begin() : "merged";
             std::vector<std::string> nodes(selected_nodes_.begin(), selected_nodes_.end());
-            on_browse_(selected_format_, default_name, nodes);
+            on_browse_(selected_format_, default_name, nodes, export_sh_degree_);
         }
         *p_open = false;
         initialized_ = false;

@@ -58,6 +58,28 @@ namespace lfs::vis::gui {
     // Gizmo axis/plane visibility threshold (near-zero to always show)
     constexpr float GIZMO_AXIS_LIMIT = 0.0001f;
 
+    // Truncate SH to target degree. shN has (d+1)²-1 coefficients for degree d.
+    void truncateSHDegree(lfs::core::SplatData& splat, const int target_degree) {
+        if (target_degree >= splat.get_max_sh_degree()) return;
+
+        if (target_degree == 0) {
+            splat.shN() = lfs::core::Tensor{};
+        } else {
+            const size_t keep_coeffs = static_cast<size_t>((target_degree + 1) * (target_degree + 1) - 1);
+            auto& shN = splat.shN();
+            if (shN.is_valid() && shN.ndim() >= 2 && shN.shape()[1] > keep_coeffs) {
+                if (shN.ndim() == 3) {
+                    shN = shN.slice(1, 0, static_cast<int64_t>(keep_coeffs)).contiguous();
+                } else {
+                    constexpr size_t CHANNELS = 3;
+                    shN = shN.slice(1, 0, static_cast<int64_t>(keep_coeffs * CHANNELS)).contiguous();
+                }
+            }
+        }
+        splat.set_max_sh_degree(target_degree);
+        splat.set_active_sh_degree(target_degree);
+    }
+
     GuiManager::GuiManager(VisualizerImpl* viewer)
         : viewer_(viewer) {
 
@@ -156,7 +178,8 @@ namespace lfs::vis::gui {
         // Export dialog: when user clicks Export, show native file dialog and perform export
         export_dialog_->setOnBrowse([this](ExportFormat format,
                                            const std::string& default_name,
-                                           const std::vector<std::string>& node_names) {
+                                           const std::vector<std::string>& node_names,
+                                           int sh_degree) {
             if (isExporting()) return;
 
             // Show native file dialog based on format
@@ -194,6 +217,11 @@ namespace lfs::vis::gui {
             // Merge selected splats
             auto merged = Scene::mergeSplatsWithTransforms(splats);
             if (!merged) return;
+
+            // Truncate SH data if needed
+            if (sh_degree < merged->get_max_sh_degree()) {
+                truncateSHDegree(*merged, sh_degree);
+            }
 
             // Start async export
             startAsyncExport(format, path, std::move(merged));

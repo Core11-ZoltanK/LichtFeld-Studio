@@ -113,6 +113,7 @@ namespace lfs::core {
         // ========== SH degree management ==========
         void increment_sh_degree();
         void set_active_sh_degree(int sh_degree);
+        void set_max_sh_degree(int sh_degree) { _max_sh_degree = sh_degree; }
 
         // ========== Serialization ==========
         void serialize(std::ostream& os) const;
