@@ -108,8 +108,8 @@ namespace lfs::core {
                 LOG_ERROR("Error opening existing project");
                 return -1;
             }
-            if (!params->ply_path.empty()) {
-                LOG_ERROR("Cannot open PLY and project from command line simultaneously");
+            if (!params->view_paths.empty()) {
+                LOG_ERROR("Cannot open splat files and project from command line simultaneously");
                 return -1;
             }
             if (!params->dataset.data_path.empty()) {
@@ -144,13 +144,18 @@ namespace lfs::core {
         // Set parameters
         viewer->setParameters(*params);
 
-        // Load data if specified
-        if (!params->ply_path.empty()) {
-            LOG_INFO("Loading PLY file: {}", params->ply_path.string());
-            auto result = viewer->loadPLY(params->ply_path);
-            if (!result) {
-                LOG_ERROR("Failed to load PLY: {}", result.error());
+        // Load viewer files
+        if (!params->view_paths.empty()) {
+            LOG_INFO("Loading {} splat file(s)", params->view_paths.size());
+            if (const auto result = viewer->loadPLY(params->view_paths[0]); !result) {
+                LOG_ERROR("Failed to load {}: {}", params->view_paths[0].string(), result.error());
                 return -1;
+            }
+            for (size_t i = 1; i < params->view_paths.size(); ++i) {
+                if (const auto result = viewer->addSplatFile(params->view_paths[i]); !result) {
+                    LOG_ERROR("Failed to load {}: {}", params->view_paths[i].string(), result.error());
+                    return -1;
+                }
             }
         } else if (params->resume_checkpoint.has_value()) {
             LOG_INFO("Loading checkpoint for training: {}", params->resume_checkpoint->string());

@@ -143,8 +143,8 @@ namespace lfs::core {
             DatasetConfig dataset;
             OptimizationParameters optimization;
 
-            // Viewer mode specific
-            std::filesystem::path ply_path = "";
+            // Viewer mode: splat files to load (.ply, .sog, .resume)
+            std::vector<std::filesystem::path> view_paths;
 
             // Optional PLY splat file for initialization
             std::optional<std::string> init_ply = std::nullopt;

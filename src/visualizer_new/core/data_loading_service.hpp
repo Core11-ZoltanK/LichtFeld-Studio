@@ -31,6 +31,7 @@ namespace lfs::vis {
         std::expected<void, std::string> loadSplatFile(const std::filesystem::path& path);
         std::expected<void, std::string> loadDataset(const std::filesystem::path& path);
         std::expected<void, std::string> loadCheckpointForTraining(const std::filesystem::path& path);
+        void addSplatFileToScene(const std::filesystem::path& path);
         void clearScene();
 
     private:
@@ -39,7 +40,6 @@ namespace lfs::vis {
         void handleLoadCheckpointForTrainingCommand(const std::filesystem::path& path);
         void addPLYToScene(const std::filesystem::path& path);
         void addSOGToScene(const std::filesystem::path& path);
-        void addSplatFileToScene(const std::filesystem::path& path);
 
         // Helper to determine file type
         bool isSOGFile(const std::filesystem::path& path) const;

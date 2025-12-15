@@ -825,6 +825,18 @@ namespace lfs::vis {
         return data_loader_->loadPLY(path);
     }
 
+    std::expected<void, std::string> VisualizerImpl::addSplatFile(const std::filesystem::path& path) {
+        if (!initialize()) {
+            return std::unexpected("Failed to initialize visualizer");
+        }
+        try {
+            data_loader_->addSplatFileToScene(path);
+            return {};
+        } catch (const std::exception& e) {
+            return std::unexpected(std::format("Failed to add splat file: {}", e.what()));
+        }
+    }
+
     std::expected<void, std::string> VisualizerImpl::loadDataset(const std::filesystem::path& path) {
         LOG_TIMER("LoadDataset");
 

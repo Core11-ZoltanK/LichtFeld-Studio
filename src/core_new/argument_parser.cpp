@@ -5,7 +5,9 @@
 #include "core_new/argument_parser.hpp"
 #include "core_new/logger.hpp"
 #include "core_new/parameters.hpp"
+#include <algorithm>
 #include <args.hxx>
+#include <array>
 #include <expected>
 #include <filesystem>
 #include <format>
@@ -101,14 +103,14 @@ namespace {
                 "Usage:\n"
                 "  Training: LichtFeld-Studio --data-path <path> --output-path <path> [options]\n"
                 "  Resume:   LichtFeld-Studio --resume <checkpoint.resume> [options]\n"
-                "  Viewing:  LichtFeld-Studio --view <path_to_ply> [options]\n");
+                "  Viewing:  LichtFeld-Studio --view <file_or_directory> [options]\n");
 
             // Define all arguments
             ::args::HelpFlag help(parser, "help", "Display help menu", {'h', "help"});
             ::args::CompletionFlag completion(parser, {"complete"});
 
-            // PLY viewing mode
-            ::args::ValueFlag<std::string> view_ply(parser, "ply_file", "View a PLY file", {'v', "view"});
+            // PLY viewing mode (supports single file or directory with multiple files)
+            ::args::ValueFlag<std::string> view_ply(parser, "path", "View splat file(s). Supports .ply, .sog, .resume. If directory, loads all.", {'v', "view"});
 
             // Resume from checkpoint
             ::args::ValueFlag<std::string> resume_checkpoint(parser, "checkpoint", "Resume training from checkpoint file", {"resume"});
@@ -242,23 +244,48 @@ namespace {
                 return std::make_tuple(ParseResult::Success, std::function<void()>{});
             }
 
-            // Check for viewer mode with PLY
+            // Viewer mode: file or directory
             if (view_ply) {
-                const auto ply_path = ::args::get(view_ply);
-                if (!ply_path.empty()) {
-                    params.ply_path = ply_path;
+                const auto& view_path_str = ::args::get(view_ply);
+                if (!view_path_str.empty()) {
+                    const std::filesystem::path view_path{view_path_str};
 
-                    // Check if PLY file exists
-                    if (!std::filesystem::exists(params.ply_path)) {
-                        return std::unexpected(std::format("PLY file does not exist: {}", params.ply_path.string()));
+                    if (!std::filesystem::exists(view_path)) {
+                        return std::unexpected(std::format("Path does not exist: {}", view_path.string()));
+                    }
+
+                    constexpr std::array<std::string_view, 3> SUPPORTED_EXTENSIONS = {".ply", ".sog", ".resume"};
+                    const auto is_supported = [&](const std::filesystem::path& p) {
+                        auto ext = p.extension().string();
+                        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+                        return std::ranges::find(SUPPORTED_EXTENSIONS, ext) != SUPPORTED_EXTENSIONS.end();
+                    };
+
+                    if (std::filesystem::is_directory(view_path)) {
+                        for (const auto& entry : std::filesystem::directory_iterator(view_path)) {
+                            if (entry.is_regular_file() && is_supported(entry.path())) {
+                                params.view_paths.push_back(entry.path());
+                            }
+                        }
+                        std::ranges::sort(params.view_paths);
+
+                        if (params.view_paths.empty()) {
+                            return std::unexpected(std::format(
+                                "No supported files (.ply, .sog, .resume) found in: {}", view_path.string()));
+                        }
+                        LOG_DEBUG("Found {} view files in directory", params.view_paths.size());
+                    } else {
+                        if (!is_supported(view_path)) {
+                            return std::unexpected(std::format(
+                                "Unsupported format. Expected: .ply, .sog, .resume. Got: {}", view_path.string()));
+                        }
+                        params.view_paths.push_back(view_path);
                     }
                 }
 
-                // Capture viewer-relevant flags for PLY viewing mode
                 if (gut) {
                     params.optimization.gut = true;
                 }
-
                 return std::make_tuple(ParseResult::Success, std::function<void()>{});
             }
 
