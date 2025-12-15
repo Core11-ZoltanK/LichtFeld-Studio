@@ -2,31 +2,35 @@
  *
  * SPDX-License-Identifier: GPL-3.0-or-later */
 
-// New (LibTorch-free) implementation
 #include "core_new/application.hpp"
 #include "core_new/argument_parser.hpp"
+#include "core_new/converter.hpp"
 #include "core_new/logger.hpp"
-#include "core_new/pinned_memory_allocator.hpp"
 
-#include <iostream>
 #include <print>
 
 int main(int argc, char* argv[]) {
-    // Use new (LibTorch-free) implementation
-    auto params_result = lfs::core::args::parse_args_and_params(argc, argv);
-    if (!params_result) {
-        LOG_ERROR("Failed to parse arguments: {}", params_result.error());
-        std::println(stderr, "Error: {}", params_result.error());
-        return -1;
+    auto result = lfs::core::args::parse_args(argc, argv);
+    if (!result) {
+        std::println(stderr, "Error: {}", result.error());
+        return 1;
     }
 
-    // Logger is now ready to use
-    LOG_INFO("========================================");
-    LOG_INFO("           LichtFeld Studio             ");
-    LOG_INFO("========================================");
+    return std::visit([](auto&& mode) -> int {
+        using T = std::decay_t<decltype(mode)>;
 
-    auto params = std::move(*params_result);
-
-    lfs::core::Application app;
-    return app.run(std::move(params));
+        if constexpr (std::is_same_v<T, lfs::core::args::HelpMode>) {
+            return 0;
+        }
+        else if constexpr (std::is_same_v<T, lfs::core::args::ConvertMode>) {
+            return lfs::core::run_converter(mode.params);
+        }
+        else if constexpr (std::is_same_v<T, lfs::core::args::TrainingMode>) {
+            LOG_INFO("========================================");
+            LOG_INFO("           LichtFeld Studio             ");
+            LOG_INFO("========================================");
+            lfs::core::Application app;
+            return app.run(std::move(mode.params));
+        }
+    }, std::move(*result));
 }

@@ -7,16 +7,21 @@
 #include "core_new/parameters.hpp"
 #include <expected>
 #include <memory>
+#include <variant>
 
-namespace lfs::core {
-    namespace args {
-        /**
-         * @brief Parse command-line arguments and load parameters from JSON
-         * @param argc Number of arguments
-         * @param argv Array of argument strings (const-correct)
-         * @return Expected TrainingParameters or error message
-         */
-        std::expected<std::unique_ptr<param::TrainingParameters>, std::string>
-        parse_args_and_params(int argc, const char* const argv[]);
-    } // namespace args
-} // namespace lfs::core
+namespace lfs::core::args {
+
+    // Parsed argument modes
+    struct TrainingMode { std::unique_ptr<param::TrainingParameters> params; };
+    struct ConvertMode { param::ConvertParameters params; };
+    struct HelpMode {};
+
+    using ParsedArgs = std::variant<TrainingMode, ConvertMode, HelpMode>;
+
+    std::expected<ParsedArgs, std::string> parse_args(int argc, const char* const argv[]);
+
+    // Legacy interface - prefer parse_args()
+    std::expected<std::unique_ptr<param::TrainingParameters>, std::string>
+    parse_args_and_params(int argc, const char* const argv[]);
+
+} // namespace lfs::core::args

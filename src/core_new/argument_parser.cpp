@@ -9,8 +9,10 @@
 #include <expected>
 #include <filesystem>
 #include <format>
+#include <optional>
 #include <print>
 #include <set>
+#include <string_view>
 #include <unordered_map>
 #ifdef _WIN32
 #include <Windows.h>
@@ -585,4 +587,99 @@ lfs::core::args::parse_args_and_params(int argc, const char* const argv[]) {
     apply_step_scaling(*params);
 
     return params;
+}
+
+namespace {
+    constexpr const char* CONVERT_HELP_HEADER = "LichtFeld Studio - Convert splat files between formats\n";
+    constexpr const char* CONVERT_HELP_FOOTER =
+        "\n"
+        "EXAMPLES:\n"
+        "  LichtFeld-Studio convert input.ply output.sog --sh-degree 0\n"
+        "  LichtFeld-Studio convert input.ply -f html\n"
+        "  LichtFeld-Studio convert ./splats/ -f sog --sh-degree 2\n"
+        "\n"
+        "SUPPORTED FORMATS:\n"
+        "  Input:  .ply, .sog, .resume (checkpoint)\n"
+        "  Output: .ply, .sog, .html\n"
+        "\n";
+
+    std::optional<lfs::core::param::OutputFormat> parseFormat(const std::string& str) {
+        using lfs::core::param::OutputFormat;
+        if (str == "ply" || str == ".ply") return OutputFormat::PLY;
+        if (str == "sog" || str == ".sog") return OutputFormat::SOG;
+        if (str == "html" || str == ".html") return OutputFormat::HTML;
+        return std::nullopt;
+    }
+}
+
+std::expected<lfs::core::args::ParsedArgs, std::string>
+lfs::core::args::parse_args(int argc, const char* const argv[]) {
+    if (argc < 2) {
+        return TrainingMode{std::make_unique<param::TrainingParameters>()};
+    }
+
+    if (std::string_view(argv[1]) != "convert") {
+        auto result = parse_args_and_params(argc, argv);
+        if (!result) return std::unexpected(result.error());
+        return TrainingMode{std::move(*result)};
+    }
+
+    // Convert subcommand
+    ::args::ArgumentParser parser(CONVERT_HELP_HEADER, CONVERT_HELP_FOOTER);
+    ::args::HelpFlag help(parser, "help", "Display help menu", {'h', "help"});
+    ::args::Positional<std::string> input(parser, "input", "Input file or directory");
+    ::args::Positional<std::string> output(parser, "output", "Output file (optional)");
+    ::args::ValueFlag<int> sh_degree(parser, "degree", "SH degree [0-3], -1 to keep original (default: -1)", {"sh-degree"});
+    ::args::ValueFlag<std::string> format(parser, "format", "Output format: ply, sog, html", {'f', "format"});
+    ::args::ValueFlag<int> sog_iter(parser, "iterations", "K-means iterations for SOG (default: 10)", {"sog-iterations"});
+    ::args::Flag overwrite(parser, "overwrite", "Overwrite existing files without prompting", {'y', "overwrite"});
+
+    std::vector<std::string> args_vec(argv + 1, argv + argc);
+    args_vec[0] = std::string(argv[0]) + " convert";
+    parser.Prog(args_vec[0]);
+
+    try {
+        parser.ParseArgs(std::vector<std::string>(args_vec.begin() + 1, args_vec.end()));
+    } catch (const ::args::Help&) {
+        std::print("{}", parser.Help());
+        return HelpMode{};
+    } catch (const ::args::ParseError& e) {
+        return std::unexpected(std::format("{}\n\n{}", e.what(), parser.Help()));
+    }
+
+    if (!input) {
+        return std::unexpected(std::format("Missing input path\n\n{}", parser.Help()));
+    }
+
+    param::ConvertParameters params;
+    params.input_path = ::args::get(input);
+    params.sh_degree = sh_degree ? ::args::get(sh_degree) : -1;
+
+    if (!std::filesystem::exists(params.input_path)) {
+        return std::unexpected(std::format("Input not found: {}", params.input_path.string()));
+    }
+
+    if (params.sh_degree < -1 || params.sh_degree > 3) {
+        return std::unexpected("SH degree must be -1 (keep) or 0-3");
+    }
+
+    if (output) params.output_path = ::args::get(output);
+    if (sog_iter) params.sog_iterations = ::args::get(sog_iter);
+    params.overwrite = overwrite;
+
+    if (format) {
+        if (const auto fmt = parseFormat(::args::get(format))) {
+            params.format = *fmt;
+        } else {
+            return std::unexpected(std::format("Invalid format '{}'. Use: ply, sog, html", ::args::get(format)));
+        }
+    } else if (!params.output_path.empty()) {
+        if (const auto fmt = parseFormat(params.output_path.extension().string())) {
+            params.format = *fmt;
+        } else {
+            return std::unexpected(std::format("Unknown extension '{}'. Use --format", params.output_path.extension().string()));
+        }
+    }
+
+    return ConvertMode{params};
 }

@@ -153,6 +153,19 @@ namespace lfs::core {
             std::optional<std::filesystem::path> resume_checkpoint = std::nullopt;
         };
 
+        // Output format for conversion tool
+        enum class OutputFormat { PLY, SOG, HTML };
+
+        // Parameters for the convert command
+        struct ConvertParameters {
+            std::filesystem::path input_path;
+            std::filesystem::path output_path;  // Empty = derive from input
+            OutputFormat format = OutputFormat::PLY;
+            int sh_degree = 3;  // 0-3, -1 = keep original
+            int sog_iterations = 10;
+            bool overwrite = false;  // Skip overwrite prompts
+        };
+
         // Modern C++23 functions returning expected values
         std::expected<OptimizationParameters, std::string> read_optim_params_from_json(std::filesystem::path& path);
 

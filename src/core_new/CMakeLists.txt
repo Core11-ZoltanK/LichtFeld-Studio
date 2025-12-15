@@ -17,6 +17,7 @@ add_subdirectory(cuda)
 set(CORE_SOURCES
         argument_parser.cpp
         camera.cpp
+        converter.cpp
         image_io.cpp
         parameters.cpp
         splat_data.cpp
