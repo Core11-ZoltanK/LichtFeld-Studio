@@ -137,31 +137,10 @@ namespace lfs::vis {
     void VisualizerImpl::setupEventHandlers() {
         using namespace lfs::core::events;
 
-        // Training commands
-        cmd::StartTraining::when([this](const auto&) {
-            if (trainer_manager_) {
-                trainer_manager_->startTraining();
-            }
-        });
+        // NOTE: Training control commands (Start/Pause/Resume/Stop/SaveCheckpoint)
+        // are now handled by TrainerManager::setupEventHandlers()
 
-        cmd::PauseTraining::when([this](const auto&) {
-            if (trainer_manager_) {
-                trainer_manager_->pauseTraining();
-            }
-        });
-
-        cmd::ResumeTraining::when([this](const auto&) {
-            if (trainer_manager_) {
-                trainer_manager_->resumeTraining();
-            }
-        });
-
-        cmd::StopTraining::when([this](const auto&) {
-            if (trainer_manager_) {
-                trainer_manager_->stopTraining();
-            }
-        });
-
+        // Reset training requires data_loader_ which lives here
         cmd::ResetTraining::when([this](const auto&) {
             if (!scene_manager_ || !scene_manager_->hasDataset()) {
                 LOG_WARN("Cannot reset: no dataset loaded");
@@ -185,17 +164,11 @@ namespace lfs::vis {
             }
         });
 
-        cmd::SaveCheckpoint::when([this](const auto&) {
-            if (trainer_manager_) {
-                trainer_manager_->requestSaveCheckpoint();
-            }
-        });
-
-        // Undo/Redo commands
+        // Undo/Redo commands (require command_history_ which lives here)
         cmd::Undo::when([this](const auto&) { undo(); });
         cmd::Redo::when([this](const auto&) { redo(); });
 
-        // Selection operations
+        // Selection operations (require command_history_ and tools)
         cmd::DeleteSelected::when([this](const auto&) { deleteSelectedGaussians(); });
         cmd::InvertSelection::when([this](const auto&) { invertSelection(); });
         cmd::DeselectAll::when([this](const auto&) { deselectAll(); });
@@ -203,49 +176,28 @@ namespace lfs::vis {
         cmd::CopySelection::when([this](const auto&) { copySelection(); });
         cmd::PasteSelection::when([this](const auto&) { pasteSelection(); });
 
-        // Render settings changes
-        ui::RenderSettingsChanged::when([this]([[maybe_unused]] const auto& event) {
-            if (rendering_manager_) {
-                // The rendering manager handles this internally now
-                // Just need to mark dirty which happens in its event handler
-            }
-        });
+        // NOTE: ui::RenderSettingsChanged, ui::CameraMove, state::SceneChanged,
+        // ui::PointCloudModeChanged are handled by RenderingManager::setupEventHandlers()
 
-        // Camera moves - mark dirty
-        ui::CameraMove::when([this](const auto&) {
-            if (rendering_manager_) {
-                rendering_manager_->markDirty();
-            }
-        });
-
-        // Scene changes - mark dirty
+        // Window redraw requests on scene/mode changes
         state::SceneChanged::when([this](const auto&) {
             if (window_manager_) {
                 window_manager_->requestRedraw();
             }
-            if (rendering_manager_) {
-                rendering_manager_->markDirty();
-            }
         });
 
-        // Point cloud mode changes - request redraw
         ui::PointCloudModeChanged::when([this](const auto&) {
             if (window_manager_) {
                 window_manager_->requestRedraw();
             }
         });
 
+        // Trainer ready signal
         internal::TrainerReady::when([this](const auto&) {
             internal::TrainingReadyToStart{}.emit();
         });
 
-        // Training progress - don't mark dirty, let throttling handle it
-        state::TrainingProgress::when([this]([[maybe_unused]] const auto& event) {
-            // Just update loss buffer, don't force render
-            // The 1 FPS throttle will handle rendering
-        });
-
-        // Listen to TrainingStarted - switch to splat rendering and select training model
+        // Training started - switch to splat rendering and select training model
         state::TrainingStarted::when([this](const auto&) {
             ui::PointCloudModeChanged{
                 .enabled = false,
@@ -265,11 +217,12 @@ namespace lfs::vis {
             LOG_INFO("Switched to splat rendering mode (training started)");
         });
 
-        // Listen to TrainingCompleted
+        // Training completed - update content type
         state::TrainingCompleted::when([this](const auto& event) {
             handleTrainingCompleted(event);
         });
 
+        // File loading commands
         cmd::LoadFile::when([this](const auto& cmd) {
             handleLoadFileCommand(cmd);
         });
