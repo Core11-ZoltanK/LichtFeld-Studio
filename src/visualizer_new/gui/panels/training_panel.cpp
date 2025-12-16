@@ -554,9 +554,7 @@ namespace lfs::vis::gui::panels {
 
         // Active Features - only show if any are enabled
         bool has_active_features = opt_params.use_bilateral_grid ||
-                                   opt_params.pose_optimization != "none" ||
                                    opt_params.enable_eval ||
-                                   opt_params.antialiasing ||
                                    opt_params.gut;
 
         has_active_features = true; // force show for now
@@ -657,14 +655,6 @@ namespace lfs::vis::gui::panels {
                     ImGui::TextColored(darken(theme().palette.text_dim, 0.15f), "Swap object/background");
                 }
 
-                if (opt_params.pose_optimization != "none") {
-                    ImGui::TableNextRow();
-                    ImGui::TableNextColumn();
-                    ImGui::Text("Pose Optimization:");
-                    ImGui::TableNextColumn();
-                    ImGui::Text("%s", opt_params.pose_optimization.c_str());
-                }
-
                 if (opt_params.enable_eval) {
                     ImGui::TableNextRow();
                     ImGui::TableNextColumn();
@@ -693,12 +683,6 @@ namespace lfs::vis::gui::panels {
             if (ImGui::BeginTable("RenderTable", 2, ImGuiTableFlags_SizingStretchProp)) {
                 ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 120.0f);
                 ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
-
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn();
-                ImGui::Text("Render Mode:");
-                ImGui::TableNextColumn();
-                ImGui::Text("%s", opt_params.render_mode.c_str());
 
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();

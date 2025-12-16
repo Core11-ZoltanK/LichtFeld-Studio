@@ -636,20 +636,7 @@ namespace lfs::project {
             LOG_ERROR("output_path is empty");
             return nullptr;
         }
-        std::filesystem::path project_path = data.project_path;
-        if (project_path.empty()) {
-            project_path = data.output_path / ("project" + Project::EXTENSION);
-            LOG_INFO("project_path is empty - creating new project{} file", Project::EXTENSION);
-        }
-
-        if (project_path.extension() != Project::EXTENSION) {
-            LOG_ERROR("project_path must be {} file: {}", Project::EXTENSION, project_path.string());
-            return nullptr;
-        }
-        if (project_path.parent_path().empty()) {
-            LOG_ERROR("project_path must have parent directory: project_path: {} ", project_path.string());
-            return nullptr;
-        }
+        std::filesystem::path project_path = data.output_path / ("project" + Project::EXTENSION);
 
         try {
             project->setProjectFileName(project_path);

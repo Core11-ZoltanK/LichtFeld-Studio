@@ -44,13 +44,11 @@ namespace lfs::core {
             int max_cap = 1000000;
             std::vector<size_t> eval_steps = {7'000, 30'000}; // Steps to evaluate the model
             std::vector<size_t> save_steps = {7'000, 30'000}; // Steps to save the model
-            bool skip_intermediate_saving = false;            // Skip saving intermediate results and only save final output
             bool bg_modulation = false;                       // Enable sinusoidal background modulation
             bool enable_eval = false;                         // Only evaluate when explicitly enabled
             bool rc = false;                                  // Workaround for reality captures - doesn't properly convert COLMAP camera model
             bool enable_save_eval_images = true;              // Save during evaluation images
             bool headless = false;                            // Disable visualization during training
-            std::string render_mode = "RGB";                  // Render mode: RGB, D, ED, RGB_D, RGB_ED
             std::string strategy = "mcmc";                    // Optimization strategy: mcmc, default.
             bool preload_to_ram = false;                      // If true, the entire dataset will be loaded into RAM at startup
 
@@ -60,7 +58,6 @@ namespace lfs::core {
             float mask_threshold = 0.5f;                      // Threshold: >= threshold → 1.0, < threshold → keep original
             float mask_opacity_penalty_weight = 1.0f;         // Opacity penalty weight for segment mode
             float mask_opacity_penalty_power = 2.0f;          // Penalty falloff (1=linear, 2=quadratic)
-            std::string pose_optimization = "none";           // Pose optimization type: none, direct, mlp
 
             // Bilateral grid parameters
             bool use_bilateral_grid = false;
@@ -81,7 +78,6 @@ namespace lfs::core {
             bool revised_opacity = false;
             bool gut = false;
             float steps_scaler = 0.f;  // If < 0, step size scaling is disabled
-            bool antialiasing = false; // Enable antialiasing in rendering
 
             // Random initialization parameters
             bool random = false;        // Use random initialization instead of SfM
@@ -122,7 +118,6 @@ namespace lfs::core {
         struct DatasetConfig {
             std::filesystem::path data_path = "";
             std::filesystem::path output_path = "";
-            std::filesystem::path project_path = ""; // if path is relative it will be saved to output_path/project_name.ls
             std::string images = "images";
             int resize_factor = -1;
             int test_every = 8;

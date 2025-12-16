@@ -98,12 +98,9 @@ namespace lfs::core {
                     {"sh_degree", defaults.sh_degree, "Spherical harmonics degree"},
                     {"num_workers", defaults.num_workers, "Number of image loader threads"},
                     {"max_cap", defaults.max_cap, "Maximum number of Gaussians for MCMC strategy"},
-                    {"render_mode", defaults.render_mode, "Render mode: RGB, D, ED, RGB_D, RGB_ED"},
                     {"strategy", defaults.strategy, "Optimization strategy: mcmc, default"},
-                    {"pose_optimization", defaults.pose_optimization, "Pose optimization type: none, direct, mlp"},
                     {"enable_eval", defaults.enable_eval, "Enable evaluation during training"},
                     {"enable_save_eval_images", defaults.enable_save_eval_images, "Save images during evaluation"},
-                    {"skip_intermediate", defaults.skip_intermediate_saving, "Skip saving intermediate results and only save final output"},
                     {"use_bilateral_grid", defaults.use_bilateral_grid, "Enable bilateral grid for appearance modeling"},
                     {"bilateral_grid_X", defaults.bilateral_grid_X, "Bilateral grid X dimension"},
                     {"bilateral_grid_Y", defaults.bilateral_grid_Y, "Bilateral grid Y dimension"},
@@ -119,7 +116,6 @@ namespace lfs::core {
                     {"pause_refine_after_reset", defaults.pause_refine_after_reset, "Pause refinement after reset for N iterations"},
                     {"revised_opacity", defaults.revised_opacity, "Use revised opacity heuristic"},
                     {"steps_scaler", defaults.steps_scaler, "Scales the training steps and values"},
-                    {"antialiasing", defaults.antialiasing, "Enables antialiasing"},
                     {"sh_degree_interval", defaults.sh_degree_interval, "Interval for increasing SH degree"},
                     {"random", defaults.random, "Use random initialization instead of SfM"},
                     {"init_num_pts", defaults.init_num_pts, "Number of random initialization points"},
@@ -253,14 +249,11 @@ namespace lfs::core {
             opt_json["init_scaling"] = init_scaling;
             opt_json["num_workers"] = num_workers;
             opt_json["max_cap"] = max_cap;
-            opt_json["render_mode"] = render_mode;
-            opt_json["pose_optimization"] = pose_optimization;
             opt_json["eval_steps"] = eval_steps;
             opt_json["save_steps"] = save_steps;
             opt_json["enable_eval"] = enable_eval;
             opt_json["enable_save_eval_images"] = enable_save_eval_images;
             opt_json["strategy"] = strategy;
-            opt_json["skip_intermediate"] = skip_intermediate_saving;
             opt_json["use_bilateral_grid"] = use_bilateral_grid;
             opt_json["bilateral_grid_X"] = bilateral_grid_X;
             opt_json["bilateral_grid_Y"] = bilateral_grid_Y;
@@ -276,7 +269,6 @@ namespace lfs::core {
             opt_json["pause_refine_after_reset"] = pause_refine_after_reset;
             opt_json["revised_opacity"] = revised_opacity;
             opt_json["steps_scaler"] = steps_scaler;
-            opt_json["antialiasing"] = antialiasing;
             opt_json["sh_degree_interval"] = sh_degree_interval;
             opt_json["random"] = random;
             opt_json["init_num_pts"] = init_num_pts;
@@ -329,27 +321,6 @@ namespace lfs::core {
                 params.max_cap = json["max_cap"];
             }
 
-            // Handle render mode
-            if (json.contains("render_mode")) {
-                std::string mode = json["render_mode"];
-                // Validate render mode
-                if (mode == "RGB" || mode == "D" || mode == "ED" ||
-                    mode == "RGB_D" || mode == "RGB_ED") {
-                    params.render_mode = mode;
-                } else {
-                    std::println(stderr, "Warning: Invalid render mode '{}' in JSON. Using default 'RGB'", mode);
-                }
-            }
-
-            if (json.contains("pose_optimization")) {
-                std::string pose_opt = json["pose_optimization"];
-                if (pose_opt == "none" || pose_opt == "direct" || pose_opt == "mlp") {
-                    params.pose_optimization = pose_opt;
-                } else {
-                    std::println(stderr, "Warning: Invalid pose optimization '{}' in JSON. Using default 'none'", pose_opt);
-                }
-            }
-
             if (json.contains("strategy")) {
                 std::string strategy = json["strategy"];
                 if (strategy == "mcmc" || strategy == "default") {
@@ -378,9 +349,6 @@ namespace lfs::core {
             }
             if (json.contains("enable_save_eval_images")) {
                 params.enable_save_eval_images = json["enable_save_eval_images"];
-            }
-            if (json.contains("skip_intermediate")) {
-                params.skip_intermediate_saving = json["skip_intermediate"];
             }
             if (json.contains("use_bilateral_grid")) {
                 params.use_bilateral_grid = json["use_bilateral_grid"];
@@ -426,9 +394,6 @@ namespace lfs::core {
             }
             if (json.contains("steps_scaler")) {
                 params.steps_scaler = json["steps_scaler"];
-            }
-            if (json.contains("antialiasing")) {
-                params.antialiasing = json["antialiasing"];
             }
             if (json.contains("sh_degree_interval")) {
                 params.sh_degree_interval = json["sh_degree_interval"];

@@ -452,7 +452,6 @@ namespace lfs::training {
             }
 
             // Print configuration
-            LOG_INFO("Render mode: {}", params.optimization.render_mode);
             LOG_INFO("Visualization: {}", params.optimization.headless ? "disabled" : "enabled");
             LOG_INFO("Strategy: {}", params.optimization.strategy);
             if (current_iteration_ > 0) {
@@ -937,13 +936,11 @@ namespace lfs::training {
                 }
 
                 // Save model at specified steps
-                if (!params_.optimization.skip_intermediate_saving) {
-                    for (size_t save_step : params_.optimization.save_steps) {
-                        if (iter == static_cast<int>(save_step) && iter != params_.optimization.iterations) {
-                            const bool join_threads = (iter == params_.optimization.save_steps.back());
-                            auto save_path = params_.dataset.output_path;
-                            save_ply(save_path, iter, /*join=*/join_threads);
-                        }
+                for (size_t save_step : params_.optimization.save_steps) {
+                    if (iter == static_cast<int>(save_step) && iter != params_.optimization.iterations) {
+                        const bool join_threads = (iter == params_.optimization.save_steps.back());
+                        auto save_path = params_.dataset.output_path;
+                        save_ply(save_path, iter, /*join=*/join_threads);
                     }
                 }
 
@@ -1026,7 +1023,7 @@ namespace lfs::training {
             // Start from current_iteration_ (allows resume from checkpoint)
             int iter = current_iteration_.load() > 0 ? current_iteration_.load() + 1 : 1;
             const int num_workers = params_.optimization.num_workers;
-            const RenderMode render_mode = stringToRenderMode(params_.optimization.render_mode);
+            const RenderMode render_mode = RenderMode::RGB;
 
             if (progress_) {
                 progress_->update(iter, current_loss_.load(),

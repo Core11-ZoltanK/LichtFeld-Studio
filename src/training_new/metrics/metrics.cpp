@@ -176,17 +176,6 @@ namespace lfs::training {
                _params.optimization.eval_steps.cend();
     }
 
-    bool MetricsEvaluator::has_rgb() const {
-        const auto render_mode = stringToRenderMode(_params.optimization.render_mode);
-        return render_mode == RenderMode::RGB ||
-               render_mode == RenderMode::RGB_D ||
-               render_mode == RenderMode::RGB_ED;
-    }
-
-    bool MetricsEvaluator::has_depth() const {
-        return stringToRenderMode(_params.optimization.render_mode) != RenderMode::RGB;
-    }
-
     lfs::core::Tensor MetricsEvaluator::apply_depth_colormap(const lfs::core::Tensor& depth_normalized) const {
         // depth_normalized should be [H, W] with values in [0, 1]
         if (depth_normalized.ndim() != 2) {
@@ -272,13 +261,6 @@ namespace lfs::training {
             std::filesystem::create_directories(eval_dir);
         }
 
-        // Create subdirectory for depth maps only if we're saving depth
-        std::filesystem::path depth_dir;
-        if (has_depth() && _params.optimization.enable_save_eval_images) {
-            depth_dir = eval_dir / "depth";
-            std::filesystem::create_directories(depth_dir);
-        }
-
         int image_idx = 0;
         const size_t val_dataset_size = val_dataset->size();
 
@@ -297,66 +279,24 @@ namespace lfs::training {
             auto& splatData_mutable = const_cast<lfs::core::SplatData&>(splatData);
             RenderOutput r_output = fast_rasterize(*cam, splatData_mutable, background);
 
-            // Only compute metrics if we have RGB output
-            if (has_rgb()) {
-                // Clamp rendered image to [0, 1]
-                r_output.image = r_output.image.clamp(0.0f, 1.0f);
+            // Clamp rendered image to [0, 1]
+            r_output.image = r_output.image.clamp(0.0f, 1.0f);
 
-                // Compute metrics
-                const float psnr = _psnr_metric->compute(r_output.image, gt_image);
-                const float ssim = _ssim_metric->compute(r_output.image, gt_image);
+            // Compute metrics
+            const float psnr = _psnr_metric->compute(r_output.image, gt_image);
+            const float ssim = _ssim_metric->compute(r_output.image, gt_image);
 
-                psnr_values.push_back(psnr);
-                ssim_values.push_back(ssim);
+            psnr_values.push_back(psnr);
+            ssim_values.push_back(ssim);
 
-                // Save side-by-side RGB images asynchronously
-                if (_params.optimization.enable_save_eval_images) {
-                    const std::vector<lfs::core::Tensor> rgb_images = {gt_image, r_output.image};
-                    lfs::core::image_io::save_images_async(
-                        eval_dir / (std::to_string(image_idx) + ".png"),
-                        rgb_images,
-                        true, // horizontal
-                        4);   // separator width
-                }
-            }
-
-            // Only save depth if enabled and render mode includes depth
-            if (has_depth() && _params.optimization.enable_save_eval_images) {
-                if (r_output.depth.numel() > 0) {
-                    // Assuming depth is [1, H, W], squeeze to [H, W]
-                    auto depth_vis = r_output.depth.squeeze(0).to(lfs::core::Device::CPU);
-
-                    // Normalize depth
-                    const float min_depth = depth_vis.min().item<float>();
-                    const float max_depth = depth_vis.max().item<float>();
-                    auto depth_normalized = (depth_vis - min_depth) / std::max(max_depth - min_depth, 1e-10f);
-
-                    // Apply colormap
-                    const auto depth_colormap = apply_depth_colormap(depth_normalized);
-
-                    // Optionally save RGB + Depth side by side (only if we have RGB)
-                    if (has_rgb()) {
-                        const std::vector<lfs::core::Tensor> rgb_depth_images = {r_output.image, depth_colormap};
-                        lfs::core::image_io::save_images_async(
-                            depth_dir / (std::to_string(image_idx) + "_rgb_depth.png"),
-                            rgb_depth_images,
-                            true, // horizontal
-                            4);   // separator width
-                    } else {
-                        // Save depth alone if no RGB
-                        // Create grayscale RGB by stacking the depth three times
-                        std::vector<lfs::core::Tensor> channels = {
-                            depth_normalized, depth_normalized, depth_normalized
-                        };
-                        auto depth_gray_rgb = lfs::core::Tensor::stack(channels, 0);
-                        lfs::core::image_io::save_image_async(
-                            depth_dir / (std::to_string(image_idx) + "_gray.png"),
-                            depth_gray_rgb);
-                        lfs::core::image_io::save_image_async(
-                            depth_dir / (std::to_string(image_idx) + "_color.png"),
-                            depth_colormap);
-                    }
-                }
+            // Save side-by-side RGB images asynchronously
+            if (_params.optimization.enable_save_eval_images) {
+                const std::vector<lfs::core::Tensor> rgb_images = {gt_image, r_output.image};
+                lfs::core::image_io::save_images_async(
+                    eval_dir / (std::to_string(image_idx) + ".png"),
+                    rgb_images,
+                    true, // horizontal
+                    4);   // separator width
             }
 
             image_idx++;
@@ -373,14 +313,10 @@ namespace lfs::training {
         const auto end_time = std::chrono::steady_clock::now();
         const auto elapsed = std::chrono::duration<float>(end_time - start_time).count();
 
-        // Compute averages only if we have RGB metrics
-        if (has_rgb() && !psnr_values.empty()) {
+        // Compute averages
+        if (!psnr_values.empty()) {
             result.psnr = std::accumulate(psnr_values.begin(), psnr_values.end(), 0.0f) / psnr_values.size();
             result.ssim = std::accumulate(ssim_values.begin(), ssim_values.end(), 0.0f) / ssim_values.size();
-        } else {
-            // Set default values for depth-only modes
-            result.psnr = 0.0f;
-            result.ssim = 0.0f;
         }
         result.elapsed_time = elapsed / val_dataset_size;
 
@@ -389,9 +325,6 @@ namespace lfs::training {
 
         if (_params.optimization.enable_save_eval_images) {
             std::cout << "Saved " << image_idx << " evaluation images to: " << eval_dir << std::endl;
-            if (has_depth()) {
-                std::cout << "Saved depth maps to: " << depth_dir << std::endl;
-            }
         }
 
         return result;

@@ -133,10 +133,6 @@ namespace lfs::training {
         // Helper functions
         lfs::core::Tensor apply_depth_colormap(const lfs::core::Tensor& depth_normalized) const;
 
-        bool has_rgb() const;
-
-        bool has_depth() const;
-
         // Create dataloader from dataset
         auto make_dataloader(std::shared_ptr<CameraDataset> dataset, const int workers = 1) const;
     };

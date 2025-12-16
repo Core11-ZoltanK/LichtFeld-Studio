@@ -92,31 +92,12 @@ namespace lfs::core {
         auto viewer = lfs::vis::Visualizer::create({.title = "LichtFeld Studio",
                                                     .width = 1280,
                                                     .height = 720,
-                                                    .antialiasing = params->optimization.antialiasing,
+                                                    .antialiasing = false,
                                                     .enable_cuda_interop = true,
                                                     .gut = params->optimization.gut});
 
-        if (!params->dataset.project_path.empty() &&
-            !std::filesystem::exists(params->dataset.project_path)) {
-            LOG_ERROR("Project file does not exist: {}", params->dataset.project_path.string());
-            return -1;
-        }
-
-        if (std::filesystem::exists(params->dataset.project_path)) {
-            bool success = viewer->openProject(params->dataset.project_path);
-            if (!success) {
-                LOG_ERROR("Error opening existing project");
-                return -1;
-            }
-            if (!params->view_paths.empty()) {
-                LOG_ERROR("Cannot open splat files and project from command line simultaneously");
-                return -1;
-            }
-            if (!params->dataset.data_path.empty()) {
-                LOG_ERROR("Cannot open new data_path and project from command line simultaneously");
-                return -1;
-            }
-        } else { // create temporary project until user will save it in desired location
+        // create temporary project until user will save it in desired location
+        {
             std::shared_ptr<lfs::project::Project> project = nullptr;
             if (params->dataset.output_path.empty()) {
                 project = lfs::project::CreateTempNewProject(
@@ -172,8 +153,6 @@ namespace lfs::core {
                 return -1;
             }
         }
-
-        LOG_INFO("Anti-aliasing: {}", params->optimization.antialiasing ? "enabled" : "disabled");
 
         // Run the viewer
         viewer->run();
