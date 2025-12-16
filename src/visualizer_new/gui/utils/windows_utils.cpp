@@ -21,13 +21,12 @@ namespace lfs::vis::gui {
                                  UINT cFileTypes,
                                  bool blnDirectory) {
 
-            HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+            HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
             if (FAILED(hr)) {
                 LOG_ERROR("Failed to initialize COM: {:#x}", static_cast<unsigned int>(hr));
             } else {
-                // Create the FileOpenDialog instance
                 IFileOpenDialog* pFileOpen = nullptr;
-                hr = CoCreateInstance(CLSID_FileOpenDialog, NULL, CLSCTX_ALL,
+                hr = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_ALL,
                                       IID_IFileOpenDialog, reinterpret_cast<void**>(&pFileOpen));
 
                 if (SUCCEEDED(hr)) {
@@ -51,8 +50,7 @@ namespace lfs::vis::gui {
                         }
                     }
 
-                    // Show the Open File dialog
-                    hr = pFileOpen->Show(NULL);
+                    hr = pFileOpen->Show(nullptr);
 
                     if (SUCCEEDED(hr)) {
                         IShellItem* pItem;
@@ -80,54 +78,44 @@ namespace lfs::vis::gui {
     } // namespace utils
 
     void OpenProjectFileDialog() {
-        // show native windows file dialog for project file selection
         PWSTR filePath = nullptr;
+        COMDLG_FILTERSPEC rgSpec[] = {{L"LichtFeldStudio Project File", L"*.lfs;*.ls"}};
 
-        COMDLG_FILTERSPEC rgSpec[] =
-            {
-                {L"LichtFeldStudio Project File", L"*.lfs;*.ls"},
-            };
-
-        if (SUCCEEDED(lfs::vis::gui::utils::selectFileNative(filePath, rgSpec, 1, false))) {
-            std::filesystem::path project_path(filePath);
+        if (SUCCEEDED(utils::selectFileNative(filePath, rgSpec, 1, false))) {
+            const std::filesystem::path project_path(filePath);
             lfs::core::events::cmd::LoadProject{.path = project_path}.emit();
-            LOG_INFO("Loading project file : {}", std::filesystem::path(project_path).string());
+            LOG_INFO("Loading project: {}", project_path.string());
         }
     }
 
     void OpenPlyFileDialog() {
-        // show native windows file dialog for PLY file selection
         PWSTR filePath = nullptr;
-        COMDLG_FILTERSPEC rgSpec[] =
-            {
-                {L"Point Cloud", L"*.ply;"},
-            };
-        if (SUCCEEDED(lfs::vis::gui::utils::selectFileNative(filePath, rgSpec, 1, false))) {
-            std::filesystem::path ply_path(filePath);
+        COMDLG_FILTERSPEC rgSpec[] = {{L"Point Cloud", L"*.ply;"}};
+
+        if (SUCCEEDED(utils::selectFileNative(filePath, rgSpec, 1, false))) {
+            const std::filesystem::path ply_path(filePath);
             lfs::core::events::cmd::LoadFile{.path = ply_path}.emit();
-            LOG_INFO("Loading PLY file : {}", std::filesystem::path(ply_path).string()); // FIXED: Changed from "Loading project file"
+            LOG_INFO("Loading PLY: {}", ply_path.string());
         }
     }
 
     void OpenDatasetFolderDialog() {
-        // show native windows file dialog for folder selection
         PWSTR filePath = nullptr;
-        if (SUCCEEDED(lfs::vis::gui::utils::selectFileNative(filePath, nullptr, 0, true))) {
-            std::filesystem::path dataset_path(filePath);
+        if (SUCCEEDED(utils::selectFileNative(filePath, nullptr, 0, true))) {
+            const std::filesystem::path dataset_path(filePath);
             if (std::filesystem::is_directory(dataset_path)) {
                 lfs::core::events::cmd::LoadFile{.path = dataset_path, .is_dataset = true}.emit();
-                LOG_INFO("Loading dataset : {}", std::filesystem::path(dataset_path).string());
+                LOG_INFO("Loading dataset: {}", dataset_path.string());
             }
         }
     }
 
     void SaveProjectFileDialog(bool* p_open) {
-        // show native windows file dialog for project directory selection
         PWSTR filePath = nullptr;
-        if (SUCCEEDED(lfs::vis::gui::utils::selectFileNative(filePath, nullptr, 0, true))) {
-            std::filesystem::path project_path(filePath);
+        if (SUCCEEDED(utils::selectFileNative(filePath, nullptr, 0, true))) {
+            const std::filesystem::path project_path(filePath);
             lfs::core::events::cmd::SaveProject{project_path}.emit();
-            LOG_INFO("Saving project file into : {}", std::filesystem::path(project_path).string());
+            LOG_INFO("Saving project: {}", project_path.string());
             *p_open = false;
         }
     }
@@ -137,14 +125,14 @@ namespace lfs::vis::gui {
                                COMDLG_FILTERSPEC rgSpec[],
                                UINT cFileTypes,
                                const wchar_t* defaultName) {
-            HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+            HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
             if (FAILED(hr)) {
                 LOG_ERROR("Failed to initialize COM: {:#x}", static_cast<unsigned int>(hr));
                 return hr;
             }
 
             IFileSaveDialog* pFileSave = nullptr;
-            hr = CoCreateInstance(CLSID_FileSaveDialog, NULL, CLSCTX_ALL,
+            hr = CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_ALL,
                                   IID_IFileSaveDialog, reinterpret_cast<void**>(&pFileSave));
 
             if (SUCCEEDED(hr)) {
@@ -158,7 +146,7 @@ namespace lfs::vis::gui {
                     pFileSave->SetFileName(defaultName);
                 }
 
-                hr = pFileSave->Show(NULL);
+                hr = pFileSave->Show(nullptr);
 
                 if (SUCCEEDED(hr)) {
                     IShellItem* pItem;
@@ -183,7 +171,9 @@ namespace lfs::vis::gui {
 
     namespace {
 #ifndef _WIN32
-        // Execute dialog command and return trimmed output
+        constexpr size_t DIALOG_BUFFER_SIZE = 4096;
+
+        // Execute dialog command, trying fallback if primary fails
         std::string runDialogCommand(const std::string& primary_cmd, const std::string& fallback_cmd) {
             FILE* pipe = popen(primary_cmd.c_str(), "r");
             if (!pipe && !fallback_cmd.empty()) {
@@ -191,13 +181,14 @@ namespace lfs::vis::gui {
             }
             if (!pipe) return {};
 
-            char buffer[4096];
+            char buffer[DIALOG_BUFFER_SIZE];
             std::string result;
             while (fgets(buffer, sizeof(buffer), pipe)) {
                 result += buffer;
             }
             pclose(pipe);
 
+            // Trim trailing newlines
             while (!result.empty() && (result.back() == '\n' || result.back() == '\r')) {
                 result.pop_back();
             }
@@ -384,6 +375,79 @@ namespace lfs::vis::gui {
             path += ".html";
         }
         return path;
+#endif
+    }
+
+    std::filesystem::path SelectFolderDialog(const std::string& title, const std::filesystem::path& startDir) {
+#ifdef _WIN32
+        HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+        if (FAILED(hr)) {
+            LOG_ERROR("COM init failed: {:#x}", static_cast<unsigned int>(hr));
+            return {};
+        }
+
+        IFileOpenDialog* pFileOpen = nullptr;
+        hr = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_ALL,
+                              IID_IFileOpenDialog, reinterpret_cast<void**>(&pFileOpen));
+
+        std::filesystem::path result;
+        if (SUCCEEDED(hr)) {
+            DWORD dwOptions = 0;
+            if (SUCCEEDED(pFileOpen->GetOptions(&dwOptions))) {
+                pFileOpen->SetOptions(dwOptions | FOS_PICKFOLDERS);
+            }
+
+            if (!startDir.empty() && std::filesystem::exists(startDir)) {
+                IShellItem* pStartFolder = nullptr;
+                const std::wstring wStartDir = startDir.wstring();
+                hr = SHCreateItemFromParsingName(wStartDir.c_str(), nullptr, IID_PPV_ARGS(&pStartFolder));
+                if (SUCCEEDED(hr)) {
+                    pFileOpen->SetFolder(pStartFolder);
+                    pStartFolder->Release();
+                }
+            }
+
+            hr = pFileOpen->Show(nullptr);
+            if (SUCCEEDED(hr)) {
+                IShellItem* pItem = nullptr;
+                hr = pFileOpen->GetResult(&pItem);
+                if (SUCCEEDED(hr)) {
+                    PWSTR filePath = nullptr;
+                    hr = pItem->GetDisplayName(SIGDN_FILESYSPATH, &filePath);
+                    if (SUCCEEDED(hr)) {
+                        result = std::filesystem::path(filePath);
+                        CoTaskMemFree(filePath);
+                    }
+                    pItem->Release();
+                }
+            }
+            pFileOpen->Release();
+        }
+        CoUninitialize();
+        return result;
+#else
+        std::filesystem::path abs_start_dir = startDir;
+        if (!abs_start_dir.empty()) {
+            if (abs_start_dir.is_relative()) {
+                abs_start_dir = std::filesystem::absolute(abs_start_dir);
+            }
+        }
+
+        const bool has_valid_start = !abs_start_dir.empty() &&
+                                     std::filesystem::exists(abs_start_dir) &&
+                                     std::filesystem::is_directory(abs_start_dir);
+
+        const std::string start_arg = has_valid_start
+            ? " --filename='" + abs_start_dir.string() + "/'"
+            : "";
+
+        const std::string primary = "zenity --file-selection --directory "
+                                    "--title='" + title + "'" + start_arg + " 2>/dev/null";
+        const std::string fallback = "kdialog --getexistingdirectory '" +
+                                     (has_valid_start ? abs_start_dir.string() : ".") + "' 2>/dev/null";
+
+        const std::string result = runDialogCommand(primary, fallback);
+        return result.empty() ? std::filesystem::path{} : std::filesystem::path(result);
 #endif
     }
 

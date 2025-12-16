@@ -46,11 +46,9 @@ namespace lfs::core {
             std::vector<size_t> save_steps = {7'000, 30'000}; // Steps to save the model
             bool bg_modulation = false;                       // Enable sinusoidal background modulation
             bool enable_eval = false;                         // Only evaluate when explicitly enabled
-            bool rc = false;                                  // Workaround for reality captures - doesn't properly convert COLMAP camera model
             bool enable_save_eval_images = true;              // Save during evaluation images
             bool headless = false;                            // Disable visualization during training
             std::string strategy = "mcmc";                    // Optimization strategy: mcmc, default.
-            bool preload_to_ram = false;                      // If true, the entire dataset will be loaded into RAM at startup
 
             // Mask parameters
             MaskMode mask_mode = MaskMode::None;              // Attention mask mode
@@ -86,10 +84,6 @@ namespace lfs::core {
 
             // Tile mode for memory-efficient training (1=1 tile, 2=2 tiles, 4=4 tiles)
             int tile_mode = 1;
-
-            // SOG format parameters
-            bool save_sog = false;   // Save in SOG format alongside PLY
-            int sog_iterations = 10; // K-means iterations for SOG compression
 
             // Sparsity optimization parameters
             bool enable_sparsity = false;

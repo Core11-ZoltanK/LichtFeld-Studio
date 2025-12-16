@@ -28,6 +28,8 @@
 #include "input/input_controller.hpp"
 #include "internal/resource_paths.hpp"
 #include "tools/align_tool.hpp"
+
+#include <cuda_runtime.h>
 #include "tools/brush_tool.hpp"
 #include "tools/selection_tool.hpp"
 #include "rendering/rendering_manager.hpp"
@@ -1355,17 +1357,50 @@ namespace lfs::vis::gui {
                 ImGui::TextColored(withAlpha(t.palette.info, a), "Zoom: %.0f", zoom_speed_ * 10.0f);
             }
 
-            // FPS (right-aligned): "60 FPS" with colored number
+            // GPU Memory and FPS (right-aligned)
+            constexpr float GPU_MEM_WARN_PCT = 50.0f;
+            constexpr float GPU_MEM_CRIT_PCT = 75.0f;
+            constexpr float FPS_GOOD = 30.0f;
+            constexpr float FPS_WARN = 15.0f;
+            constexpr float BYTES_TO_GB = 1e-9f;
+
+            ImFont* const font = ctx.fonts.bold ? ctx.fonts.bold : ImGui::GetFont();
+
+            size_t free_mem = 0, total_mem = 0;
+            cudaMemGetInfo(&free_mem, &total_mem);
+            const float used_gb = static_cast<float>(total_mem - free_mem) * BYTES_TO_GB;
+            const float total_gb = static_cast<float>(total_mem) * BYTES_TO_GB;
+            const float pct_used = (used_gb / total_gb) * 100.0f;
+
+            const ImVec4 mem_color = pct_used < GPU_MEM_WARN_PCT ? t.palette.success
+                                   : pct_used < GPU_MEM_CRIT_PCT ? t.palette.warning
+                                   : t.palette.error;
+
+            char mem_buf[32];
+            snprintf(mem_buf, sizeof(mem_buf), "%.1f/%.1fGB", used_gb, total_gb);
+
             const float fps = rm->getAverageFPS();
-            const ImVec4 fps_color = fps >= 30.0f ? t.palette.success
-                                   : fps >= 15.0f ? t.palette.warning
+            const ImVec4 fps_color = fps >= FPS_GOOD ? t.palette.success
+                                   : fps >= FPS_WARN ? t.palette.warning
                                    : t.palette.error;
             char fps_buf[16];
             snprintf(fps_buf, sizeof(fps_buf), "%.0f", fps);
-            ImFont* const font = ctx.fonts.bold ? ctx.fonts.bold : ImGui::GetFont();
+
+            const float mem_val_w = font->CalcTextSizeA(font->FontSize, FLT_MAX, 0.0f, mem_buf).x;
+            const float mem_label_w = font->CalcTextSizeA(font->FontSize, FLT_MAX, 0.0f, "GPU ").x;
             const float fps_w = font->CalcTextSizeA(font->FontSize, FLT_MAX, 0.0f, fps_buf).x;
-            const float label_w = font->CalcTextSizeA(font->FontSize, FLT_MAX, 0.0f, " FPS").x;
-            ImGui::SameLine(size.x - fps_w - label_w - PADDING * 2);
+            const float fps_label_w = font->CalcTextSizeA(font->FontSize, FLT_MAX, 0.0f, " FPS").x;
+
+            ImGui::SameLine(size.x - (mem_label_w + mem_val_w + SPACING + fps_w + fps_label_w) - PADDING * 2);
+
+            ImGui::TextColored(t.palette.text_dim, "GPU ");
+            ImGui::SameLine(0.0f, 0.0f);
+            if (ctx.fonts.bold) ImGui::PushFont(ctx.fonts.bold);
+            ImGui::TextColored(mem_color, "%s", mem_buf);
+            if (ctx.fonts.bold) ImGui::PopFont();
+
+            ImGui::SameLine(0.0f, SPACING);
+
             if (ctx.fonts.bold) ImGui::PushFont(ctx.fonts.bold);
             ImGui::TextColored(fps_color, "%s", fps_buf);
             ImGui::SameLine(0.0f, 0.0f);

@@ -143,9 +143,6 @@ namespace {
             ::args::ValueFlag<float> init_rho(parser, "init_rho", "Initial ADMM penalty parameter (default: 0.0005)", {"init-rho"});
             ::args::ValueFlag<float> prune_ratio(parser, "prune_ratio", "Final pruning ratio for sparsity (default: 0.6)", {"prune-ratio"});
 
-            // SOG format arguments
-            ::args::ValueFlag<int> sog_iterations(parser, "sog_iterations", "K-means iterations for SOG compression (default: 10)", {"sog-iterations"});
-
             // Logging options
             ::args::ValueFlag<std::string> log_level(parser, "level", "Log level: trace, debug, info, perf, warn, error, critical, off (default: info)", {"log-level"});
             ::args::ValueFlag<std::string> log_file(parser, "file", "Optional log file path", {"log-file"});
@@ -160,7 +157,6 @@ namespace {
             ::args::Flag random(parser, "random", "Use random initialization instead of SfM", {"random"});
             ::args::Flag gut(parser, "gut", "Enable GUT mode", {"gut"});
             ::args::Flag enable_sparsity(parser, "enable_sparsity", "Enable sparsity optimization", {"enable-sparsity"});
-            ::args::Flag save_sog(parser, "sog", "Save in SOG format alongside PLY", {"sog"});
 
             // Mask-related arguments
             ::args::MapFlag<std::string, lfs::core::param::MaskMode> mask_mode(parser, "mask_mode",
@@ -410,7 +406,6 @@ namespace {
                                         strategy_val = strategy ? std::optional<std::string>(::args::get(strategy)) : std::optional<std::string>(),
                                         timelapse_images_val = timelapse_images ? std::optional<std::vector<std::string>>(::args::get(timelapse_images)) : std::optional<std::vector<std::string>>(),
                                         timelapse_every_val = timelapse_every ? std::optional<int>(::args::get(timelapse_every)) : std::optional<int>(),
-                                        sog_iterations_val = sog_iterations ? std::optional<int>(::args::get(sog_iterations)) : std::optional<int>(),
                                         tile_mode_val = tile_mode ? std::optional<int>(::args::get(tile_mode)) : std::optional<int>(),
                                         // Sparsity parameters
                                         sparsify_steps_val = sparsify_steps ? std::optional<int>(::args::get(sparsify_steps)) : std::optional<int>(),
@@ -426,7 +421,6 @@ namespace {
                                         bg_modulation_flag = bool(bg_modulation),
                                         random_flag = bool(random),
                                         gut_flag = bool(gut),
-                                        save_sog_flag = bool(save_sog),
                                         enable_sparsity_flag = bool(enable_sparsity),
                                         invert_masks_flag = bool(invert_masks)]() {
                 auto& opt = params.optimization;
@@ -462,7 +456,6 @@ namespace {
                 setVal(strategy_val, opt.strategy);
                 setVal(timelapse_images_val, ds.timelapse_images);
                 setVal(timelapse_every_val, ds.timelapse_every);
-                setVal(sog_iterations_val, opt.sog_iterations);
                 setVal(tile_mode_val, opt.tile_mode);
 
                 // Sparsity parameters
@@ -477,7 +470,6 @@ namespace {
                 setFlag(bg_modulation_flag, opt.bg_modulation);
                 setFlag(random_flag, opt.random);
                 setFlag(gut_flag, opt.gut);
-                setFlag(save_sog_flag, opt.save_sog);
                 setFlag(enable_sparsity_flag, opt.enable_sparsity);
 
                 // Mask parameters

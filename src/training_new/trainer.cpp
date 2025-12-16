@@ -1176,14 +1176,6 @@ namespace lfs::training {
         // Save PLY format - join_threads controls sync vs async
         lfs::core::save_ply(strategy_->get_model(), save_path, iter_num, join_threads);
 
-        // Save SOG format if requested - ALWAYS synchronous
-        std::filesystem::path sog_path;
-        if (params_.optimization.save_sog) {
-            sog_path = lfs::core::save_sog(strategy_->get_model(), save_path, iter_num,
-                                           params_.optimization.sog_iterations,
-                                           true); // Always synchronous
-        }
-
         // Save checkpoint alongside PLY for training resumption
         auto ckpt_result = lfs::training::save_checkpoint(
             save_path, iter_num, *strategy_, params_, bilateral_grid_.get());
@@ -1196,13 +1188,9 @@ namespace lfs::training {
             const std::string ply_name = "splat_" + std::to_string(iter_num);
             const std::filesystem::path ply_path = save_path / (ply_name + ".ply");
             lf_project_->addPly(lfs::project::PlyData(false, ply_path, iter_num, ply_name));
-            if (params_.optimization.save_sog) {
-                std::string ply_name_sog = sog_path.stem().string();
-                lf_project_->addPly(lfs::project::PlyData(false, sog_path, iter_num, ply_name_sog));
-            }
         }
 
-        LOG_DEBUG("PLY save initiated: {} (sync={}), SOG always sync", save_path.string(), join_threads);
+        LOG_DEBUG("PLY save initiated: {} (sync={})", save_path.string(), join_threads);
     }
 
     std::expected<void, std::string> Trainer::save_checkpoint(int iteration) {

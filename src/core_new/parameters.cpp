@@ -125,8 +125,6 @@ namespace lfs::core {
                     {"sparsify_steps", defaults.sparsify_steps, "Number of steps for sparsification"},
                     {"init_rho", defaults.init_rho, "Initial ADMM penalty parameter"},
                     {"prune_ratio", defaults.prune_ratio, "Final pruning ratio for sparsity"},
-                    {"save_sog", defaults.save_sog, "Save in SOG format alongside PLY"},
-                    {"sog_iterations", defaults.sog_iterations, "K-means iterations for SOG compression"},
                     {"bg_modulation", defaults.bg_modulation, "Enable sinusoidal background modulation"}};
 
                 // Check all expected parameters
@@ -274,8 +272,6 @@ namespace lfs::core {
             opt_json["init_num_pts"] = init_num_pts;
             opt_json["init_extent"] = init_extent;
             opt_json["tile_mode"] = tile_mode;
-            opt_json["save_sog"] = save_sog;
-            opt_json["sog_iterations"] = sog_iterations;
             opt_json["enable_sparsity"] = enable_sparsity;
             opt_json["sparsify_steps"] = sparsify_steps;
             opt_json["init_rho"] = init_rho;
@@ -409,12 +405,6 @@ namespace lfs::core {
             }
             if (json.contains("tile_mode")) {
                 params.tile_mode = json["tile_mode"];
-            }
-            if (json.contains("save_sog")) {
-                params.save_sog = json["save_sog"];
-            }
-            if (json.contains("sog_iterations")) {
-                params.sog_iterations = json["sog_iterations"];
             }
             if (json.contains("enable_sparsity")) {
                 params.enable_sparsity = json["enable_sparsity"];
