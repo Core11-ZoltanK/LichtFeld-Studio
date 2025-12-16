@@ -2250,17 +2250,17 @@ namespace lfs::vis::gui {
         static constexpr const char* HINT = "Or use File > Open to browse";
 
         const ImVec2 title_size = calcTextSize(TITLE, font_heading_);
-        const ImVec2 subtitle_size = calcTextSize(SUBTITLE, font_small_);
-        const ImVec2 hint_size = calcTextSize(HINT, font_small_);
+        const ImVec2 subtitle_size = calcTextSize(SUBTITLE, font_bold_);
+        const ImVec2 hint_size = calcTextSize(HINT, font_bold_);
 
         if (font_heading_) ImGui::PushFont(font_heading_);
         draw_list->AddText({center_x - title_size.x * 0.5f, center_y + 10.0f}, TITLE_COLOR, TITLE);
         if (font_heading_) ImGui::PopFont();
 
-        if (font_small_) ImGui::PushFont(font_small_);
-        draw_list->AddText({center_x - subtitle_size.x * 0.5f, center_y + 35.0f}, SUBTITLE_COLOR, SUBTITLE);
-        draw_list->AddText({center_x - hint_size.x * 0.5f, center_y + 60.0f}, HINT_COLOR, HINT);
-        if (font_small_) ImGui::PopFont();
+        if (font_bold_) ImGui::PushFont(font_bold_);
+        draw_list->AddText({center_x - subtitle_size.x * 0.5f, center_y + 40.0f}, SUBTITLE_COLOR, SUBTITLE);
+        draw_list->AddText({center_x - hint_size.x * 0.5f, center_y + 70.0f}, HINT_COLOR, HINT);
+        if (font_bold_) ImGui::PopFont();
     }
 
     void GuiManager::renderDragDropOverlay() {
