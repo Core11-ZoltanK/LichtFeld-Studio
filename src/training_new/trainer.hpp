@@ -96,6 +96,9 @@ namespace lfs::training {
         std::expected<void, std::string> save_checkpoint(int iteration);
         std::expected<int, std::string> load_checkpoint(const std::filesystem::path& checkpoint_path);
 
+        // Orderly shutdown - GPU sync, wait for async saves, release resources. Idempotent.
+        void shutdown();
+
     private:
         // Helper for deferred event emission to prevent deadlocks
         struct DeferredEvents {
@@ -214,6 +217,7 @@ namespace lfs::training {
         std::atomic<bool> training_complete_{false};
         std::atomic<bool> ready_to_start_{false};
         std::atomic<bool> initialized_{false};
+        std::atomic<bool> shutdown_complete_{false};
 
         // Current training state
         std::atomic<int> current_iteration_{0};

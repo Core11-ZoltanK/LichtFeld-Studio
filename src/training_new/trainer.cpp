@@ -467,15 +467,39 @@ namespace lfs::training {
     }
 
     Trainer::~Trainer() {
+        shutdown();
+    }
+
+    void Trainer::shutdown() {
+        if (shutdown_complete_.exchange(true)) {
+            return;
+        }
+
+        LOG_DEBUG("Trainer shutdown");
         stop_requested_ = true;
 
-        // Sync and destroy callback stream
+        lfs::core::image_io::BatchImageSaver::instance().wait_all();
+
         if (callback_stream_) {
             cudaStreamSynchronize(callback_stream_);
             cudaStreamDestroy(callback_stream_);
             callback_stream_ = nullptr;
         }
         callback_busy_ = false;
+
+        cudaDeviceSynchronize();
+
+        strategy_.reset();
+        bilateral_grid_.reset();
+        sparsity_optimizer_.reset();
+        evaluator_.reset();
+        progress_.reset();
+        train_dataset_.reset();
+        val_dataset_.reset();
+
+        initialized_ = false;
+        is_running_ = false;
+        training_complete_ = false;
     }
 
     void Trainer::handle_control_requests(int iter, std::stop_token stop_token) {
@@ -1161,12 +1185,14 @@ namespace lfs::training {
             training_complete_ = true;
 
             cache_loader.clear_cpu_cache();
+            lfs::core::image_io::wait_for_pending_saves();
 
             LOG_INFO("Training completed successfully");
             return {};
         } catch (const std::exception& e) {
             is_running_ = false;
             cache_loader.clear_cpu_cache();
+            lfs::core::image_io::wait_for_pending_saves();
 
             return std::unexpected(std::format("Training failed: {}", e.what()));
         }

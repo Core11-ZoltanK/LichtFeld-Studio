@@ -100,7 +100,9 @@ namespace lfs::vis {
             training_thread_.reset();
         }
 
-        // Now safe to clear the trainer
+        if (trainer_) {
+            trainer_->shutdown();
+        }
         trainer_.reset();
         last_error_.clear();
         setState(State::Idle);
