@@ -164,6 +164,9 @@ namespace lfs::vis {
                                [&name](const std::unique_ptr<Node>& node) { return node->name == name; });
         if (it_final == nodes_.end()) return; // Already removed somehow
 
+        // Copy name before erasing since 'name' may be a reference to the node's name member
+        const std::string name_copy = name;
+
         id_to_index_.erase(id);
         const size_t removed_index = static_cast<size_t>(std::distance(nodes_.begin(), it_final));
         nodes_.erase(it_final);
@@ -174,8 +177,8 @@ namespace lfs::vis {
         }
 
         invalidateCache();
-        if (!name.empty()) {
-            LOG_DEBUG("Removed node '{}'{}", name, keep_children ? " (children kept)" : "");
+        if (!name_copy.empty()) {
+            LOG_DEBUG("Removed node '{}'{}", name_copy, keep_children ? " (children kept)" : "");
         }
     }
 
