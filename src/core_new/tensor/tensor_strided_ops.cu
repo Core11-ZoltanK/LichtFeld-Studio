@@ -8,6 +8,114 @@
 namespace lfs::core {
     namespace tensor_ops {
 
+        constexpr int SCATTER_BLOCK_SIZE = 256;
+
+        // Strided scatter: contiguous input → strided output
+        template <typename T>
+        __global__ void strided_scatter_kernel(
+            const T* __restrict__ input,
+            T* __restrict__ output,
+            const size_t* __restrict__ shape,
+            const size_t* __restrict__ strides,
+            const size_t rank,
+            const size_t n) {
+            const size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+            if (idx >= n) return;
+
+            size_t tmp = idx;
+            size_t offset = 0;
+            for (int d = rank - 1; d >= 0; --d) {
+                const size_t coord = tmp % shape[d];
+                tmp /= shape[d];
+                offset += coord * strides[d];
+            }
+            output[offset] = input[idx];
+        }
+
+        // Rank-2 optimized (column slices)
+        template <typename T>
+        __global__ void strided_scatter_kernel_rank2(
+            const T* __restrict__ input,
+            T* __restrict__ output,
+            const size_t d0, const size_t d1,
+            const size_t s0, const size_t s1,
+            const size_t n) {
+            const size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+            if (idx >= n) return;
+
+            const size_t i1 = idx % d1;
+            const size_t i0 = idx / d1;
+            output[i0 * s0 + i1 * s1] = input[idx];
+        }
+
+        // Fused int32→float32 rank-2
+        __global__ void strided_scatter_int32_to_float32_rank2(
+            const int32_t* __restrict__ input,
+            float* __restrict__ output,
+            const size_t d0, const size_t d1,
+            const size_t s0, const size_t s1,
+            const size_t n) {
+            const size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+            if (idx >= n) return;
+
+            const size_t i1 = idx % d1;
+            const size_t i0 = idx / d1;
+            output[i0 * s0 + i1 * s1] = static_cast<float>(input[idx]);
+        }
+
+        void launch_strided_scatter_int32_to_float32(
+            const void* input, void* output,
+            const size_t* shape, const size_t* strides,
+            const size_t rank, const size_t n, cudaStream_t stream) {
+            if (rank != 2) return;
+            const int blocks = (n + SCATTER_BLOCK_SIZE - 1) / SCATTER_BLOCK_SIZE;
+            strided_scatter_int32_to_float32_rank2<<<blocks, SCATTER_BLOCK_SIZE, 0, stream>>>(
+                static_cast<const int32_t*>(input), static_cast<float*>(output),
+                shape[0], shape[1], strides[0], strides[1], n);
+        }
+
+        void launch_strided_scatter(
+            const void* input, void* output,
+            const size_t* shape, const size_t* strides,
+            const size_t rank, const size_t n,
+            const DataType dtype, cudaStream_t stream) {
+            const int blocks = (n + SCATTER_BLOCK_SIZE - 1) / SCATTER_BLOCK_SIZE;
+
+            #define LAUNCH_RANK2(T) \
+                strided_scatter_kernel_rank2<<<blocks, SCATTER_BLOCK_SIZE, 0, stream>>>( \
+                    static_cast<const T*>(input), static_cast<T*>(output), \
+                    shape[0], shape[1], strides[0], strides[1], n)
+
+            #define LAUNCH_GENERIC(T) \
+                strided_scatter_kernel<<<blocks, SCATTER_BLOCK_SIZE, 0, stream>>>( \
+                    static_cast<const T*>(input), static_cast<T*>(output), \
+                    shape, strides, rank, n)
+
+            if (rank == 2) {
+                switch (dtype) {
+                case DataType::Float32: LAUNCH_RANK2(float); break;
+                case DataType::Int32:   LAUNCH_RANK2(int32_t); break;
+                case DataType::Int64:   LAUNCH_RANK2(int64_t); break;
+                case DataType::UInt8:   LAUNCH_RANK2(uint8_t); break;
+                case DataType::Bool:    LAUNCH_RANK2(bool); break;
+                default: break;
+                }
+            } else {
+                switch (dtype) {
+                case DataType::Float32: LAUNCH_GENERIC(float); break;
+                case DataType::Int32:   LAUNCH_GENERIC(int32_t); break;
+                case DataType::Int64:   LAUNCH_GENERIC(int64_t); break;
+                case DataType::UInt8:   LAUNCH_GENERIC(uint8_t); break;
+                case DataType::Bool:    LAUNCH_GENERIC(bool); break;
+                default: break;
+                }
+            }
+
+            #undef LAUNCH_RANK2
+            #undef LAUNCH_GENERIC
+        }
+
+        // ============= STRIDED COPY (read strided) =============
         template <typename T>
         __global__ void strided_copy_kernel(
             const T* __restrict__ input,

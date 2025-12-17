@@ -6,6 +6,7 @@
 #include "command/commands/crop_command.hpp"
 #include "command/commands/selection_command.hpp"
 #include "core/data_loading_service.hpp"
+#include "core/services.hpp"
 #include "core_new/logger.hpp"
 #include "scene/scene_manager.hpp"
 #include "tools/align_tool.hpp"
@@ -33,16 +34,12 @@ namespace lfs::vis {
         // Create trainer manager
         trainer_manager_ = std::make_shared<TrainerManager>();
         trainer_manager_->setViewer(this);
-        scene_manager_->setTrainerManager(trainer_manager_.get());
 
         // Create support components
         gui_manager_ = std::make_unique<gui::GuiManager>(this);
 
         // Create rendering manager with initial antialiasing setting
         rendering_manager_ = std::make_unique<RenderingManager>();
-
-        // Connect scene manager to rendering manager
-        scene_manager_->setRenderingManager(rendering_manager_.get());
 
         // Set initial antialiasing
         RenderSettings initial_settings;
@@ -56,12 +53,23 @@ namespace lfs::vis {
         // Create main loop
         main_loop_ = std::make_unique<MainLoop>();
 
+        // Register services in the service locator
+        services().set(scene_manager_.get());
+        services().set(trainer_manager_.get());
+        services().set(rendering_manager_.get());
+        services().set(window_manager_.get());
+        services().set(&command_history_);
+        services().set(gui_manager_.get());
+
         // Setup connections
         setupEventHandlers();
         setupComponentConnections();
     }
 
     VisualizerImpl::~VisualizerImpl() {
+        // Clear services before destroying components
+        services().clear();
+
         trainer_manager_.reset();
         brush_tool_.reset();
         tool_context_.reset();
@@ -126,9 +134,6 @@ namespace lfs::vis {
         main_loop_->setShutdownCallback([this]() { shutdown(); });
         main_loop_->setShouldCloseCallback([this]() { return allowclose(); });
 
-        // Connect command history to scene manager for undo/redo support
-        scene_manager_->setCommandHistory(&command_history_);
-
         gui_manager_->setFileSelectedCallback([this](const std::filesystem::path& path, bool is_dataset) {
             lfs::core::events::cmd::LoadFile{.path = path, .is_dataset = is_dataset}.emit();
         });
@@ -137,31 +142,10 @@ namespace lfs::vis {
     void VisualizerImpl::setupEventHandlers() {
         using namespace lfs::core::events;
 
-        // Training commands
-        cmd::StartTraining::when([this](const auto&) {
-            if (trainer_manager_) {
-                trainer_manager_->startTraining();
-            }
-        });
+        // NOTE: Training control commands (Start/Pause/Resume/Stop/SaveCheckpoint)
+        // are now handled by TrainerManager::setupEventHandlers()
 
-        cmd::PauseTraining::when([this](const auto&) {
-            if (trainer_manager_) {
-                trainer_manager_->pauseTraining();
-            }
-        });
-
-        cmd::ResumeTraining::when([this](const auto&) {
-            if (trainer_manager_) {
-                trainer_manager_->resumeTraining();
-            }
-        });
-
-        cmd::StopTraining::when([this](const auto&) {
-            if (trainer_manager_) {
-                trainer_manager_->stopTraining();
-            }
-        });
-
+        // Reset training requires data_loader_ which lives here
         cmd::ResetTraining::when([this](const auto&) {
             if (!scene_manager_ || !scene_manager_->hasDataset()) {
                 LOG_WARN("Cannot reset: no dataset loaded");
@@ -185,17 +169,11 @@ namespace lfs::vis {
             }
         });
 
-        cmd::SaveCheckpoint::when([this](const auto&) {
-            if (trainer_manager_) {
-                trainer_manager_->requestSaveCheckpoint();
-            }
-        });
-
-        // Undo/Redo commands
+        // Undo/Redo commands (require command_history_ which lives here)
         cmd::Undo::when([this](const auto&) { undo(); });
         cmd::Redo::when([this](const auto&) { redo(); });
 
-        // Selection operations
+        // Selection operations (require command_history_ and tools)
         cmd::DeleteSelected::when([this](const auto&) { deleteSelectedGaussians(); });
         cmd::InvertSelection::when([this](const auto&) { invertSelection(); });
         cmd::DeselectAll::when([this](const auto&) { deselectAll(); });
@@ -203,49 +181,28 @@ namespace lfs::vis {
         cmd::CopySelection::when([this](const auto&) { copySelection(); });
         cmd::PasteSelection::when([this](const auto&) { pasteSelection(); });
 
-        // Render settings changes
-        ui::RenderSettingsChanged::when([this]([[maybe_unused]] const auto& event) {
-            if (rendering_manager_) {
-                // The rendering manager handles this internally now
-                // Just need to mark dirty which happens in its event handler
-            }
-        });
+        // NOTE: ui::RenderSettingsChanged, ui::CameraMove, state::SceneChanged,
+        // ui::PointCloudModeChanged are handled by RenderingManager::setupEventHandlers()
 
-        // Camera moves - mark dirty
-        ui::CameraMove::when([this](const auto&) {
-            if (rendering_manager_) {
-                rendering_manager_->markDirty();
-            }
-        });
-
-        // Scene changes - mark dirty
+        // Window redraw requests on scene/mode changes
         state::SceneChanged::when([this](const auto&) {
             if (window_manager_) {
                 window_manager_->requestRedraw();
             }
-            if (rendering_manager_) {
-                rendering_manager_->markDirty();
-            }
         });
 
-        // Point cloud mode changes - request redraw
         ui::PointCloudModeChanged::when([this](const auto&) {
             if (window_manager_) {
                 window_manager_->requestRedraw();
             }
         });
 
+        // Trainer ready signal
         internal::TrainerReady::when([this](const auto&) {
             internal::TrainingReadyToStart{}.emit();
         });
 
-        // Training progress - don't mark dirty, let throttling handle it
-        state::TrainingProgress::when([this]([[maybe_unused]] const auto& event) {
-            // Just update loss buffer, don't force render
-            // The 1 FPS throttle will handle rendering
-        });
-
-        // Listen to TrainingStarted - switch to splat rendering and select training model
+        // Training started - switch to splat rendering and select training model
         state::TrainingStarted::when([this](const auto&) {
             ui::PointCloudModeChanged{
                 .enabled = false,
@@ -265,11 +222,12 @@ namespace lfs::vis {
             LOG_INFO("Switched to splat rendering mode (training started)");
         });
 
-        // Listen to TrainingCompleted
+        // Training completed - update content type
         state::TrainingCompleted::when([this](const auto& event) {
             handleTrainingCompleted(event);
         });
 
+        // File loading commands
         cmd::LoadFile::when([this](const auto& cmd) {
             handleLoadFileCommand(cmd);
         });
@@ -321,13 +279,11 @@ namespace lfs::vis {
         }
 
         // Create simplified input controller AFTER ImGui is initialized
+        // NOTE: InputController uses services() for TrainerManager, RenderingManager, GuiManager
         if (!input_controller_) {
             input_controller_ = std::make_unique<InputController>(
                 window_manager_->getWindow(), viewport_);
             input_controller_->initialize();
-            input_controller_->setTrainingManager(trainer_manager_);
-            input_controller_->setRenderingManager(rendering_manager_.get());
-            input_controller_->setGuiManager(gui_manager_.get());
         }
 
         // Initialize rendering with proper viewport dimensions
@@ -551,9 +507,9 @@ namespace lfs::vis {
             // Get new state for redo
             auto new_deleted = node->model->deleted().clone();
 
-            // Create undo command
+            // Create undo command (uses services() internally)
             auto cmd = std::make_unique<command::CropCommand>(
-                scene_manager_.get(), node->name, std::move(old_deleted), std::move(new_deleted));
+                node->name, std::move(old_deleted), std::move(new_deleted));
             command_history_.execute(std::move(cmd));
 
             any_deleted = true;

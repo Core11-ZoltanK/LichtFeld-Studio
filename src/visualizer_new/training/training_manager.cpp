@@ -512,7 +512,28 @@ namespace lfs::vis {
     void TrainerManager::setupEventHandlers() {
         using namespace lfs::core::events;
 
-        // Listen for training progress events - only update loss buffer
+        // Training control commands
+        cmd::StartTraining::when([this](const auto&) {
+            startTraining();
+        });
+
+        cmd::PauseTraining::when([this](const auto&) {
+            pauseTraining();
+        });
+
+        cmd::ResumeTraining::when([this](const auto&) {
+            resumeTraining();
+        });
+
+        cmd::StopTraining::when([this](const auto&) {
+            stopTraining();
+        });
+
+        cmd::SaveCheckpoint::when([this](const auto&) {
+            requestSaveCheckpoint();
+        });
+
+        // Listen for training progress events - update loss buffer
         state::TrainingProgress::when([this](const auto& event) {
             updateLoss(event.loss);
         });

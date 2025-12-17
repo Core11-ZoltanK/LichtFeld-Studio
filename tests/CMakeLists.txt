@@ -132,6 +132,7 @@ set(OPTIONAL_TEST_FILES
     test_rasterizer_crash_dump.cpp  # Reproduce rasterizer crash from crash dump
     test_gsplat_rasterizer.cpp  # GSplat rasterizer tests
     test_spz_format.cpp  # Tests for SPZ (Niantic compressed) format support
+    test_interleaved_slice_copy.cpp  # Tests for interleaved buffer construction via slice + copy_
 )
 
 foreach(TEST_FILE ${OPTIONAL_TEST_FILES})

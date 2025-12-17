@@ -83,26 +83,15 @@ namespace lfs::rendering {
                            .offset = nullptr,
                            .divisor = 0});
 
-        // Setup instance attributes (structure only, data comes later)
-        builder.attachVBO(instance_vbo_) // Attach without data
-            .setAttribute({
-                .index = 1,
-                .size = 3,
-                .type = GL_FLOAT,
-                .normalized = GL_FALSE,
-                .stride = 6 * sizeof(float),
-                .offset = nullptr,
-                .divisor = 1 // Instance attribute
-            })
-            .setAttribute({
-                .index = 2,
-                .size = 3,
-                .type = GL_FLOAT,
-                .normalized = GL_FALSE,
-                .stride = 6 * sizeof(float),
-                .offset = (void*)(3 * sizeof(float)),
-                .divisor = 1 // Instance attribute
-            });
+        // Instance layout: [pos(3f), color(3f), transform_index(1f)] = 28 bytes
+        constexpr GLsizei INSTANCE_STRIDE = 7 * sizeof(float);
+        builder.attachVBO(instance_vbo_)
+            .setAttribute({.index = 1, .size = 3, .type = GL_FLOAT, .normalized = GL_FALSE,
+                           .stride = INSTANCE_STRIDE, .offset = nullptr, .divisor = 1})
+            .setAttribute({.index = 2, .size = 3, .type = GL_FLOAT, .normalized = GL_FALSE,
+                           .stride = INSTANCE_STRIDE, .offset = reinterpret_cast<const void*>(3 * sizeof(float)), .divisor = 1})
+            .setAttribute({.index = 3, .size = 1, .type = GL_FLOAT, .normalized = GL_FALSE,
+                           .stride = INSTANCE_STRIDE, .offset = reinterpret_cast<const void*>(6 * sizeof(float)), .divisor = 1});
 
         // Attach EBO - stays bound to VAO
         std::span<const unsigned int> indices_span(cube_indices_,
@@ -133,7 +122,9 @@ namespace lfs::rendering {
                                             const glm::mat4& view,
                                             const glm::mat4& projection,
                                             float voxel_size,
-                                            const glm::vec3& background_color) {
+                                            const glm::vec3& background_color,
+                                            const std::vector<glm::mat4>& model_transforms,
+                                            const std::shared_ptr<lfs::core::Tensor>& transform_indices) {
         if (splat_data.size() == 0) {
             LOG_TRACE("No splat data to render");
             return {};
@@ -146,14 +137,17 @@ namespace lfs::rendering {
         // Extract RGB colors from SH coefficients
         Tensor colors = extractRGBFromSH(shs);
 
-        return renderInternal(positions, colors, view, projection, voxel_size, background_color);
+        return renderInternal(positions, colors, view, projection, voxel_size, background_color,
+                              model_transforms, transform_indices);
     }
 
     Result<void> PointCloudRenderer::render(const lfs::core::PointCloud& point_cloud,
                                             const glm::mat4& view,
                                             const glm::mat4& projection,
                                             float voxel_size,
-                                            const glm::vec3& background_color) {
+                                            const glm::vec3& background_color,
+                                            const std::vector<glm::mat4>& model_transforms,
+                                            const std::shared_ptr<lfs::core::Tensor>& transform_indices) {
         if (point_cloud.size() == 0) {
             LOG_TRACE("No point cloud data to render");
             return {};
@@ -168,161 +162,107 @@ namespace lfs::rendering {
             colors = colors.to(lfs::core::DataType::Float32) / 255.0f;
         }
 
-        return renderInternal(positions, colors, view, projection, voxel_size, background_color);
+        return renderInternal(positions, colors, view, projection, voxel_size, background_color,
+                              model_transforms, transform_indices);
     }
 
     Result<void> PointCloudRenderer::renderInternal(const Tensor& positions,
                                                     const Tensor& colors,
                                                     const glm::mat4& view,
                                                     const glm::mat4& projection,
-                                                    float voxel_size,
-                                                    const glm::vec3& background_color) {
+                                                    const float voxel_size,
+                                                    const glm::vec3& background_color,
+                                                    const std::vector<glm::mat4>& model_transforms,
+                                                    const std::shared_ptr<lfs::core::Tensor>& transform_indices) {
         if (!initialized_) {
-            LOG_ERROR("Renderer not initialized");
             return std::unexpected("Renderer not initialized");
         }
 
         LOG_TIMER_TRACE("PointCloudRenderer::renderInternal");
-
-        // Use comprehensive state guard to isolate our state changes
         GLStateGuard state_guard;
 
+        constexpr size_t MAX_POINT_COUNT = 10'000'000;
         const size_t num_points = positions.size(0);
-        const size_t buffer_size = num_points * 6 * sizeof(float); // 6 floats per point (pos + color)
         current_point_count_ = num_points;
 
+        if (num_points > MAX_POINT_COUNT) {
+            return std::unexpected("Point count exceeds limit");
+        }
+
+        // Build interleaved GPU buffer: [pos(3f), color(3f), transform_index(1f)]
+        if (interleaved_cache_.size(0) != static_cast<int64_t>(num_points)) {
+            interleaved_cache_ = Tensor::empty({num_points, 7}, lfs::core::Device::CUDA, lfs::core::DataType::Float32);
+        }
+        interleaved_cache_.slice(1, 0, 3).copy_(positions);
+        interleaved_cache_.slice(1, 3, 6).copy_(colors);
+        if (transform_indices && transform_indices->numel() > 0) {
+            interleaved_cache_.slice(1, 6, 7).copy_(transform_indices->unsqueeze(1));
+        } else {
+            interleaved_cache_.slice(1, 6, 7).fill_(0.0f);
+        }
+        const size_t buffer_size = interleaved_cache_.bytes();
+
 #ifdef CUDA_GL_INTEROP_ENABLED
-        // Try CUDA-GL interop path first
         if (use_interop_) {
-            LOG_TIMER_TRACE("CUDA-GL interop upload");
-
-            // Ensure VBO has correct size
             BufferBinder<GL_ARRAY_BUFFER> bind(instance_vbo_);
-            glBufferData(GL_ARRAY_BUFFER, buffer_size, nullptr, GL_DYNAMIC_DRAW);
-
-            // Initialize interop buffer if needed
-            if (!interop_buffer_) {
-                LOG_DEBUG("Initializing CUDA-GL interop buffer");
+            if (interop_buffer_size_ != buffer_size) {
+                interop_buffer_.reset();
+                glBufferData(GL_ARRAY_BUFFER, buffer_size, nullptr, GL_DYNAMIC_DRAW);
                 interop_buffer_.emplace();
-                if (auto result = interop_buffer_->init(instance_vbo_.get(), buffer_size); !result) {
-                    LOG_WARN("Failed to initialize CUDA-GL interop: {}", result.error());
-                    LOG_INFO("Falling back to CPU copy mode");
+                if (auto result = interop_buffer_->init(instance_vbo_.get(), buffer_size); result) {
+                    interop_buffer_size_ = buffer_size;
+                } else {
                     use_interop_ = false;
                     interop_buffer_.reset();
+                    interop_buffer_size_ = 0;
                 }
             }
-
             if (use_interop_ && interop_buffer_) {
-                // Map buffer to get CUDA pointer
-                auto map_result = interop_buffer_->mapBuffer();
-                if (map_result) {
-                    float* vbo_ptr = static_cast<float*>(*map_result);
-
-                    // Launch CUDA kernel to write interleaved data directly to VBO
-                    lfs::launchWriteInterleavedPosColor(
-                        positions.ptr<float>(),
-                        colors.ptr<float>(),
-                        vbo_ptr,
-                        num_points,
-                        0); // default stream
-
-                    // Synchronize to ensure write is complete
-                    cudaDeviceSynchronize();
-
-                    // Unmap buffer
-                    if (auto unmap_result = interop_buffer_->unmapBuffer(); !unmap_result) {
-                        LOG_ERROR("Failed to unmap buffer: {}", unmap_result.error());
-                    }
-
-                    LOG_TRACE("Successfully uploaded {} points via CUDA-GL interop", num_points);
+                if (auto map_result = interop_buffer_->mapBuffer(); map_result) {
+                    cudaMemcpy(*map_result, interleaved_cache_.data_ptr(), buffer_size, cudaMemcpyDeviceToDevice);
+                    interop_buffer_->unmapBuffer();
                 } else {
-                    LOG_WARN("Failed to map interop buffer: {}", map_result.error());
-                    LOG_INFO("Falling back to CPU copy mode");
                     use_interop_ = false;
                     interop_buffer_.reset();
+                    interop_buffer_size_ = 0;
                 }
             }
         }
-
-        // Fallback to CPU path if interop failed or is disabled
         if (!use_interop_)
 #endif
         {
-            // Original CPU path
-            LOG_TIMER_TRACE("CPU fallback upload");
-
-            // Interleave on GPU using tensor concatenation (20x faster than CPU loop)
-            Tensor interleaved;
-            {
-                LOG_TIMER_TRACE("tensor cat");
-                interleaved = Tensor::cat({positions, colors}, -1).contiguous();
-            }
-
-            Tensor cpu_data;
-            {
-                LOG_TIMER_TRACE("cuda to cpu");
-                cpu_data = interleaved.cpu();
-            }
-
-            // Upload to OpenGL
+            const Tensor cpu_data = interleaved_cache_.cpu();
             BufferBinder<GL_ARRAY_BUFFER> bind(instance_vbo_);
-            {
-                LOG_TIMER_TRACE("glBufferData");
-                glBufferData(GL_ARRAY_BUFFER, cpu_data.bytes(), cpu_data.data_ptr(), GL_DYNAMIC_DRAW);
-            }
+            glBufferData(GL_ARRAY_BUFFER, buffer_size, cpu_data.data_ptr(), GL_DYNAMIC_DRAW);
         }
 
-        // Validate instance count
-        if (current_point_count_ > 10000000) { // 10 million sanity check
-            LOG_ERROR("Instance count exceeds reasonable limit: {}", current_point_count_);
-            return std::unexpected("Instance count exceeds reasonable limit");
-        }
-
-        LOG_TRACE("Rendering {} points", current_point_count_);
-
-        // Setup rendering state for point cloud
         glEnable(GL_DEPTH_TEST);
         glDepthFunc(GL_LESS);
         glDepthMask(GL_TRUE);
         glClearColor(background_color.r, background_color.g, background_color.b, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // Bind shader and set uniforms
         ShaderScope s(shader_);
-        if (auto result = s->set("u_view", view); !result) {
-            return result;
-        }
-        if (auto result = s->set("u_projection", projection); !result) {
-            return result;
-        }
-        if (auto result = s->set("u_voxel_size", voxel_size); !result) {
-            return result;
+        if (auto result = s->set("u_view", view); !result) return result;
+        if (auto result = s->set("u_projection", projection); !result) return result;
+        if (auto result = s->set("u_voxel_size", voxel_size); !result) return result;
+
+        constexpr int MAX_TRANSFORMS = 64;
+        const int num_transforms = static_cast<int>(std::min(model_transforms.size(), size_t(MAX_TRANSFORMS)));
+        if (auto result = s->set("u_num_transforms", num_transforms); !result) return result;
+        for (int i = 0; i < num_transforms; ++i) {
+            s->set(std::format("u_model_transforms[{}]", i), model_transforms[i]);
         }
 
-        // Validate VAO
-        if (!cube_vao_ || cube_vao_.get() == 0) {
-            LOG_ERROR("Invalid cube VAO");
-            return std::unexpected("Invalid cube VAO");
-        }
-
-        // Render instanced cubes
-        if (current_point_count_ == 0) {
-            LOG_TRACE("No points to render");
-            return {};
-        }
+        if (!cube_vao_ || cube_vao_.get() == 0) return std::unexpected("Invalid cube VAO");
+        if (current_point_count_ == 0) return {};
 
         VAOBinder vao_bind(cube_vao_);
-        glDrawElementsInstanced(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0,
-                                static_cast<GLsizei>(current_point_count_));
+        glDrawElementsInstanced(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0, static_cast<GLsizei>(current_point_count_));
 
-        // Check for OpenGL errors
-        GLenum gl_error = glGetError();
-        if (gl_error != GL_NO_ERROR) {
-            LOG_ERROR("OpenGL error after draw call: 0x{:x}", gl_error);
-            return std::unexpected(std::format("OpenGL error after draw call: 0x{:x}", gl_error));
+        if (const GLenum err = glGetError(); err != GL_NO_ERROR) {
+            return std::unexpected(std::format("OpenGL error: 0x{:x}", err));
         }
-
-        // State automatically restored by GLStateGuard destructor
         return {};
     }
 

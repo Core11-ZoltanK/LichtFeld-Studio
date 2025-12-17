@@ -1315,29 +1315,78 @@ namespace lfs::core {
             LOG_ERROR("Invalid tensors for copy_from");
             return *this;
         }
-
         if (shape_ != other.shape_) {
             LOG_ERROR("Shape mismatch in copy_from: {} vs {}", shape_.str(), other.shape_.str());
             return *this;
         }
 
+        // Type conversion path
         if (dtype_ != other.dtype_) {
-            LOG_ERROR("Dtype mismatch in copy_from");
+            // Fused int32→float32 strided scatter
+            if (!is_contiguous() && other.is_contiguous() &&
+                device_ == Device::CUDA && other.device_ == Device::CUDA &&
+                dtype_ == DataType::Float32 && other.dtype_ == DataType::Int32 && ndim() == 2) {
+                const size_t shape_arr[2] = {static_cast<size_t>(size(0)), static_cast<size_t>(size(1))};
+                const size_t strides_arr[2] = {strides_[0], strides_[1]};
+                tensor_ops::launch_strided_scatter_int32_to_float32(
+                    other.data_ptr(), data_ptr(), shape_arr, strides_arr, 2, numel(), nullptr);
+                return *this;
+            }
+            // Convert then copy
+            const Tensor src = other.is_contiguous() ? other : other.contiguous();
+            return copy_from(src.to(dtype_));
+        }
+
+        if (numel() == 0) return *this;
+
+        const bool dst_contig = is_contiguous();
+        const bool src_contig = other.is_contiguous();
+
+        // Both contiguous: direct memcpy
+        if (dst_contig && src_contig) {
+            if (device_ == Device::CUDA && other.device_ == Device::CUDA) {
+                CHECK_CUDA(cudaMemcpy(data_ptr(), other.data_ptr(), bytes(), cudaMemcpyDeviceToDevice));
+            } else if (device_ == Device::CUDA && other.device_ == Device::CPU) {
+                CHECK_CUDA(cudaMemcpy(data_ptr(), other.data_ptr(), bytes(), cudaMemcpyHostToDevice));
+            } else if (device_ == Device::CPU && other.device_ == Device::CUDA) {
+                CHECK_CUDA(cudaMemcpy(data_ptr(), other.data_ptr(), bytes(), cudaMemcpyDeviceToHost));
+            } else {
+                std::memcpy(data_ptr(), other.data_ptr(), bytes());
+            }
             return *this;
         }
 
-        if (numel() == 0) {
+        // Strided destination, contiguous source (CUDA)
+        if (!dst_contig && src_contig && device_ == Device::CUDA && other.device_ == Device::CUDA) {
+            const size_t rank = ndim();
+            if (rank == 2) {
+                const size_t shape_arr[2] = {static_cast<size_t>(size(0)), static_cast<size_t>(size(1))};
+                const size_t strides_arr[2] = {strides_[0], strides_[1]};
+                tensor_ops::launch_strided_scatter(
+                    other.data_ptr(), data_ptr(), shape_arr, strides_arr, rank, numel(), dtype_, nullptr);
+            } else {
+                std::vector<size_t> shape_vec(rank);
+                for (size_t i = 0; i < rank; ++i) shape_vec[i] = static_cast<size_t>(size(i));
+
+                size_t* d_shape = nullptr;
+                size_t* d_strides = nullptr;
+                CHECK_CUDA(cudaMalloc(&d_shape, rank * sizeof(size_t)));
+                CHECK_CUDA(cudaMalloc(&d_strides, rank * sizeof(size_t)));
+                CHECK_CUDA(cudaMemcpy(d_shape, shape_vec.data(), rank * sizeof(size_t), cudaMemcpyHostToDevice));
+                CHECK_CUDA(cudaMemcpy(d_strides, strides_.data(), rank * sizeof(size_t), cudaMemcpyHostToDevice));
+
+                tensor_ops::launch_strided_scatter(
+                    other.data_ptr(), data_ptr(), d_shape, d_strides, rank, numel(), dtype_, nullptr);
+
+                CHECK_CUDA(cudaFree(d_shape));
+                CHECK_CUDA(cudaFree(d_strides));
+            }
             return *this;
         }
 
-        if (device_ == Device::CUDA && other.device_ == Device::CUDA) {
-            CHECK_CUDA(cudaMemcpy(data_ptr(), other.data_ptr(), bytes(), cudaMemcpyDeviceToDevice));
-        } else if (device_ == Device::CUDA && other.device_ == Device::CPU) {
-            CHECK_CUDA(cudaMemcpy(data_ptr(), other.data_ptr(), bytes(), cudaMemcpyHostToDevice));
-        } else if (device_ == Device::CPU && other.device_ == Device::CUDA) {
-            CHECK_CUDA(cudaMemcpy(data_ptr(), other.data_ptr(), bytes(), cudaMemcpyDeviceToHost));
-        } else {
-            std::memcpy(data_ptr(), other.data_ptr(), bytes());
+        // Fallback: materialize non-contiguous source
+        if (!src_contig) {
+            return copy_from(other.contiguous());
         }
 
         return *this;
