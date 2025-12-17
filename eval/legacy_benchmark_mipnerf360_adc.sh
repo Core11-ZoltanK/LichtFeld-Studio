@@ -1,7 +1,7 @@
 #!/bin/bash
 
 SCENE_DIR="data"
-RESULT_DIR="results/benchmark"
+RESULT_DIR="results/benchmark_legacy"
 SCENE_LIST="garden bicycle stump bonsai counter kitchen room" # treehill flowers
 
 # Check if results directory exists and prompt for deletion
