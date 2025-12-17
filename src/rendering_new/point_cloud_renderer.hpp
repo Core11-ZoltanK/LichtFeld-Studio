@@ -11,7 +11,9 @@
 #include "gl_resources.hpp"
 #include "shader_manager.hpp"
 #include <glm/glm.hpp>
+#include <memory>
 #include <span>
+#include <vector>
 
 #ifdef CUDA_GL_INTEROP_ENABLED
 #include "cuda_gl_interop.hpp"
@@ -32,14 +34,18 @@ namespace lfs::rendering {
                             const glm::mat4& view,
                             const glm::mat4& projection,
                             float voxel_size,
-                            const glm::vec3& background_color);
+                            const glm::vec3& background_color,
+                            const std::vector<glm::mat4>& model_transforms = {},
+                            const std::shared_ptr<lfs::core::Tensor>& transform_indices = nullptr);
 
         // Render raw point cloud (uses colors directly)
         Result<void> render(const lfs::core::PointCloud& point_cloud,
                             const glm::mat4& view,
                             const glm::mat4& projection,
                             float voxel_size,
-                            const glm::vec3& background_color);
+                            const glm::vec3& background_color,
+                            const std::vector<glm::mat4>& model_transforms = {},
+                            const std::shared_ptr<lfs::core::Tensor>& transform_indices = nullptr);
 
         // Check if initialized
         bool isInitialized() const { return initialized_; }
@@ -54,7 +60,9 @@ namespace lfs::rendering {
                                     const glm::mat4& view,
                                     const glm::mat4& projection,
                                     float voxel_size,
-                                    const glm::vec3& background_color);
+                                    const glm::vec3& background_color,
+                                    const std::vector<glm::mat4>& model_transforms,
+                                    const std::shared_ptr<lfs::core::Tensor>& transform_indices);
 
         // OpenGL resources using RAII
         VAO cube_vao_;
@@ -76,10 +84,13 @@ namespace lfs::rendering {
         bool initialized_ = false;
         size_t current_point_count_ = 0;
 
+        // Cached buffer to avoid per-frame allocation
+        Tensor interleaved_cache_;
+
 #ifdef CUDA_GL_INTEROP_ENABLED
-        // CUDA-GL interop disabled - causes maybe race conditions with training thread
         std::optional<CudaGLInteropBuffer> interop_buffer_;
-        bool use_interop_ = false;
+        size_t interop_buffer_size_ = 0;
+        bool use_interop_ = true;
 #endif
 
         // Cube vertices

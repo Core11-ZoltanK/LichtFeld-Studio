@@ -389,6 +389,28 @@ namespace lfs::core::tensor_ops {
         DataType dtype,
         cudaStream_t stream = nullptr);
 
+    // Strided scatter: reads contiguous, writes to strided destination
+    // Used by copy_() when destination is a non-contiguous view (e.g., column slice)
+    void launch_strided_scatter(
+        const void* input,       // Contiguous source
+        void* output,            // Strided destination
+        const size_t* d_shape,   // Shape of the tensor
+        const size_t* d_strides, // Destination strides
+        size_t rank,
+        size_t total_elements,
+        DataType dtype,
+        cudaStream_t stream = nullptr);
+
+    // Fused int32→float32 strided scatter (avoids intermediate allocation)
+    void launch_strided_scatter_int32_to_float32(
+        const void* input,       // Contiguous int32 source
+        void* output,            // Strided float32 destination
+        const size_t* d_shape,
+        const size_t* d_strides,
+        size_t rank,
+        size_t total_elements,
+        cudaStream_t stream = nullptr);
+
     // ============= Strided Fill Operations =============
     // Fill non-contiguous tensors with a constant value (respects strides)
     template <typename T>
