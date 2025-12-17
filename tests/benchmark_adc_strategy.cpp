@@ -1,10 +1,10 @@
 /* SPDX-FileCopyrightText: 2025 LichtFeld Studio Authors
  * SPDX-License-Identifier: GPL-3.0-or-later */
 
-// Performance benchmarks for DefaultStrategy
+// Performance benchmarks for AdcStrategy
 // Measures timing of critical operations to ensure performance matches or exceeds reference
 
-#include "training_new/strategies/default_strategy.hpp"
+#include "training_new/strategies/adc_strategy.hpp"
 #include "core_new/logger.hpp"
 #include "core_new/parameters.hpp"
 #include "core_new/point_cloud.hpp"
@@ -78,12 +78,12 @@ double time_operation(Func&& func, int warmup_runs = 3, int timed_runs = 10) {
 }
 
 // Benchmark initialization
-TEST(DefaultStrategyBenchmark, Initialization) {
+TEST(AdcStrategyBenchmark, Initialization) {
     const int n_gaussians = 100000;
 
     double avg_time = time_operation([n_gaussians]() {
         auto splat_data = create_benchmark_splat_data(n_gaussians);
-        DefaultStrategy strategy(splat_data);
+        AdcStrategy strategy(splat_data);
 
         param::OptimizationParameters opt_params;
         opt_params.iterations = 30000;
@@ -98,12 +98,12 @@ TEST(DefaultStrategyBenchmark, Initialization) {
 }
 
 // Benchmark remove operation
-TEST(DefaultStrategyBenchmark, RemoveGaussians) {
+TEST(AdcStrategyBenchmark, RemoveGaussians) {
     const int n_gaussians = 100000;
     const int n_to_remove = 10000;
 
     auto splat_data = create_benchmark_splat_data(n_gaussians);
-    DefaultStrategy strategy(splat_data);
+    AdcStrategy strategy(splat_data);
 
     param::OptimizationParameters opt_params;
     opt_params.iterations = 30000;
@@ -134,11 +134,11 @@ TEST(DefaultStrategyBenchmark, RemoveGaussians) {
 }
 
 // Benchmark training step
-TEST(DefaultStrategyBenchmark, TrainingStep) {
+TEST(AdcStrategyBenchmark, TrainingStep) {
     const int n_gaussians = 100000;
 
     auto splat_data = create_benchmark_splat_data(n_gaussians);
-    DefaultStrategy strategy(splat_data);
+    AdcStrategy strategy(splat_data);
 
     param::OptimizationParameters opt_params;
     opt_params.iterations = 30000;
@@ -168,12 +168,12 @@ TEST(DefaultStrategyBenchmark, TrainingStep) {
 }
 
 // Benchmark full training loop
-TEST(DefaultStrategyBenchmark, FullTrainingLoop_100Iterations) {
+TEST(AdcStrategyBenchmark, FullTrainingLoop_100Iterations) {
     const int n_gaussians = 50000;
     const int n_iterations = 100;
 
     auto splat_data = create_benchmark_splat_data(n_gaussians);
-    DefaultStrategy strategy(splat_data);
+    AdcStrategy strategy(splat_data);
 
     param::OptimizationParameters opt_params;
     opt_params.iterations = n_iterations;
@@ -225,7 +225,7 @@ TEST(DefaultStrategyBenchmark, FullTrainingLoop_100Iterations) {
 }
 
 // Benchmark scaling with different Gaussian counts
-TEST(DefaultStrategyBenchmark, ScalingTest) {
+TEST(AdcStrategyBenchmark, ScalingTest) {
     std::vector<int> gaussian_counts = {10000, 50000, 100000, 200000};
 
     std::cout << "\nScaling benchmark:" << std::endl;
@@ -235,7 +235,7 @@ TEST(DefaultStrategyBenchmark, ScalingTest) {
         // Initialization time
         double init_time = time_operation([n_gaussians]() {
             auto splat_data = create_benchmark_splat_data(n_gaussians);
-            DefaultStrategy strategy(splat_data);
+            AdcStrategy strategy(splat_data);
 
             param::OptimizationParameters opt_params;
             opt_params.iterations = 30000;
@@ -244,7 +244,7 @@ TEST(DefaultStrategyBenchmark, ScalingTest) {
 
         // Single step time
         auto splat_data = create_benchmark_splat_data(n_gaussians);
-        DefaultStrategy strategy(splat_data);
+        AdcStrategy strategy(splat_data);
 
         param::OptimizationParameters opt_params;
         opt_params.iterations = 30000;
@@ -274,11 +274,11 @@ TEST(DefaultStrategyBenchmark, ScalingTest) {
 }
 
 // Benchmark memory efficiency
-TEST(DefaultStrategyBenchmark, MemoryEfficiency) {
+TEST(AdcStrategyBenchmark, MemoryEfficiency) {
     const int n_gaussians = 100000;
 
     auto splat_data = create_benchmark_splat_data(n_gaussians);
-    DefaultStrategy strategy(splat_data);
+    AdcStrategy strategy(splat_data);
 
     param::OptimizationParameters opt_params;
     opt_params.iterations = 30000;

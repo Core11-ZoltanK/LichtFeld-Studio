@@ -2,7 +2,7 @@
 #include "core_new/tensor.hpp"
 #include "core_new/splat_data.hpp"
 #include "core_new/parameters.hpp"
-#include "training_new/strategies/default_strategy.hpp"
+#include "training_new/strategies/adc_strategy.hpp"
 #include "optimizer/render_output.hpp"
 #include <gtest/gtest.h>
 #include <iostream>
@@ -43,9 +43,9 @@ TEST(BinarySearchBug, Step1_CreateSplatData) {
     }
 }
 
-// Test 2: Create SplatData + DefaultStrategy (no initialize)
+// Test 2: Create SplatData + AdcStrategy (no initialize)
 TEST(BinarySearchBug, Step2_CreateStrategy) {
-    std::cout << "\n=== STEP 2: Create DefaultStrategy ===" << std::endl;
+    std::cout << "\n=== STEP 2: Create AdcStrategy ===" << std::endl;
 
     cudaSetDevice(0);
 
@@ -65,8 +65,8 @@ TEST(BinarySearchBug, Step2_CreateStrategy) {
 
         std::cout << "[TEST] SplatData created" << std::endl;
 
-        lfs::training::DefaultStrategy strat(splat);
-        std::cout << "[TEST] DefaultStrategy created" << std::endl;
+        lfs::training::AdcStrategy strat(splat);
+        std::cout << "[TEST] AdcStrategy created" << std::endl;
 
         // Now try tensor operation
         auto w = Tensor::zeros({1000}, Device::CUDA);
@@ -100,7 +100,7 @@ TEST(BinarySearchBug, Step3_InitializeStrategy) {
             Tensor::randn({n, 1}, Device::CUDA),
             1.0f);
 
-        lfs::training::DefaultStrategy strat(splat);
+        lfs::training::AdcStrategy strat(splat);
 
         lfs::core::param::OptimizationParameters params;
         params.iterations = 30000;
@@ -154,7 +154,7 @@ TEST(BinarySearchBug, Step4_CallPostBackward) {
         auto numer = Tensor::ones({static_cast<size_t>(n)}, Device::CUDA) * 10.0f;
         splat._densification_info[1] = numer;
 
-        lfs::training::DefaultStrategy strat(splat);
+        lfs::training::AdcStrategy strat(splat);
 
         lfs::core::param::OptimizationParameters params;
         params.iterations = 30000;

@@ -53,7 +53,7 @@ namespace gs {
             bool enable_save_eval_images = true;              // Save during evaluation images
             bool headless = false;                            // Disable visualization during training
             std::string render_mode = "RGB";                  // Render mode: RGB, D, ED, RGB_D, RGB_ED
-            std::string strategy = "mcmc";                    // Optimization strategy: mcmc, default.
+            std::string strategy = "mcmc";                    // Optimization strategy: mcmc, adc
             MaskMode mask_mode = MaskMode::None;              // Mask mode: none, segment, ignore, alpha_consistent
             bool invert_masks = false;                        // If true, inverts mask values (0.0 <-> 1.0) during loading
             float mask_opacity_penalty_weight = 1.0f;         // Opacity penalty weight for segment mask mode

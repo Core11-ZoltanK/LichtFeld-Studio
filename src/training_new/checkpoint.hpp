@@ -21,7 +21,7 @@
  * ├─────────────────────────────────────────────────────────────────┤
  * │ Strategy Type (variable)                                       │
  * │   - type_len: uint32                                           │
- * │   - type_str: char[type_len] ("mcmc" or "default")            │
+ * │   - type_str: char[type_len] ("mcmc" or "adc")                │
  * ├─────────────────────────────────────────────────────────────────┤
  * │ SplatData (via serialize)                                      │
  * │   - means, sh0, scaling, rotation, opacity tensors             │

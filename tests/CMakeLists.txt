@@ -94,11 +94,11 @@ set(OPTIONAL_TEST_FILES
     test_bilateral_grid.cpp
     test_sparsity_optimizer.cpp
     test_sparsity_debug.cpp
-    test_default_strategy.cpp
-    test_default_strategy_comparison.cpp
-    benchmark_default_strategy.cpp
-    test_default_strategy_operations_comparison.cpp
-    test_default_strategy_real_conditions.cpp
+    test_adc_strategy.cpp
+    test_adc_strategy_comparison.cpp
+    benchmark_adc_strategy.cpp
+    test_adc_strategy_operations_comparison.cpp
+    test_adc_strategy_real_conditions.cpp
     test_dtype_operations_comprehensive.cpp
     test_tensor_bugs.cpp
     test_densification_performance.cpp
@@ -133,7 +133,7 @@ set(OPTIONAL_TEST_FILES
     test_gsplat_rasterizer.cpp  # GSplat rasterizer tests
     test_spz_format.cpp  # Tests for SPZ (Niantic compressed) format support
     test_interleaved_slice_copy.cpp  # Tests for interleaved buffer construction via slice + copy_
-    test_default_strategy_tensor_ops.cpp  # Exhaustive tensor ops tests for default_strategy.cpp vs libtorch
+    test_adc_strategy_tensor_ops.cpp  # Exhaustive tensor ops tests for default_strategy.cpp vs libtorch
 )
 
 foreach(TEST_FILE ${OPTIONAL_TEST_FILES})

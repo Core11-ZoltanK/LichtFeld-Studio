@@ -43,7 +43,7 @@ namespace lfs::training {
          * - Training model via getTrainingModel() (SplatData)
          * - Train/val cameras via getTrainCameras()/getValCameras()
          *
-         * Strategy type ("mcmc" or "default") is determined by params during initialize()
+         * Strategy type ("mcmc" or "adc") is determined by params during initialize()
          */
         Trainer(lfs::vis::Scene& scene);
 

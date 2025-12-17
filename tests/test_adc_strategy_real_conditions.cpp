@@ -7,7 +7,7 @@
 #include <vector>
 
 // LFS (LibTorch-free) implementation
-#include "strategies/default_strategy.hpp"
+#include "strategies/adc_strategy.hpp"
 #include "core_new/splat_data.hpp"
 #include "core_new/tensor.hpp"
 #include "core_new/parameters.hpp"
@@ -97,7 +97,7 @@ float mean_diff(const lfs::core::Tensor& lfs_tensor, const torch::Tensor& torch_
 }
 
 // Helper to initialize optimizer state by running a few steps
-void warm_up_optimizers(lfs::training::DefaultStrategy& lfs_default, gs::training::DefaultStrategy& gs_default, int num_steps = 5) {
+void warm_up_optimizers(lfs::training::AdcStrategy& lfs_default, gs::training::DefaultStrategy& gs_default, int num_steps = 5) {
     for (int i = 0; i < num_steps; i++) {
         // Set fake gradients (same for both)
         auto& lfs_optimizer = lfs_default.get_optimizer();
@@ -211,11 +211,11 @@ gs::SplatData create_gs_splat_data(const lfs::core::SplatData& lfs_splat) {
 // Test Suite: Default Strategy Correctness
 // ===================================================================================
 
-TEST(DefaultStrategyTest, Initialization) {
+TEST(AdcStrategyTest, Initialization) {
     // Test that default strategy initializes correctly
     auto lfs_splat = create_lfs_splat_data(100, 3);
 
-    lfs::training::DefaultStrategy lfs_default(lfs_splat);
+    lfs::training::AdcStrategy lfs_default(lfs_splat);
 
     auto params = create_test_params();
     lfs_default.initialize(params);
@@ -226,10 +226,10 @@ TEST(DefaultStrategyTest, Initialization) {
     EXPECT_EQ(lfs_default.get_model().get_active_sh_degree(), 0);
 }
 
-TEST(DefaultStrategyTest, IsRefining) {
+TEST(AdcStrategyTest, IsRefining) {
     auto lfs_splat = create_lfs_splat_data(100, 3);
 
-    lfs::training::DefaultStrategy lfs_default(lfs_splat);
+    lfs::training::AdcStrategy lfs_default(lfs_splat);
 
     auto params = create_test_params();
     params.start_refine = 500;
@@ -253,14 +253,14 @@ TEST(DefaultStrategyTest, IsRefining) {
     EXPECT_FALSE(lfs_default.is_refining(20000));
 }
 
-TEST(DefaultStrategyTest, DuplicateGaussians_WithOptimizerState) {
+TEST(AdcStrategyTest, DuplicateGaussians_WithOptimizerState) {
     // Test duplicate operation with warm optimizer state
     std::cout << "Creating splat data..." << std::endl;
     auto lfs_splat = create_lfs_splat_data(500, 3);
 
     auto gs_splat = create_gs_splat_data(lfs_splat);
 
-    lfs::training::DefaultStrategy lfs_default(lfs_splat);
+    lfs::training::AdcStrategy lfs_default(lfs_splat);
     gs::training::DefaultStrategy gs_default(std::move(gs_splat));
 
     auto lfs_params = create_test_params();
@@ -316,14 +316,14 @@ TEST(DefaultStrategyTest, DuplicateGaussians_WithOptimizerState) {
     std::cout << "Duplicate test passed - model grew from 500 to " << lfs_model.size() << " Gaussians" << std::endl;
 }
 
-TEST(DefaultStrategyTest, SplitGaussians_WithOptimizerState) {
+TEST(AdcStrategyTest, SplitGaussians_WithOptimizerState) {
     // Test split operation with warm optimizer state
     std::cout << "Creating splat data..." << std::endl;
     auto lfs_splat = create_lfs_splat_data(500, 3);
 
     auto gs_splat = create_gs_splat_data(lfs_splat);
 
-    lfs::training::DefaultStrategy lfs_default(lfs_splat);
+    lfs::training::AdcStrategy lfs_default(lfs_splat);
     gs::training::DefaultStrategy gs_default(std::move(gs_splat));
 
     auto lfs_params = create_test_params();
@@ -380,12 +380,12 @@ TEST(DefaultStrategyTest, SplitGaussians_WithOptimizerState) {
     std::cout << "Split test passed - model grew from 500 to " << lfs_model.size() << " Gaussians" << std::endl;
 }
 
-TEST(DefaultStrategyStressTest, FullTrainingLoop_100Iterations) {
+TEST(AdcStrategyStressTest, FullTrainingLoop_100Iterations) {
     // Simulate 100 iterations of training with densification
     std::cout << "Creating splat data for stress test..." << std::endl;
     auto lfs_splat = create_lfs_splat_data(200, 3);
 
-    lfs::training::DefaultStrategy lfs_default(lfs_splat);
+    lfs::training::AdcStrategy lfs_default(lfs_splat);
 
     auto params = create_test_params();
     params.start_refine = 50;

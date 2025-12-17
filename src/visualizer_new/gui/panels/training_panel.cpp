@@ -178,12 +178,12 @@ namespace lfs::vis::gui::panels {
     // Caches parameters for both strategies to preserve settings when switching
     struct StrategyParamsCache {
         static constexpr const char* MCMC_CONFIG = "mcmc_optimization_params.json";
-        static constexpr const char* DEFAULT_CONFIG = "default_optimization_params.json";
+        static constexpr const char* ADC_CONFIG = "adc_optimization_params.json";
 
         lfs::core::param::OptimizationParameters mcmc_params;
-        lfs::core::param::OptimizationParameters default_params;
+        lfs::core::param::OptimizationParameters adc_params;
         BaseStepValues mcmc_base_steps;
-        BaseStepValues default_base_steps;
+        BaseStepValues adc_base_steps;
         bool initialized = false;
         std::string last_data_path;
 
@@ -193,10 +193,10 @@ namespace lfs::vis::gui::panels {
             if (is_mcmc) {
                 mcmc_params = current_params;
                 mcmc_base_steps.extractFrom(current_params);
-                loadAlternateStrategy(default_params, default_base_steps, DEFAULT_CONFIG, "default");
+                loadAlternateStrategy(adc_params, adc_base_steps, ADC_CONFIG, "adc");
             } else {
-                default_params = current_params;
-                default_base_steps.extractFrom(current_params);
+                adc_params = current_params;
+                adc_base_steps.extractFrom(current_params);
                 loadAlternateStrategy(mcmc_params, mcmc_base_steps, MCMC_CONFIG, "mcmc");
             }
             initialized = true;
@@ -206,16 +206,16 @@ namespace lfs::vis::gui::panels {
             if (params.strategy == "mcmc") {
                 mcmc_params = params;
             } else {
-                default_params = params;
+                adc_params = params;
             }
         }
 
         lfs::core::param::OptimizationParameters& getParamsForStrategy(const std::string& strategy) {
-            return (strategy == "mcmc") ? mcmc_params : default_params;
+            return (strategy == "mcmc") ? mcmc_params : adc_params;
         }
 
         BaseStepValues& getBaseStepsForStrategy(const std::string& strategy) {
-            return (strategy == "mcmc") ? mcmc_base_steps : default_base_steps;
+            return (strategy == "mcmc") ? mcmc_base_steps : adc_base_steps;
         }
 
         void applyStepScaling(lfs::core::param::OptimizationParameters& params, const float new_scaler) {
@@ -304,10 +304,10 @@ namespace lfs::vis::gui::panels {
             ImGui::TableNextColumn();
             if (can_edit) {
                 ImGui::PushItemWidth(-1);
-                static const char* strategy_labels[] = {"MCMC", "Default"};
+                static const char* strategy_labels[] = {"MCMC", "ADC"};
                 int current_strategy = (opt_params.strategy == "mcmc") ? 0 : 1;
                 if (ImGui::Combo("##strategy", &current_strategy, strategy_labels, 2)) {
-                    std::string new_strategy = (current_strategy == 0) ? "mcmc" : "default";
+                    std::string new_strategy = (current_strategy == 0) ? "mcmc" : "adc";
                     if (new_strategy != opt_params.strategy) {
                         // Store current parameters before switching
                         strategy_cache.storeCurrentParams(opt_params);
@@ -352,7 +352,7 @@ namespace lfs::vis::gui::panels {
                 }
                 ImGui::PopItemWidth();
             } else {
-                ImGui::Text("%s", opt_params.strategy == "mcmc" ? "MCMC" : "Default");
+                ImGui::Text("%s", opt_params.strategy == "mcmc" ? "MCMC" : "ADC");
             }
 
             // Iterations - EDITABLE
@@ -1366,7 +1366,7 @@ namespace lfs::vis::gui::panels {
         }
 
         // Pruning/Growing Thresholds (for default strategy)
-        if (opt_params.strategy == "default" && ImGui::TreeNode("Pruning/Growing")) {
+        if (opt_params.strategy == "adc" && ImGui::TreeNode("Pruning/Growing")) {
             if (ImGui::BeginTable("PruneTable", 2, ImGuiTableFlags_SizingStretchProp)) {
                 ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 140.0f);
                 ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);

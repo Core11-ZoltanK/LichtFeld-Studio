@@ -4,7 +4,7 @@
 // Direct operation comparison: Compare individual operations between implementations
 // Focus on operations we can fully control without needing full rasterization
 
-#include "training_new/strategies/default_strategy.hpp"
+#include "training_new/strategies/adc_strategy.hpp"
 #include "training/strategies/default_strategy.hpp"
 #include "core_new/splat_data.hpp"
 #include "core/splat_data.hpp"
@@ -95,7 +95,7 @@ std::pair<lfs::core::SplatData, gs::SplatData> create_matching_data(int n, int s
 TEST(OperationsComparison, Initialization) {
     auto [lfs_splat, gs_splat] = create_matching_data(100);
 
-    lfs::training::DefaultStrategy lfs_strat(lfs_splat);
+    lfs::training::AdcStrategy lfs_strat(lfs_splat);
     gs::training::DefaultStrategy gs_strat(std::move(gs_splat));
 
     lfs::core::param::OptimizationParameters lfs_params;
@@ -115,7 +115,7 @@ TEST(OperationsComparison, Initialization) {
 TEST(OperationsComparison, RemoveGaussians) {
     auto [lfs_splat, gs_splat] = create_matching_data(50);
 
-    lfs::training::DefaultStrategy lfs_strat(lfs_splat);
+    lfs::training::AdcStrategy lfs_strat(lfs_splat);
     gs::training::DefaultStrategy gs_strat(std::move(gs_splat));
 
     lfs::core::param::OptimizationParameters lfs_params;
@@ -154,7 +154,7 @@ TEST(OperationsComparison, RemoveGaussians) {
 TEST(OperationsComparison, IsRefining) {
     auto [lfs_splat, gs_splat] = create_matching_data(10);
 
-    lfs::training::DefaultStrategy lfs_strat(lfs_splat);
+    lfs::training::AdcStrategy lfs_strat(lfs_splat);
     gs::training::DefaultStrategy gs_strat(std::move(gs_splat));
 
     lfs::core::param::OptimizationParameters lfs_params;
@@ -191,7 +191,7 @@ TEST(OperationsComparison, BenchmarkInitialization) {
 
     auto bench_lfs = [n_gaussians]() {
         auto [splat, _] = create_matching_data(n_gaussians);
-        lfs::training::DefaultStrategy strat(splat);
+        lfs::training::AdcStrategy strat(splat);
         lfs::core::param::OptimizationParameters params;
         params.iterations = 1000;
         strat.initialize(params);
@@ -248,7 +248,7 @@ TEST(OperationsComparison, BenchmarkRemove) {
     // Warmup and test
     auto bench_lfs = [&]() {
         auto [splat, _] = create_matching_data(n_gaussians, 999);
-        lfs::training::DefaultStrategy strat(splat);
+        lfs::training::AdcStrategy strat(splat);
         lfs::core::param::OptimizationParameters params;
         params.iterations = 1000;
         strat.initialize(params);
@@ -304,7 +304,7 @@ TEST(OperationsComparison, StressTestWithSHProgressionAndDensification) {
     // Create matching initial data
     auto [lfs_splat, gs_splat] = create_matching_data(n_initial, 42);
 
-    lfs::training::DefaultStrategy lfs_strat(lfs_splat);
+    lfs::training::AdcStrategy lfs_strat(lfs_splat);
     gs::training::DefaultStrategy gs_strat(std::move(gs_splat));
 
     // Setup parameters with SH degree progression

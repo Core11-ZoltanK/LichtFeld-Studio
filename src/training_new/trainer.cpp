@@ -6,7 +6,7 @@
 #include "io/filesystem_utils.hpp"
 #include "visualizer_new/scene/scene.hpp"
 #include "strategies/mcmc.hpp"
-#include "strategies/default_strategy.hpp"
+#include "strategies/adc_strategy.hpp"
 #include "components/bilateral_grid.hpp"
 #include "components/sparsity_optimizer.hpp"
 #include "core_new/events.hpp"
@@ -377,8 +377,8 @@ namespace lfs::training {
                     strategy_ = std::make_unique<MCMC>(*model);
                     LOG_DEBUG("Created MCMC strategy from Scene model");
                 } else {
-                    strategy_ = std::make_unique<DefaultStrategy>(*model);
-                    LOG_DEBUG("Created default strategy from Scene model");
+                    strategy_ = std::make_unique<AdcStrategy>(*model);
+                    LOG_DEBUG("Created ADC strategy from Scene model");
                 }
             }
 
