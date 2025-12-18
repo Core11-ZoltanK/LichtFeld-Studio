@@ -71,7 +71,7 @@ add_library(lfs_visualizer STATIC
 # Set include directories
 target_include_directories(lfs_visualizer
         PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
         PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
@@ -185,7 +185,7 @@ elseif (UNIX AND NOT APPLE)
 endif ()
 
 # Export only the public header
-install(FILES ${CMAKE_SOURCE_DIR}/include/visualizer/visualizer.hpp
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/include/visualizer/visualizer.hpp
         DESTINATION include/visualizer
 )
 
