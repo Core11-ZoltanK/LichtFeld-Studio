@@ -66,6 +66,22 @@ void ParameterManager::resetToDefaults(const std::string_view strategy) {
     LOG_DEBUG("Reset params to defaults{}", strategy.empty() ? "" : " for " + std::string(strategy));
 }
 
+void ParameterManager::applyCLIOverrides(const lfs::core::param::OptimizationParameters& cli_params) {
+    if (const auto result = ensureLoaded(); !result) {
+        LOG_ERROR("Failed to load params: {}", result.error());
+        return;
+    }
+
+    if (!cli_params.strategy.empty()) {
+        setActiveStrategy(cli_params.strategy);
+    }
+
+    getActiveParams() = cli_params;
+
+    LOG_INFO("CLI overrides: strategy={}, iter={}, max_cap={}, sh_degree={}",
+             cli_params.strategy, cli_params.iterations, cli_params.max_cap, cli_params.sh_degree);
+}
+
 void ParameterManager::setActiveStrategy(const std::string_view strategy) {
     if (strategy == "mcmc" || strategy == "default") {
         active_strategy_ = std::string(strategy);

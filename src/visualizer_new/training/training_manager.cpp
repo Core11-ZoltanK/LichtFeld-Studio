@@ -93,6 +93,10 @@ namespace lfs::vis {
             const auto& params = trainer->getParams();
             pending_opt_params_ = params.optimization;
             pending_dataset_params_ = params.dataset;
+
+            if (auto* param_mgr = services().paramsOrNull()) {
+                param_mgr->applyCLIOverrides(params.optimization);
+            }
             trainer_ = std::move(trainer);
             updateResourceTracking();
             state_machine_.transitionTo(TrainingState::Ready);
@@ -110,9 +114,13 @@ namespace lfs::vis {
             const auto& params = trainer->getParams();
             pending_opt_params_ = params.optimization;
             pending_dataset_params_ = params.dataset;
+
+            if (auto* param_mgr = services().paramsOrNull()) {
+                param_mgr->applyCLIOverrides(params.optimization);
+            }
             trainer_ = std::move(trainer);
             updateResourceTracking();
-            // Checkpoint load goes to Paused - like resuming a previously stopped training
+            // Checkpoint load goes to Paused
             state_machine_.transitionTo(TrainingState::Paused);
             state::TrainingPaused{.iteration = checkpoint_iteration}.emit();
             LOG_DEBUG("Trainer paused from checkpoint (iteration {})", checkpoint_iteration);

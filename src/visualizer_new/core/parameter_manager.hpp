@@ -32,6 +32,9 @@ public:
     // Reset current to GT. Empty strategy resets both.
     void resetToDefaults(std::string_view strategy = "");
 
+    // Apply CLI overrides to current params (CLI > config > defaults)
+    void applyCLIOverrides(const lfs::core::param::OptimizationParameters& cli_params);
+
     // Active strategy accessors
     [[nodiscard]] const std::string& getActiveStrategy() const { return active_strategy_; }
     void setActiveStrategy(std::string_view strategy);
