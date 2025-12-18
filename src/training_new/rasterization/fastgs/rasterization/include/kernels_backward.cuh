@@ -64,7 +64,11 @@ namespace fast_lfs::rasterization::kernels::backward {
 
         // compute 3d covariance from raw scale and rotation
         const float3 raw_scale = raw_scales[primitive_idx];
-        const float3 variance = make_float3(expf(2.0f * raw_scale.x), expf(2.0f * raw_scale.y), expf(2.0f * raw_scale.z));
+        const float3 clamped_scale = make_float3(
+            fminf(raw_scale.x, config::max_raw_scale),
+            fminf(raw_scale.y, config::max_raw_scale),
+            fminf(raw_scale.z, config::max_raw_scale));
+        const float3 variance = make_float3(expf(2.0f * clamped_scale.x), expf(2.0f * clamped_scale.y), expf(2.0f * clamped_scale.z));
         auto [qr, qx, qy, qz] = raw_rotations[primitive_idx];
         const float qrr_raw = qr * qr, qxx_raw = qx * qx, qyy_raw = qy * qy, qzz_raw = qz * qz;
         const float q_norm_sq = qrr_raw + qxx_raw + qyy_raw + qzz_raw;
@@ -195,7 +199,7 @@ namespace fast_lfs::rasterization::kernels::backward {
         const float3 dL_dmean3d = dL_dmean3d_from_splatting + dL_dmean3d_from_color;
         grad_means[primitive_idx] += dL_dmean3d;
 
-        // raw scale gradient
+        // raw scale gradient (zero gradient for clamped scales)
         const float dL_dvariance_x = rotation.m11 * rotation.m11 * dL_dcov3d.m11 + rotation.m21 * rotation.m21 * dL_dcov3d.m22 + rotation.m31 * rotation.m31 * dL_dcov3d.m33 +
                                      2.0f * (rotation.m11 * rotation.m21 * dL_dcov3d.m12 + rotation.m11 * rotation.m31 * dL_dcov3d.m13 + rotation.m21 * rotation.m31 * dL_dcov3d.m23);
         const float dL_dvariance_y = rotation.m12 * rotation.m12 * dL_dcov3d.m11 + rotation.m22 * rotation.m22 * dL_dcov3d.m22 + rotation.m32 * rotation.m32 * dL_dcov3d.m33 +
@@ -203,9 +207,9 @@ namespace fast_lfs::rasterization::kernels::backward {
         const float dL_dvariance_z = rotation.m13 * rotation.m13 * dL_dcov3d.m11 + rotation.m23 * rotation.m23 * dL_dcov3d.m22 + rotation.m33 * rotation.m33 * dL_dcov3d.m33 +
                                      2.0f * (rotation.m13 * rotation.m23 * dL_dcov3d.m12 + rotation.m13 * rotation.m33 * dL_dcov3d.m13 + rotation.m23 * rotation.m33 * dL_dcov3d.m23);
         const float3 dL_draw_scale = make_float3(
-            2.0f * variance.x * dL_dvariance_x,
-            2.0f * variance.y * dL_dvariance_y,
-            2.0f * variance.z * dL_dvariance_z);
+            (raw_scale.x < config::max_raw_scale) ? 2.0f * variance.x * dL_dvariance_x : 0.0f,
+            (raw_scale.y < config::max_raw_scale) ? 2.0f * variance.y * dL_dvariance_y : 0.0f,
+            (raw_scale.z < config::max_raw_scale) ? 2.0f * variance.z * dL_dvariance_z : 0.0f);
         grad_raw_scales[primitive_idx] += dL_draw_scale;
 
         // raw rotation gradient
@@ -406,9 +410,11 @@ namespace fast_lfs::rasterization::kernels::backward {
             if (sigma_over_2 < 0.0f)
                 continue;
             const float gaussian = expf(-sigma_over_2);
-            const float alpha = fminf(opacity * gaussian, config::max_fragment_alpha);
+            const float unclamped_alpha = opacity * gaussian;
+            const float alpha = fminf(unclamped_alpha, config::max_fragment_alpha);
             if (alpha < config::min_alpha_threshold)
                 continue;
+            const bool alpha_saturated = unclamped_alpha >= config::max_fragment_alpha;
             const float one_minus_alpha = 1.0f - alpha;
 
             const float blending_weight = transmittance * alpha;
@@ -425,12 +431,12 @@ namespace fast_lfs::rasterization::kernels::backward {
             const float dL_dalpha_from_color = dot(transmittance * color - color_pixel_after * one_minus_alpha_rcp, grad_color_pixel);
             const float dL_dalpha_from_alpha = grad_alpha_common * one_minus_alpha_rcp;
             const float dL_dalpha = dL_dalpha_from_color + dL_dalpha_from_alpha;
-            // unactivated opacity gradient
-            const float dL_draw_opacity_partial = alpha * dL_dalpha;
+            // unactivated opacity gradient (zero when alpha is clamped - no gradient flows through clamp)
+            const float dL_draw_opacity_partial = alpha_saturated ? 0.0f : alpha * dL_dalpha;
             dL_draw_opacity_partial_accum += dL_draw_opacity_partial;
 
-            // conic and mean2d gradient
-            const float gaussian_grad_helper = -alpha * dL_dalpha;
+            // conic and mean2d gradient (zero when alpha is clamped)
+            const float gaussian_grad_helper = alpha_saturated ? 0.0f : -alpha * dL_dalpha;
             const float3 dL_dconic = 0.5f * gaussian_grad_helper * make_float3(delta.x * delta.x, delta.x * delta.y, delta.y * delta.y);
             dL_dconic_accum += dL_dconic;
             const float2 dL_dmean2d = gaussian_grad_helper * make_float2(

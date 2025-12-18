@@ -77,7 +77,11 @@ namespace fast_lfs::rasterization::kernels::forward {
 
         // compute 3d covariance from raw scale and rotation
         const float3 raw_scale = raw_scales[primitive_idx];
-        const float3 variance = make_float3(expf(2.0f * raw_scale.x), expf(2.0f * raw_scale.y), expf(2.0f * raw_scale.z));
+        const float3 clamped_scale = make_float3(
+            fminf(raw_scale.x, config::max_raw_scale),
+            fminf(raw_scale.y, config::max_raw_scale),
+            fminf(raw_scale.z, config::max_raw_scale));
+        const float3 variance = make_float3(expf(2.0f * clamped_scale.x), expf(2.0f * clamped_scale.y), expf(2.0f * clamped_scale.z));
         auto [qr, qx, qy, qz] = raw_rotations[primitive_idx];
         const float qrr_raw = qr * qr, qxx_raw = qx * qx, qyy_raw = qy * qy, qzz_raw = qz * qz;
         const float q_norm_sq = qrr_raw + qxx_raw + qyy_raw + qzz_raw;
