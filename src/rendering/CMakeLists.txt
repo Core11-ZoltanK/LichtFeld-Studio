@@ -54,7 +54,7 @@ target_link_libraries(lfs_rendering
 #                ${CMAKE_SOURCE_DIR}/gsplat (for Common.h)
 target_include_directories(lfs_rendering
         PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
         PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
@@ -81,6 +81,6 @@ target_compile_definitions(lfs_rendering PRIVATE
 )
 
 # Export only the public header
-install(FILES ${CMAKE_SOURCE_DIR}/include/rendering/rendering.hpp
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/include/rendering/rendering.hpp
         DESTINATION include/rendering
 )

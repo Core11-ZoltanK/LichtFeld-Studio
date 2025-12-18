@@ -61,7 +61,7 @@ if(LFS_TENSOR_CUDA_SOURCES)
 
     target_include_directories(lfs_tensor_kernels
             PUBLIC
-            ${CMAKE_SOURCE_DIR}/include
+            ${CMAKE_CURRENT_SOURCE_DIR}/../include  # core/include for core headers
             ${CMAKE_BINARY_DIR}/include
             PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}  # For internal/ headers
@@ -116,7 +116,7 @@ add_library(lfs_tensor STATIC ${LFS_TENSOR_SOURCES})
 
 target_include_directories(lfs_tensor
         PUBLIC
-        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/../include  # core/include for core headers
         ${CMAKE_SOURCE_DIR}/src       # For <core/tensor/internal/*.hpp> includes
         ${CMAKE_BINARY_DIR}/include
         ${CUDAToolkit_INCLUDE_DIRS}
@@ -193,7 +193,7 @@ set_target_properties(lfs_tensor PROPERTIES
 # Precompiled header
 target_precompile_headers(lfs_tensor
         PUBLIC
-        ${CMAKE_SOURCE_DIR}/include/core/tensor.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/../include/core/tensor.hpp
 )
 
 # Configure build type

@@ -12,7 +12,7 @@ add_library(lfs_geometry STATIC ${GEOMETRY_SOURCES})
 
 target_include_directories(lfs_geometry
     PUBLIC
-        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${CMAKE_BINARY_DIR}/include
 )
 

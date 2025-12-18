@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include "external/indicators.hpp"
+#include "indicators.hpp"
 #include <chrono>
 #include <iomanip>
 #include <iostream>

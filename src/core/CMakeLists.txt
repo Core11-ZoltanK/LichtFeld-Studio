@@ -34,7 +34,7 @@ add_library(lfs_core STATIC ${CORE_SOURCES})
 
 target_include_directories(lfs_core
     PUBLIC
-        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${CMAKE_BINARY_DIR}/include  # For generated config.h
         ${CMAKE_SOURCE_DIR}/src/training/rasterization/gsplat  # For Common.h (camera model types)
         ${CMAKE_SOURCE_DIR}/fastgs    # For fastgs headers
@@ -72,6 +72,7 @@ endif()
 target_link_libraries(lfs_core
     PUBLIC
         lfs_core_cuda   # Unified CUDA library (tensor, memory arena, kernels, lanczos)
+        lfs_geometry    # For events.hpp -> bounding_box.hpp
         TBB::tbb
         nlohmann_json::nlohmann_json
         glm::glm

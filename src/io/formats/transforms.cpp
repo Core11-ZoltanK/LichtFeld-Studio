@@ -6,7 +6,7 @@
 #include "core/image_io.hpp"
 #include "core/logger.hpp"
 #include "core/tensor.hpp"
-#include "external/tinyply.hpp"
+#include "tinyply.hpp"
 #include "formats/colmap.hpp"
 #include <filesystem>
 #include <format>

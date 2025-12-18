@@ -14,7 +14,7 @@ target_include_directories(lfs_io_cuda
         PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
         PRIVATE
-        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/src/core/include
         ${CMAKE_SOURCE_DIR}/src
 )
 

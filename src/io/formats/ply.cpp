@@ -5,7 +5,7 @@
 #include "ply.hpp"
 #include "core/logger.hpp"
 #include "core/tensor.hpp"
-#include "external/tinyply.hpp"
+#include "tinyply.hpp"
 #include "io/error.hpp"
 #include <algorithm>
 #include <charconv>

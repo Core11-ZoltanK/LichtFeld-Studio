@@ -7,7 +7,7 @@
 #include "core/parameters.hpp"
 #include "core/point_cloud.hpp"
 #include "core/tensor/internal/tensor_serialization.hpp"
-#include "external/nanoflann.hpp"
+#include "nanoflann.hpp"
 
 #include <cmath>
 #include <expected>

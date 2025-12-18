@@ -347,7 +347,7 @@ endif()
 
 # Create configuration header (static options)
 configure_file(
-        "${CMAKE_CURRENT_SOURCE_DIR}/include/config.h.in"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/config.h.in"
         "${CMAKE_CURRENT_BINARY_DIR}/include/config.h"
         @ONLY
 )

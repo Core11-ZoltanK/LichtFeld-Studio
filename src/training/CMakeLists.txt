@@ -28,7 +28,7 @@ add_library(lfs_training_kernels STATIC ${LFS_TRAINING_KERNEL_SOURCES})
 
 target_include_directories(lfs_training_kernels
     PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
 )
 
@@ -86,8 +86,9 @@ add_library(lfs_training STATIC ${TRAINING_NEW_SOURCES})
 
 target_include_directories(lfs_training
     PUBLIC
-        $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+        $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/external>  # For indicators.hpp (used in progress.hpp)
         $<INSTALL_INTERFACE:include>
     PRIVATE
         ${CMAKE_SOURCE_DIR}/src                   # For old training components (TODO: port)
