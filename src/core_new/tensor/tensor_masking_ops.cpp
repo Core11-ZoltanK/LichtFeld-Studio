@@ -920,6 +920,10 @@ namespace lfs::core {
         if (!is_valid() || !idx.is_valid() || !vals.is_valid())
             return *this;
 
+        // No-op for zero-element tensors
+        if (idx.numel() == 0 || vals.numel() == 0)
+            return *this;
+
         auto idx_same_device = ensure_same_device(idx);
         auto vals_same_device = ensure_same_device(vals);
 
@@ -1070,6 +1074,10 @@ namespace lfs::core {
             return *this;
 
         if (indices.empty())
+            return *this;
+
+        // No-op for zero-element tensors
+        if (vals.numel() == 0)
             return *this;
 
         if (indices.size() == 1) {

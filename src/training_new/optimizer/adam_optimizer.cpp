@@ -342,6 +342,14 @@ namespace lfs::training {
             return;
         }
 
+        // Skip zero-coefficient ShN (sh-degree 0)
+        if (type == ParamType::ShN) {
+            const auto& shN_param = get_param(type);
+            if (!shN_param.is_valid() || (shN_param.ndim() >= 2 && shN_param.shape()[1] == 0)) {
+                return;
+            }
+        }
+
         auto& param = get_param(type);
         auto& state = states_[name];
         const size_t new_size = state.size + n_new;

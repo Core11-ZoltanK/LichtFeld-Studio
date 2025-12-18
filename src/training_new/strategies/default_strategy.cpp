@@ -12,6 +12,21 @@
 
 namespace lfs::training {
 
+    namespace {
+        // Returns true if shape has any zero dimension (e.g., ShN at sh-degree 0)
+        [[nodiscard]] inline bool has_zero_dimension(const lfs::core::TensorShape& shape) {
+            for (size_t i = 0; i < shape.rank(); ++i) {
+                if (shape[i] == 0) return true;
+            }
+            return false;
+        }
+
+        // Returns true if shN tensor has non-zero coefficients
+        [[nodiscard]] inline bool has_shN_coefficients(const lfs::core::Tensor& shN) {
+            return shN.is_valid() && shN.ndim() >= 2 && shN.shape()[1] > 0;
+        }
+    } // anonymous namespace
+
     DefaultStrategy::DefaultStrategy(lfs::core::SplatData& splat_data) : _splat_data(&splat_data) {}
 
     void DefaultStrategy::initialize(const lfs::core::param::OptimizationParameters& optimParams) {
@@ -78,8 +93,9 @@ namespace lfs::training {
             _splat_data->sh0().append_gather(append_src_indices);
             _splat_data->opacity_raw().append_gather(append_src_indices);
 
-            if (_splat_data->shN().is_valid()) {
-                _splat_data->shN().append_gather(append_src_indices);
+            auto& shN = _splat_data->shN();
+            if (has_shN_coefficients(shN)) {
+                shN.append_gather(append_src_indices);
             }
 
             // Initialize optimizer states with zeros
@@ -132,36 +148,39 @@ namespace lfs::training {
         }
         auto second_opacities = lfs::core::Tensor::empty({static_cast<size_t>(num_split)}, device);
 
-        // Call in-place split kernel:
-        // - First split result modifies original positions in-place
-        // - Second split results go to temporary tensors
+        // Skip shN pointers when shN_dim=0 (sh-degree 0)
+        const bool use_shN = has_shN && shN_dim > 0;
+
+        // First result modifies in-place, second goes to temporaries
         kernels::launch_split_gaussians_inplace(
             _splat_data->means().ptr<float>(),
             _splat_data->rotation_raw().ptr<float>(),
             _splat_data->scaling_raw().ptr<float>(),
             _splat_data->sh0().ptr<float>(),
-            has_shN ? _splat_data->shN().ptr<float>() : nullptr,
+            use_shN ? _splat_data->shN().ptr<float>() : nullptr,
             _splat_data->opacity_raw().ptr<float>(),
             second_positions.ptr<float>(),
             second_rotations.ptr<float>(),
             second_scales.ptr<float>(),
             second_sh0.ptr<float>(),
-            has_shN ? second_shN.ptr<float>() : nullptr,
+            use_shN ? second_shN.ptr<float>() : nullptr,
             second_opacities.ptr<float>(),
             split_idxs.ptr<int64_t>(),
             random_noise.ptr<float>(),
             static_cast<int>(num_split),
             shN_dim,
             _params->revised_opacity,
-            nullptr  // default stream
+            nullptr
         );
 
-        // Reset optimizer states for split indices (first result modified in-place)
+        // Reset optimizer states for split indices
         auto reset_optimizer_state_at_indices = [&](ParamType param_type) {
             auto* state = _optimizer->get_state_mutable(param_type);
             if (!state) return;
 
             const auto& shape = state->exp_avg.shape();
+            if (has_zero_dimension(shape)) return;
+
             std::vector<size_t> dims = {static_cast<size_t>(num_split)};
             for (size_t i = 1; i < shape.rank(); ++i) {
                 dims.push_back(shape[i]);
@@ -228,7 +247,7 @@ namespace lfs::training {
             _splat_data->opacity_raw().append_zeros(n_remaining);
             _splat_data->opacity_raw().index_put_(new_indices, append_opacities);
 
-            if (has_shN) {
+            if (use_shN) {
                 auto append_shN = second_shN.slice(0, num_filled, num_split);
                 const auto& shN_shape = _splat_data->shN().shape();
                 if (shN_shape.rank() == 3) {
@@ -290,14 +309,10 @@ namespace lfs::training {
 
         _splat_data->opacity_raw().index_put_(target_indices, opacities.slice(0, 0, slots_to_fill));
 
-        if (shN.is_valid() && _splat_data->shN().is_valid()) {
-            auto shN_slice = shN.slice(0, 0, slots_to_fill);
-            // Reshape to match original shN shape
+        if (shN.is_valid() && has_shN_coefficients(_splat_data->shN())) {
             const auto& shN_shape = _splat_data->shN().shape();
-            if (shN_shape.rank() == 3) {
-                shN_slice = shN_slice.reshape(
-                    lfs::core::TensorShape({static_cast<size_t>(slots_to_fill), shN_shape[1], shN_shape[2]}));
-            }
+            auto shN_slice = shN.slice(0, 0, slots_to_fill).reshape(
+                lfs::core::TensorShape({static_cast<size_t>(slots_to_fill), shN_shape[1], shN_shape[2]}));
             _splat_data->shN().index_put_(target_indices, shN_slice);
         }
 
@@ -307,6 +322,8 @@ namespace lfs::training {
             if (!state) return;
 
             const auto& shape = state->exp_avg.shape();
+            if (has_zero_dimension(shape)) return;
+
             std::vector<size_t> dims = {static_cast<size_t>(slots_to_fill)};
             for (size_t i = 1; i < shape.rank(); ++i) {
                 dims.push_back(shape[i]);
@@ -399,6 +416,8 @@ namespace lfs::training {
             }
         }
 
+        LOG_DEBUG("grow_gs(): {} duplicates, {} splits", num_duplicates, num_split);
+
         // First duplicate
         if (num_duplicates > 0) {
             duplicate(is_duplicated);
@@ -439,8 +458,9 @@ namespace lfs::training {
             auto* state = _optimizer->get_state_mutable(param_type);
             if (!state) return;
 
-            // Create zero tensors matching the state dimensions
             const auto& shape = state->exp_avg.shape();
+            if (has_zero_dimension(shape)) return;
+
             std::vector<size_t> dims = {static_cast<size_t>(num_pruned)};
             for (size_t i = 1; i < shape.rank(); ++i) {
                 dims.push_back(shape[i]);
@@ -719,8 +739,9 @@ namespace lfs::training {
         _splat_data->sh0().index_put_(target_indices, _splat_data->sh0().index_select(0, src_indices));
         _splat_data->opacity_raw().index_put_(target_indices, _splat_data->opacity_raw().index_select(0, src_indices));
 
-        if (_splat_data->shN().is_valid()) {
-            _splat_data->shN().index_put_(target_indices, _splat_data->shN().index_select(0, src_indices));
+        auto& shN = _splat_data->shN();
+        if (has_shN_coefficients(shN)) {
+            shN.index_put_(target_indices, shN.index_select(0, src_indices));
         }
 
         // Reset optimizer states in-place (preserves capacity)
@@ -728,24 +749,17 @@ namespace lfs::training {
             auto* state = _optimizer->get_state_mutable(param_type);
             if (!state) return;
 
-            // Reset optimizer state for filled slots (new Gaussians start fresh)
-            auto zeros_avg = lfs::core::Tensor::zeros({static_cast<size_t>(slots_to_fill)}, state->exp_avg.device());
-            auto zeros_sq = lfs::core::Tensor::zeros({static_cast<size_t>(slots_to_fill)}, state->exp_avg_sq.device());
-
-            // Handle multi-dimensional states
             const auto& shape = state->exp_avg.shape();
-            if (shape.rank() > 1) {
-                std::vector<size_t> dims = {static_cast<size_t>(slots_to_fill)};
-                for (size_t i = 1; i < shape.rank(); ++i) {
-                    dims.push_back(shape[i]);
-                }
-                zeros_avg = lfs::core::Tensor::zeros(lfs::core::TensorShape(dims), state->exp_avg.device());
-                zeros_sq = lfs::core::Tensor::zeros(lfs::core::TensorShape(dims), state->exp_avg_sq.device());
-            }
+            if (has_zero_dimension(shape)) return;
 
-            // Modify in-place to preserve capacity
-            state->exp_avg.index_put_(target_indices, zeros_avg);
-            state->exp_avg_sq.index_put_(target_indices, zeros_sq);
+            std::vector<size_t> dims = {static_cast<size_t>(slots_to_fill)};
+            for (size_t i = 1; i < shape.rank(); ++i) {
+                dims.push_back(shape[i]);
+            }
+            auto zeros = lfs::core::Tensor::zeros(lfs::core::TensorShape(dims), state->exp_avg.device());
+
+            state->exp_avg.index_put_(target_indices, zeros);
+            state->exp_avg_sq.index_put_(target_indices, zeros);
         };
 
         update_optimizer_state(ParamType::Means);
