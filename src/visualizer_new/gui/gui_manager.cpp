@@ -1671,10 +1671,9 @@ namespace lfs::vis::gui {
         // Camera setup
         auto& viewport = ctx.viewer->getViewport();
         const glm::mat4 view = viewport.getViewMatrix();
-        const float aspect = viewport_size_.x / viewport_size_.y;
-        const glm::mat4 projection = glm::perspective(
-            glm::radians(settings.fov), aspect,
-            lfs::rendering::DEFAULT_NEAR_PLANE, lfs::rendering::DEFAULT_FAR_PLANE);
+        const glm::ivec2 vp_size(static_cast<int>(viewport_size_.x), static_cast<int>(viewport_size_.y));
+        const glm::mat4 projection = lfs::rendering::createProjectionMatrix(
+            vp_size, settings.fov, settings.orthographic, settings.ortho_scale);
 
         // Get cropbox state from scene graph
         const glm::vec3 cropbox_min = cropbox_node->cropbox->min;
@@ -1692,7 +1691,7 @@ namespace lfs::vis::gui {
         gizmo_matrix = glm::scale(gizmo_matrix, original_size);
 
         // ImGuizmo setup
-        ImGuizmo::SetOrthographic(false);
+        ImGuizmo::SetOrthographic(settings.orthographic);
         ImGuizmo::SetRect(viewport_pos_.x, viewport_pos_.y, viewport_size_.x, viewport_size_.y);
         ImGuizmo::SetAxisLimit(GIZMO_AXIS_LIMIT);
         ImGuizmo::SetPlaneLimit(GIZMO_AXIS_LIMIT);
@@ -1862,10 +1861,9 @@ namespace lfs::vis::gui {
         // Camera matrices
         auto& viewport = ctx.viewer->getViewport();
         const glm::mat4 view = viewport.getViewMatrix();
-        const float aspect = viewport_size_.x / viewport_size_.y;
-        const glm::mat4 projection = glm::perspective(
-            glm::radians(settings.fov), aspect,
-            lfs::rendering::DEFAULT_NEAR_PLANE, lfs::rendering::DEFAULT_FAR_PLANE);
+        const glm::ivec2 vp_size(static_cast<int>(viewport_size_.x), static_cast<int>(viewport_size_.y));
+        const glm::mat4 projection = lfs::rendering::createProjectionMatrix(
+            vp_size, settings.fov, settings.orthographic, settings.ortho_scale);
 
         const bool use_world_space =
             (gizmo_toolbar_state_.transform_space == panels::TransformSpace::World) || is_multi_selection;
@@ -1885,7 +1883,7 @@ namespace lfs::vis::gui {
             gizmo_matrix[2] = glm::vec4(rotation_scale[2], 0.0f);
         }
 
-        ImGuizmo::SetOrthographic(false);
+        ImGuizmo::SetOrthographic(settings.orthographic);
         ImGuizmo::SetRect(viewport_pos_.x, viewport_pos_.y, viewport_size_.x, viewport_size_.y);
         ImGuizmo::SetAxisLimit(GIZMO_AXIS_LIMIT);
         ImGuizmo::SetPlaneLimit(GIZMO_AXIS_LIMIT);
