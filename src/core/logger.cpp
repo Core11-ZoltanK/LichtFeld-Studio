@@ -6,6 +6,8 @@
 #include <array>
 #include <cstdio>
 #include <mutex>
+#include <optional>
+#include <regex>
 #ifdef WIN32
 #define FMT_UNICODE 0
 #endif
@@ -19,9 +21,49 @@ namespace lfs::core {
         constexpr const char* ANSI_RESET = "\033[0m";
         constexpr const char* ANSI_PERF = "\033[95m";
 
+        // Convert glob pattern to regex: * -> .*, ? -> .
+        std::string glob_to_regex(const std::string& glob) {
+            std::string regex;
+            regex.reserve(glob.size() * 2);
+            for (const char c : glob) {
+                switch (c) {
+                case '*': regex += ".*"; break;
+                case '?': regex += "."; break;
+                case '.': case '^': case '$': case '+': case '(': case ')':
+                case '[': case ']': case '{': case '}': case '|': case '\\':
+                    regex += '\\'; regex += c; break;
+                default: regex += c; break;
+                }
+            }
+            return regex;
+        }
+
+        // Check if pattern contains regex-specific chars (not valid in glob)
+        // Note: * and ? are valid glob chars, so we don't check for them
+        bool is_regex_pattern(const std::string& pattern) {
+            for (size_t i = 0; i < pattern.size(); ++i) {
+                const char c = pattern[i];
+                if (c == '\\' && i + 1 < pattern.size()) { ++i; continue; }
+                if (c == '+' || c == '[' || c == ']' || c == '(' || c == ')' ||
+                    c == '{' || c == '}' || c == '^' || c == '$' || c == '|') {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         class ColorSink final : public spdlog::sinks::base_sink<std::mutex> {
         public:
-            ColorSink() {
+            explicit ColorSink(const std::string& filter = "") {
+                if (!filter.empty()) {
+                    try {
+                        // If it looks like regex, use as-is; otherwise convert glob to regex
+                        const std::string pattern = is_regex_pattern(filter) ? filter : glob_to_regex(filter);
+                        filter_regex_.emplace(pattern, std::regex::optimize | std::regex::icase);
+                    } catch (const std::regex_error& e) {
+                        std::fprintf(stderr, "Invalid log filter pattern '%s': %s\n", filter.c_str(), e.what());
+                    }
+                }
                 colors_[spdlog::level::trace] = "\033[37m";
                 colors_[spdlog::level::debug] = "\033[36m";
                 colors_[spdlog::level::info] = "\033[32m";
@@ -33,6 +75,13 @@ namespace lfs::core {
 
         protected:
             void sink_it_(const spdlog::details::log_msg& msg) override {
+                const std::string_view msg_view(msg.payload.data(), msg.payload.size());
+
+                // Apply regex filter if set
+                if (filter_regex_ && !std::regex_search(msg_view.begin(), msg_view.end(), *filter_regex_)) {
+                    return;
+                }
+
                 const auto time_t_val = std::chrono::system_clock::to_time_t(msg.time);
                 const auto tm = *std::localtime(&time_t_val);
                 const auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -44,8 +93,6 @@ namespace lfs::core {
                     const auto pos = full_path.find_last_of("/\\");
                     filename = (pos != std::string_view::npos) ? full_path.substr(pos + 1) : full_path;
                 }
-
-                const std::string_view msg_view(msg.payload.data(), msg.payload.size());
                 const bool is_perf = msg_view.find("[PERF]") != std::string_view::npos;
 
                 const char* color;
@@ -85,6 +132,7 @@ namespace lfs::core {
 
         private:
             std::array<std::string, 7> colors_;
+            std::optional<std::regex> filter_regex_;
         };
 
         LogModule detect_module(const std::string_view path) {
@@ -143,12 +191,13 @@ namespace lfs::core {
         return instance;
     }
 
-    void Logger::init(const LogLevel console_level, const std::string& log_file) {
+    void Logger::init(const LogLevel console_level, const std::string& log_file,
+                       const std::string& filter_pattern) {
         std::lock_guard lock(impl_->mutex);
 
         std::vector<spdlog::sink_ptr> sinks;
 
-        auto console_sink = std::make_shared<ColorSink>();
+        auto console_sink = std::make_shared<ColorSink>(filter_pattern);
         console_sink->set_level(to_spdlog_level(console_level));
         sinks.push_back(console_sink);
 

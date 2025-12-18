@@ -125,7 +125,13 @@ namespace lfs::core {
                     {"sparsify_steps", defaults.sparsify_steps, "Number of steps for sparsification"},
                     {"init_rho", defaults.init_rho, "Initial ADMM penalty parameter"},
                     {"prune_ratio", defaults.prune_ratio, "Final pruning ratio for sparsity"},
-                    {"bg_modulation", defaults.bg_modulation, "Enable sinusoidal background modulation"}};
+                    {"bg_modulation", defaults.bg_modulation, "Enable sinusoidal background modulation"},
+                    {"gut", defaults.gut, "Enable GUT mode"},
+                    {"mask_mode", std::string("none"), "Mask mode: none, segment, ignore, alpha_consistent"},
+                    {"invert_masks", defaults.invert_masks, "Invert mask values"},
+                    {"mask_opacity_penalty_weight", defaults.mask_opacity_penalty_weight, "Opacity penalty weight for segment mode"},
+                    {"mask_opacity_penalty_power", defaults.mask_opacity_penalty_power, "Penalty falloff power"},
+                    {"mask_threshold", defaults.mask_threshold, "Mask threshold value"}};
 
                 // Check all expected parameters
                 for (const auto& param : expected_params) {
@@ -428,6 +434,9 @@ namespace lfs::core {
             }
             if (json.contains("bg_modulation")) {
                 params.bg_modulation = json["bg_modulation"];
+            }
+            if (json.contains("gut")) {
+                params.gut = json["gut"];
             }
 
             // Mask parameters

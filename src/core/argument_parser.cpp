@@ -116,6 +116,7 @@ namespace {
             // Logging options
             ::args::ValueFlag<std::string> log_level(parser, "level", "Log level: trace, debug, info, perf, warn, error, critical, off (default: info)", {"log-level"});
             ::args::ValueFlag<std::string> log_file(parser, "file", "Optional log file path", {"log-file"});
+            ::args::ValueFlag<std::string> log_filter(parser, "pattern", "Filter log messages (glob: *foo*, regex: \\\\d+)", {"log-filter"});
 
             // Optional flag arguments
             ::args::Flag use_bilateral_grid(parser, "bilateral_grid", "Enable bilateral grid filtering", {"bilateral-grid"});
@@ -170,22 +171,26 @@ namespace {
 
             // Initialize logger based on command line arguments
             {
-                auto level = lfs::core::LogLevel::Info; // Default level
+                auto level = lfs::core::LogLevel::Info;
                 std::string log_file_path;
+                std::string filter_pattern;
 
                 if (log_level) {
                     level = parse_log_level(::args::get(log_level));
                 }
-
                 if (log_file) {
                     log_file_path = ::args::get(log_file);
                 }
+                if (log_filter) {
+                    filter_pattern = ::args::get(log_filter);
+                }
 
-                // Initialize the logger with the specified level and optional file
-                lfs::core::Logger::get().init(level, log_file_path);
+                lfs::core::Logger::get().init(level, log_file_path, filter_pattern);
 
-                // Log that the logger was initialized (without lfs::core:: prefix)
                 LOG_DEBUG("Logger initialized with level: {}", static_cast<int>(level));
+                if (!filter_pattern.empty()) {
+                    LOG_DEBUG("Log filter: {}", filter_pattern);
+                }
                 if (!log_file_path.empty()) {
                     LOG_DEBUG("Logging to file: {}", log_file_path);
                 }

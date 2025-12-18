@@ -221,9 +221,10 @@ namespace lfs::io {
 
         FastPropertyLayout layout = {};
         bool is_binary = false;
-        bool found_vertex = false;
+        bool has_vertex_element = false;
+        bool parsing_vertex = false;
         size_t lines_parsed = 0;
-        constexpr size_t MAX_HEADER_LINES = 10000; // Prevent infinite loops
+        constexpr size_t MAX_HEADER_LINES = 10000;
 
         while (ptr < end && lines_parsed < MAX_HEADER_LINES) {
             const char* line_start = ptr;
@@ -256,14 +257,19 @@ namespace lfs::io {
                 LOG_TRACE("Parsed {} header lines...", lines_parsed);
             }
 
-            // Ultra-fast line parsing with minimal allocations
+            // Line parsing
             if (line_len >= 27 && std::strncmp(line_start, "format binary_little_endian", 27) == 0) {
                 is_binary = true;
-            } else if (line_len >= 15 && std::strncmp(line_start, "element vertex ", 15) == 0) {
-                layout.vertex_count = std::strtoull(line_start + 15, nullptr, 10);
-                layout.vertex_stride = 0;
-                found_vertex = true;
-            } else if (line_len >= 15 && std::strncmp(line_start, "property float ", 15) == 0 && found_vertex) {
+            } else if (line_len >= 8 && std::strncmp(line_start, "element ", 8) == 0) {
+                if (line_len >= 15 && std::strncmp(line_start, "element vertex ", 15) == 0) {
+                    layout.vertex_count = std::strtoull(line_start + 15, nullptr, 10);
+                    layout.vertex_stride = 0;
+                    has_vertex_element = true;
+                    parsing_vertex = true;
+                } else {
+                    parsing_vertex = false;
+                }
+            } else if (line_len >= 15 && std::strncmp(line_start, "property float ", 15) == 0 && parsing_vertex) {
                 const char* prop_name = line_start + 15;
                 size_t name_len = line_len - 15;
 
@@ -310,12 +316,12 @@ namespace lfs::io {
 
                 layout.vertex_stride += 4; // All properties are float32
             } else if (line_len >= 10 && std::strncmp(line_start, "end_header", 10) == 0) {
-                if (!is_binary || !found_vertex) {
-                    LOG_ERROR("Only binary PLY with position supported");
-                    throw std::runtime_error("Only binary PLY with position supported");
+                if (!is_binary || !has_vertex_element) {
+                    LOG_ERROR("Only binary PLY with vertex element supported");
+                    throw std::runtime_error("Only binary PLY with vertex element supported");
                 }
-                LOG_DEBUG("Header parsed - {} lines, stride: {} bytes, dc: {}, rest: {}",
-                          lines_parsed, layout.vertex_stride, layout.dc_count, layout.rest_count);
+                LOG_DEBUG("Header parsed: {} vertices, stride {} bytes, dc {}, rest {}",
+                          layout.vertex_count, layout.vertex_stride, layout.dc_count, layout.rest_count);
                 return std::make_pair(ptr - data, layout);
             }
         }
