@@ -8,13 +8,15 @@
 
 namespace lfs::vis::gui::panels {
 
-    struct SequencerUIState {
-        bool show_camera_path = true;
-        lfs::io::video::VideoResolution resolution = lfs::io::video::VideoResolution::FHD_1080P;
-        int framerate = 30;
-        int quality = 18; // CRF
-    };
+struct SequencerUIState {
+    bool show_camera_path = true;
+    lfs::io::video::VideoPreset preset = lfs::io::video::VideoPreset::YOUTUBE_1080P;
+    int custom_width = 1920;
+    int custom_height = 1080;
+    int framerate = 30;
+    int quality = 18;
+};
 
-    void DrawSequencerSection(const UIContext& ctx, SequencerUIState& state);
+void DrawSequencerSection(const UIContext& ctx, SequencerUIState& state);
 
 } // namespace lfs::vis::gui::panels

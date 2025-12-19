@@ -1106,7 +1106,7 @@ namespace lfs::vis::gui {
             return std::abs(ndc.x) <= NDC_CULL_MARGIN && std::abs(ndc.y) <= NDC_CULL_MARGIN;
         };
 
-        ImDrawList* const dl = ImGui::GetForegroundDrawList();
+        ImDrawList* const dl = ImGui::GetBackgroundDrawList();
         const auto& t = theme();
 
         if (timeline.empty()) return;
@@ -1912,7 +1912,8 @@ namespace lfs::vis::gui {
             if (path.empty()) return;
 
             io::video::VideoExportOptions options;
-            options.resolution = static_cast<io::video::VideoResolution>(evt.resolution);
+            options.width = evt.width;
+            options.height = evt.height;
             options.framerate = evt.framerate;
             options.crf = evt.crf;
             startVideoExport(path, options);
@@ -2850,8 +2851,8 @@ namespace lfs::vis::gui {
 
         const float duration = timeline.duration();
         const int total_frames = static_cast<int>(std::ceil(duration * options.framerate)) + 1;
-        const int width = io::video::getWidth(options.resolution);
-        const int height = io::video::getHeight(options.resolution);
+        const int width = options.width;
+        const int height = options.height;
 
         video_export_state_.active.store(true);
         video_export_state_.cancel_requested.store(false);

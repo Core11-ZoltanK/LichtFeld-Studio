@@ -91,7 +91,7 @@ namespace lfs::core {
             EVENT(SequencerAddKeyframe, );
             EVENT(SequencerUpdateKeyframe, );  // Update selected keyframe to current camera
             EVENT(SequencerPlayPause, );
-            EVENT(SequencerExportVideo, int resolution; int framerate; int crf;);
+            EVENT(SequencerExportVideo, int width; int height; int framerate; int crf;);
         } // namespace cmd
 
         // ============================================================================

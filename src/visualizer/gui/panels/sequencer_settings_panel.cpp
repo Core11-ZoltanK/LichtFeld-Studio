@@ -10,75 +10,106 @@
 
 namespace lfs::vis::gui::panels {
 
-    using namespace lfs::io::video;
-    using namespace lfs::core::events;
+using namespace lfs::io::video;
+using namespace lfs::core::events;
 
-    void DrawSequencerSection(const UIContext& ctx, SequencerUIState& state) {
-        widgets::SectionHeader("SEQUENCER", ctx.fonts);
+namespace {
+constexpr int MIN_WIDTH = 320;
+constexpr int MAX_WIDTH = 7680;
+constexpr int MIN_HEIGHT = 240;
+constexpr int MAX_HEIGHT = 4320;
+constexpr const char* FPS_ITEMS[] = {"24 fps", "30 fps", "60 fps"};
+constexpr int FPS_VALUES[] = {24, 30, 60};
+} // namespace
 
-        if (ImGui::Checkbox("Show Camera Path", &state.show_camera_path)) {
-            // Path visibility is handled by gui_manager reading this state
+void DrawSequencerSection(const UIContext& ctx, SequencerUIState& state) {
+    widgets::SectionHeader("SEQUENCER", ctx.fonts);
+
+    ImGui::Checkbox("Show Camera Path", &state.show_camera_path);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Display camera path in viewport");
+    }
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    ImGui::Text("Video Export");
+    ImGui::Spacing();
+
+    const auto current_info = getPresetInfo(state.preset);
+    if (ImGui::BeginCombo("Format", current_info.name)) {
+        for (int i = 0; i < getPresetCount(); ++i) {
+            const auto p = static_cast<VideoPreset>(i);
+            const auto info = getPresetInfo(p);
+            const bool selected = (state.preset == p);
+
+            if (ImGui::Selectable(info.name, selected)) {
+                state.preset = p;
+                if (p != VideoPreset::CUSTOM) {
+                    state.framerate = info.framerate;
+                    state.quality = info.crf;
+                }
+            }
+
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("%s", info.description);
+            }
+
+            if (selected) {
+                ImGui::SetItemDefaultFocus();
+            }
         }
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Display camera path in viewport");
-        }
+        ImGui::EndCombo();
+    }
 
-        ImGui::Spacing();
-        ImGui::Separator();
-        ImGui::Spacing();
+    if (state.preset == VideoPreset::CUSTOM) {
+        ImGui::InputInt("Width", &state.custom_width, 16, 64);
+        ImGui::InputInt("Height", &state.custom_height, 16, 64);
+        state.custom_width = std::clamp(state.custom_width, MIN_WIDTH, MAX_WIDTH);
+        state.custom_height = std::clamp(state.custom_height, MIN_HEIGHT, MAX_HEIGHT);
 
-        ImGui::Text("Video Export");
-        ImGui::Spacing();
-
-        // Resolution combo
-        constexpr const char* RESOLUTION_ITEMS[] = {
-            "720p (1280x720)",
-            "1080p (1920x1080)",
-            "4K (3840x2160)"
-        };
-        int res_idx = static_cast<int>(state.resolution);
-        if (ImGui::Combo("Resolution", &res_idx, RESOLUTION_ITEMS, 3)) {
-            state.resolution = static_cast<VideoResolution>(res_idx);
-        }
-
-        // Framerate combo
-        constexpr const char* FPS_ITEMS[] = {"24 fps", "30 fps", "60 fps"};
-        constexpr int FPS_VALUES[] = {24, 30, 60};
         int fps_idx = (state.framerate == 24) ? 0 : (state.framerate == 60) ? 2 : 1;
         if (ImGui::Combo("Framerate", &fps_idx, FPS_ITEMS, 3)) {
             state.framerate = FPS_VALUES[fps_idx];
         }
+    } else {
+        ImGui::TextDisabled("%s", current_info.description);
+    }
 
-        // Quality slider (CRF: lower = better)
-        ImGui::SliderInt("Quality", &state.quality, 15, 28, "CRF %d");
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Lower = higher quality, larger file");
-        }
+    ImGui::SliderInt("Quality", &state.quality, 15, 28, "CRF %d");
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Lower = higher quality, larger file");
+    }
 
-        ImGui::Spacing();
+    ImGui::Spacing();
 
-        // Export button
-        const bool has_keyframes = ctx.sequencer_controller &&
-                                    !ctx.sequencer_controller->timeline().empty();
+    const bool has_keyframes = ctx.sequencer_controller &&
+                                !ctx.sequencer_controller->timeline().empty();
 
-        if (!has_keyframes) {
-            ImGui::BeginDisabled();
-        }
+    if (!has_keyframes) {
+        ImGui::BeginDisabled();
+    }
 
-        if (ImGui::Button("Export Video...", ImVec2(-1, 0))) {
-            cmd::SequencerExportVideo{
-                .resolution = static_cast<int>(state.resolution),
-                .framerate = state.framerate,
-                .crf = state.quality
-            }.emit();
-        }
+    if (ImGui::Button("Export Video...", ImVec2(-1, 0))) {
+        const auto info = getPresetInfo(state.preset);
+        const int width = (state.preset == VideoPreset::CUSTOM) ? state.custom_width : info.width;
+        const int height = (state.preset == VideoPreset::CUSTOM) ? state.custom_height : info.height;
 
-        if (!has_keyframes) {
-            ImGui::EndDisabled();
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                ImGui::SetTooltip("Add keyframes first (press K)");
-            }
+        cmd::SequencerExportVideo{
+            .width = width,
+            .height = height,
+            .framerate = state.framerate,
+            .crf = state.quality
+        }.emit();
+    }
+
+    if (!has_keyframes) {
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+            ImGui::SetTooltip("Add keyframes first (press K)");
         }
     }
+}
 
 } // namespace lfs::vis::gui::panels

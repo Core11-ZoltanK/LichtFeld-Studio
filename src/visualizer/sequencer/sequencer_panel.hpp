@@ -11,7 +11,7 @@ namespace lfs::vis {
     namespace panel_config {
         inline constexpr float HEIGHT = 72.0f;
         inline constexpr float PADDING_H = 16.0f;
-        inline constexpr float PADDING_BOTTOM = 8.0f;
+        inline constexpr float PADDING_BOTTOM = 18.0f;
         inline constexpr float INNER_PADDING = 8.0f;
         inline constexpr float RULER_HEIGHT = 16.0f;
         inline constexpr float TIMELINE_HEIGHT = 24.0f;
@@ -49,6 +49,7 @@ namespace lfs::vis {
         // Context menu state
         bool context_menu_open_ = false;
         float context_menu_time_ = 0.0f;
+        ImVec2 context_menu_pos_ = {0, 0};
         std::optional<size_t> context_menu_keyframe_;
 
         SequencerController& controller_;

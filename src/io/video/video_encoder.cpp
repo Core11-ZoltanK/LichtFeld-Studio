@@ -30,8 +30,8 @@ public:
         const std::filesystem::path& path,
         const VideoExportOptions& opts) {
 
-        width_ = getWidth(opts.resolution);
-        height_ = getHeight(opts.resolution);
+        width_ = opts.width;
+        height_ = opts.height;
         framerate_ = opts.framerate;
 
         if (!tryInitNvenc(path, opts)) {
