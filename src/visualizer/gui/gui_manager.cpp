@@ -137,6 +137,13 @@ namespace lfs::vis::gui {
             }
         });
 
+        menu_bar_->setOnImportCheckpoint([this]() {
+            const auto path = OpenCheckpointFileDialog();
+            if (!path.empty()) {
+                lfs::core::events::cmd::LoadFile{.path = path, .is_dataset = false}.emit();
+            }
+        });
+
         menu_bar_->setOnExport([this]() {
             window_states_["export_dialog"] = true;
         });
