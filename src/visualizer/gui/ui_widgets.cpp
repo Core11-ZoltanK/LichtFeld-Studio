@@ -255,14 +255,14 @@ namespace lfs::vis::gui::widgets {
         constexpr float FALLBACK_PADDING = 8.0f;
 
         const auto& t = theme();
-        
+
         // Calculate background brightness to detect light themes
         const float bg_brightness = (t.palette.background.x + t.palette.background.y + t.palette.background.z) / 3.0f;
-        
+
         // Use darker tint for light themes, lighter tint for dark themes
-        const ImVec4 TINT_NORMAL = bg_brightness > 0.5f 
-            ? ImVec4{0.2f, 0.2f, 0.2f, 0.9f}  // Dark tint for light themes
-            : ImVec4{1.0f, 1.0f, 1.0f, 0.9f}; // Light tint for dark themes
+        const ImVec4 TINT_NORMAL = bg_brightness > 0.5f
+                                       ? ImVec4{0.2f, 0.2f, 0.2f, 0.9f}  // Dark tint for light themes
+                                       : ImVec4{1.0f, 1.0f, 1.0f, 0.9f}; // Light tint for dark themes
 
         // Make button backgrounds transparent so they blend with toolbar, except when selected
         const ImVec4 bg_normal = selected ? t.button_selected() : ImVec4{0, 0, 0, 0};
@@ -328,26 +328,26 @@ namespace lfs::vis::gui::widgets {
 
     void SetThemedTooltip(const char* fmt, ...) {
         const auto& t = theme();
-        
+
         // Calculate background brightness to detect light themes
         const float bg_brightness = (t.palette.background.x + t.palette.background.y + t.palette.background.z) / 3.0f;
         const bool is_light_theme = bg_brightness > 0.5f;
-        
+
         // Push both background and text colors for tooltips
         if (is_light_theme) {
             ImGui::PushStyleColor(ImGuiCol_PopupBg, withAlpha(t.palette.surface, 0.95f));
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.2f, 0.2f, 0.2f, 1.0f});
         }
-        
+
         ImGui::BeginTooltip();
-        
+
         va_list args;
         va_start(args, fmt);
         ImGui::TextV(fmt, args);
         va_end(args);
-        
+
         ImGui::EndTooltip();
-        
+
         if (is_light_theme) {
             ImGui::PopStyleColor(2);
         }
